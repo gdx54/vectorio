@@ -1,0 +1,13 @@
+[package]
+name = "vectorio-core"
+description = "Núcleo de Vectorio: geometría, rellenos, tipografía de trazo único, vectorizado y salida para plotter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "bmp", "gif"] }
+usvg = "0.44"
+rayon = "1"
