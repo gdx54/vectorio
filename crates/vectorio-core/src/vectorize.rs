@@ -70,6 +70,9 @@ pub struct VecParams {
     /// Rotuladores de la mezcla óptica.
     #[serde(default = "default_palette")]
     pub mix_palette: MixPalette,
+    /// Ajustes de color aplicados a la foto antes de interpretarla.
+    #[serde(default)]
+    pub adjust: crate::adjust::ColorAdjust,
 }
 
 fn default_palette() -> MixPalette {
@@ -92,6 +95,7 @@ impl Default for VecParams {
             engrave_rows: 90,
             engrave_amp: 0.9,
             mix_palette: MixPalette::Cmyk,
+            adjust: Default::default(),
         }
     }
 }
@@ -146,7 +150,7 @@ fn gray_of(rgb: &RgbImage, blur: f32) -> GrayImage {
 }
 
 pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
-    let rgb = working_image(img, prm.max_px.clamp(64, 4000));
+    let rgb = prm.adjust.apply(&working_image(img, prm.max_px.clamp(64, 4000)));
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
     let layers = match prm.mode {
         VecMode::Lines => lines_mode(&rgb, prm),

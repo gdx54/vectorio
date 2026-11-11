@@ -4,6 +4,7 @@
 //! documento son paramétricos (texto, formas, trazados) y se convierten en capas de
 //! plotter (una por rotulador) con `Document::layers`.
 
+pub mod adjust;
 pub mod doc;
 pub mod fill;
 pub mod font;
@@ -20,6 +21,7 @@ pub mod svgfont;
 pub mod trace;
 pub mod vectorize;
 
+pub use adjust::ColorAdjust;
 pub use doc::{Document, Geometry, Item, Paper, Pen, PlotLayer, PlotSettings};
 pub use fill::{Fill, FillStyle};
 pub use font::{Align, FontStyle, TextSpec};

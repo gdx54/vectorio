@@ -11,7 +11,7 @@ use vectorio_core::mix::{self, MixPalette, Screen, ScreenParams};
 use vectorio_core::vectorize::{self, VecMode, VecParams, VecResult};
 use vectorio_core::photo::EncodedImage;
 use vectorio_core::trace::TraceKey;
-use vectorio_core::{fill, p, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, Traced};
+use vectorio_core::{fill, p, ColorAdjust, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, Traced};
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"];
 
@@ -104,6 +104,11 @@ pub struct VectorizeUi {
     name: String,
     image: Option<Arc<DynamicImage>>,
     texture: Option<egui::TextureHandle>,
+    /// Foto reducida sin ajustes, para rehacer la vista previa al mover los ajustes de color.
+    source: Option<Arc<image::RgbImage>>,
+    /// Ajustes con que está pintada la textura ahora, e histograma de luz de ese resultado.
+    shown_adjust: ColorAdjust,
+    histogram: [f32; 64],
     params: VecParams,
     computed: Option<VecParams>,
     result: Option<Arc<VecResult>>,
@@ -137,6 +142,9 @@ impl Default for VectorizeUi {
             name: String::new(),
             image: None,
             texture: None,
+            source: None,
+            shown_adjust: ColorAdjust::default(),
+            histogram: [0.0; 64],
             params: VecParams::default(),
             computed: None,
             result: None,
@@ -195,10 +203,9 @@ impl VectorizeUi {
     }
 
     fn set_image(&mut self, ctx: &egui::Context, img: DynamicImage, name: String) {
-        let shown = vectorize::working_image(&img, 1600);
-        let size = [shown.width() as usize, shown.height() as usize];
-        let color = egui::ColorImage::from_rgb(size, shown.as_raw());
-        self.texture = Some(ctx.load_texture("vectorize-src", color, egui::TextureOptions::LINEAR));
+        self.source = Some(Arc::new(vectorize::working_image(&img, 1600)));
+        self.texture = None;
+        self.refresh_texture(ctx);
         self.image = Some(Arc::new(img));
         self.name = name;
         self.computed = None;
@@ -211,6 +218,30 @@ impl VectorizeUi {
         self.pending_key = None;
         self.view = PreviewView::default();
         self.open = true;
+    }
+
+    /// Pinta la vista «Original» con los ajustes de color actuales.
+    fn refresh_texture(&mut self, ctx: &egui::Context) {
+        let Some(src) = &self.source else { return };
+        let adjust = self.params.adjust.clone();
+        if self.texture.is_some() && adjust == self.shown_adjust {
+            return;
+        }
+        let shown = adjust.apply(src);
+        let mut hist = [0usize; 64];
+        for px in shown.pixels() {
+            let y = 0.2126 * px[0] as f32 + 0.7152 * px[1] as f32 + 0.0722 * px[2] as f32;
+            hist[(y as usize / 4).min(63)] += 1;
+        }
+        let peak = hist.iter().copied().max().unwrap_or(1).max(1) as f32;
+        self.histogram = hist.map(|n| (n as f32 / peak).sqrt());
+        let size = [shown.width() as usize, shown.height() as usize];
+        let color = egui::ColorImage::from_rgb(size, shown.as_raw());
+        match &mut self.texture {
+            Some(t) => t.set(color, egui::TextureOptions::LINEAR),
+            None => self.texture = Some(ctx.load_texture("vectorize-src", color, egui::TextureOptions::LINEAR)),
+        }
+        self.shown_adjust = adjust;
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
@@ -249,6 +280,7 @@ impl VectorizeUi {
         if !self.open {
             return None;
         }
+        self.refresh_texture(ctx);
         self.poll(ctx);
         if let Some(res) = self.result.clone() {
             self.pending_key = Some(self.key(doc, &res));
@@ -276,7 +308,7 @@ impl VectorizeUi {
         ctx.move_to_top(veil.response.layer_id);
         close |= veil.inner;
 
-        let size = Vec2::new((screen.width() - 80.0).clamp(560.0, 980.0), (screen.height() - theme::TOOLBAR_H - 60.0).clamp(420.0, 680.0));
+        let size = Vec2::new((screen.width() - 80.0).clamp(760.0f32.min(screen.width() - 16.0), 1240.0), (screen.height() - theme::TOOLBAR_H - 60.0).clamp(420.0, 680.0));
         let pos = Pos2::new(screen.center().x - size.x / 2.0, (theme::TOOLBAR_H + (screen.height() - theme::TOOLBAR_H - size.y) / 2.0).max(theme::TOOLBAR_H));
         let frame = theme::glass_frame(&pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(0.0));
         egui::Area::new(egui::Id::new("vectorize-sheet"))
@@ -307,13 +339,27 @@ impl VectorizeUi {
                     });
                     separator(ui, &pal, pos.x..=pos.x + size.x, head.response.rect.bottom());
 
-                    // Cuerpo: vista previa y ajustes.
+                    // Cuerpo: color de la foto, vista previa y ajustes del dibujo.
                     let side = 288.0;
+                    let left = 252.0;
                     let body_h = size.y - 52.0 - 56.0;
                     ui.horizontal_top(|ui| {
                         ui.set_height(body_h);
                         ui.spacing_mut().item_spacing = Vec2::new(0.0, 0.0);
-                        let preview = Vec2::new(size.x - side - 1.0, body_h);
+                        ui.allocate_ui_with_layout(Vec2::new(left, body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            egui::ScrollArea::vertical().id_salt("vec-color").max_height(body_h).show(ui, |ui| {
+                                egui::Frame::none().inner_margin(egui::Margin { left: 16.0, right: 16.0, top: 10.0, bottom: 12.0 }).show(ui, |ui| {
+                                    ui.set_width(left - 32.0);
+                                    ui.set_max_width(left - 32.0);
+                                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+                                    self.color_panel(ui);
+                                });
+                            });
+                        });
+                        let x = ui.cursor().left();
+                        ui.painter().vline(x, ui.min_rect().top()..=ui.min_rect().top() + body_h, Stroke::new(1.0f32, pal.separator));
+                        ui.add_space(1.0);
+                        let preview = Vec2::new(size.x - side - left - 2.0, body_h);
                         ui.allocate_ui(preview, |ui| {
                             let (r, _) = ui.allocate_exact_size(preview, Sense::hover());
                             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink(14.0)).layout(egui::Layout::top_down(egui::Align::Min)));
@@ -545,6 +591,55 @@ impl VectorizeUi {
     }
 
     /// Ajustes de la columna derecha.
+    /// Panel izquierdo: cómo se leen la luz y los colores de la foto antes de separarla.
+    fn color_panel(&mut self, ui: &mut egui::Ui) {
+        let pal = theme::current(ui.ctx());
+        theme::section(ui, "COLOR DE LA FOTO");
+        ui.label(RichText::new("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.").small().color(pal.secondary));
+        // Histograma de luz: de sombras (izquierda) a luces (derecha).
+        let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 54.0), Sense::hover());
+        let painter = ui.painter_at(r);
+        painter.rect_filled(r, egui::Rounding::same(theme::CONTROL_RADIUS), pal.canvas);
+        let bw = r.width() / self.histogram.len() as f32;
+        for (i, h) in self.histogram.iter().enumerate() {
+            let x = r.left() + i as f32 * bw;
+            let top = r.bottom() - 4.0 - h * (r.height() - 8.0);
+            let shade = (i * 4) as u8;
+            painter.rect_filled(Rect::from_min_max(Pos2::new(x, top), Pos2::new(x + bw + 0.5, r.bottom() - 4.0)), 0.0, pal.secondary.gamma_multiply(0.35 + 0.65 * (1.0 - shade as f32 / 255.0)));
+        }
+        let a = &mut self.params.adjust;
+        ui.checkbox(&mut a.auto_levels, "Niveles automáticos").on_hover_text("Estira la luz para que lo más oscuro sea negro y lo más claro blanco");
+        theme::section(ui, "LUZ");
+        adjust_slider(ui, "Brillo", &mut a.brightness, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        adjust_slider(ui, "Contraste", &mut a.contrast, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        adjust_slider(ui, "Tonos medios", &mut a.midtones, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        theme::section(ui, "COLOR");
+        adjust_slider(ui, "Saturación", &mut a.saturation, 0.0..=2.0, 1.0, |v| format!("{:.0} %", v * 100.0));
+        adjust_slider(ui, "Tono", &mut a.hue_deg, -180.0..=180.0, 0.0, |v| format!("{v:+.0}°"));
+        adjust_slider(ui, "Temperatura", &mut a.warmth, -1.0..=1.0, 0.0, |v| match v {
+            v if v > 0.005 => format!("cálida {:.0}", v * 100.0),
+            v if v < -0.005 => format!("fría {:.0}", -v * 100.0),
+            _ => "neutra".into(),
+        });
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for (name, look) in [
+                ("B/N", ColorAdjust { saturation: 0.0, contrast: 0.2, ..Default::default() }),
+                ("Vivo", ColorAdjust { saturation: 1.5, contrast: 0.25, auto_levels: true, ..Default::default() }),
+                ("Suave", ColorAdjust { contrast: -0.3, midtones: 0.3, saturation: 0.8, ..Default::default() }),
+            ] {
+                if ui.button(name).clicked() {
+                    *a = look;
+                }
+            }
+        });
+        if ui.add_enabled(!a.is_identity(), egui::Button::new("Restablecer")).clicked() {
+            *a = ColorAdjust::default();
+        }
+        ui.label(RichText::new("Doble clic en un control lo devuelve a su valor inicial.").small().color(pal.secondary));
+    }
+
     fn controls(&mut self, ui: &mut egui::Ui, doc: &Document) {
         let pal = theme::current(ui.ctx());
         theme::section(ui, "ESTILO");
@@ -824,6 +919,23 @@ fn field(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> egui
     });
 }
 
+/// Control de un ajuste de color: nombre y valor encima, deslizador a todo el ancho.
+/// Doble clic lo devuelve a `reset`.
+fn adjust_slider(ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, reset: f32, show: impl Fn(f32) -> String) {
+    let pal = theme::current(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).color(pal.secondary));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(RichText::new(show(*v)).color(if *v == reset { pal.secondary } else { pal.text }));
+        });
+    });
+    ui.spacing_mut().slider_width = ui.available_width();
+    let r = ui.add(egui::Slider::new(v, range).show_value(false));
+    if r.double_clicked() {
+        *v = reset;
+    }
+}
+
 fn separator(ui: &egui::Ui, pal: &theme::Palette, x: std::ops::RangeInclusive<f32>, y: f32) {
     ui.painter().with_clip_rect(ui.ctx().screen_rect()).hline(x, y, Stroke::new(1.0f32, pal.separator));
 }
@@ -986,5 +1098,37 @@ mod tests {
         assert!(view.job.is_none() && view.result.is_none() && view.plot.is_none() && view.plot_job.is_none() && view.pending_key.is_none());
         assert_eq!(view.view.zoom, 1.0);
         assert_eq!(view.result_revision, 1);
+    }
+
+    #[test]
+    fn the_colour_panel_sits_left_and_repaints_the_original_view() {
+        let ctx = egui::Context::default();
+        let doc = Document::default();
+        let mut view = VectorizeUi::default();
+        let img = image::RgbImage::from_fn(40, 30, |x, y| image::Rgb([(x * 6) as u8, (y * 8) as u8, 120]));
+        view.set_image(&ctx, DynamicImage::ImageRgb8(img), "prueba".into());
+        let input = || egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))), ..Default::default() };
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc); });
+            texts.clear();
+            fn collect(shape: &egui::Shape, texts: &mut Vec<(String, f32)>) {
+                match shape {
+                    egui::Shape::Text(t) => texts.push((t.galley.text().to_string(), t.pos.x)),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, texts)),
+                    _ => {}
+                }
+            }
+            out.shapes.iter().for_each(|c| collect(&c.shape, &mut texts));
+        }
+        let x_of = |w: &str| texts.iter().find(|(t, _)| t == w).map(|(_, x)| *x).unwrap_or_else(|| panic!("falta «{w}»: {texts:?}"));
+        for w in ["COLOR DE LA FOTO", "Brillo", "Contraste", "Tonos medios", "Saturación", "Tono", "Temperatura", "Restablecer"] {
+            assert!(x_of(w) < x_of("ESTILO"), "«{w}» debería ir en el panel izquierdo");
+        }
+        assert!(x_of("COLOR DE LA FOTO") < 400.0);
+        // Mover un ajuste rehace la vista «Original» y lo pasa a la separación.
+        view.params.adjust.saturation = 0.0;
+        let _ = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc); });
+        assert_eq!(view.shown_adjust.saturation, 0.0);
     }
 }

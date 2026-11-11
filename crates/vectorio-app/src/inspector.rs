@@ -466,8 +466,8 @@ fn photo_section(app: &mut VectorioApp, ui: &mut Ui, group: u64) {
     let Some(photo) = app.doc.photos.iter_mut().find(|ph| ph.id == group) else { return };
     theme::section(ui, "FOTO");
     row(ui, "Nombre", |ui| { ui.add(egui::TextEdit::singleline(&mut photo.name).desired_width(f32::INFINITY)); });
-    ui.label(RichText::new(format!("{} · {} tinta{}", photo.params.mode.label(), members.len(), if members.len() == 1 { "" } else { "s" })).small().color(pal.secondary));
-    if ui.button("Volver a separar colores…").on_hover_text("Abre la foto con sus ajustes; las tintas nuevas sustituyen a estas en el mismo sitio").clicked() {
+    ui.label(RichText::new(format!("{} · {} tinta{}{}", photo.params.mode.label(), members.len(), if members.len() == 1 { "" } else { "s" }, if photo.params.adjust.is_identity() { "" } else { " · color ajustado" })).small().color(pal.secondary));
+    if ui.button("Volver a separar colores…").on_hover_text("Abre la foto con sus ajustes (también los de luz y color); las tintas nuevas sustituyen a estas en el mismo sitio").clicked() {
         reopen_photo(app, ui.ctx(), group);
     }
     if live > 0 && ui.button("Convertir en trazos fijos").on_hover_text("Las tramas dejan de recalcularse y ya no se pueden retocar").clicked() {
