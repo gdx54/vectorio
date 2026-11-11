@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use vectorio_core::optimize::{self, Stats};
-use vectorio_core::{svg_in, svg_out, Document, Geometry, Item, PlotLayer, Polyline, Shape, P};
+use vectorio_core::trace::{TraceKey, Traced};
+use vectorio_core::{svg_in, svg_out, Document, Geometry, Item, PlotLayer, Polyline, Shape, Shared, P};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
@@ -53,6 +54,8 @@ pub const PAPER_TINTS: [(&str, [u8; 3]); 5] = [
 pub struct VectorioApp {
     pub doc: Document,
     committed: Document,
+    /// Tintas vivas cuyos trazos se están calculando: objeto → (ajustes, resultado).
+    trace_jobs: HashMap<u64, (TraceKey, mpsc::Receiver<Vec<Polyline>>)>,
     shown: Document,
     history: Vec<Document>,
     future: Vec<Document>,
@@ -91,15 +94,33 @@ pub struct VectorioApp {
     toast: Option<(String, f64)>,
     pub show_help: bool,
     menu: Option<NativeMenu>,
+    /// Estilos de trazo guardados por el usuario y nombre del que se va a guardar.
+    pub styles: Vec<crate::styles::SavedStyle>,
+    pub style_name: String,
 }
 
 impl VectorioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        theme::install(&cc.egui_ctx);
+        let mut app = Self::blank(&cc.egui_ctx);
+        app.menu = NativeMenu::install(&cc.egui_ctx);
+        crate::macos::install_reopen_handler();
+        // Archivo pasado al abrir (`vectorio dibujo.vectorio`, `vectorio foto.jpg`).
+        if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.exists()) {
+            app.open_path(&cc.egui_ctx, &path);
+        }
+        app
+    }
+
+    /// App con el documento de bienvenida, sin menú nativo ni archivos abiertos.
+    pub(crate) fn blank(ctx: &egui::Context) -> Self {
+        theme::install(ctx);
         let mut doc = Document::default();
         welcome(&mut doc);
-        let mut app = VectorioApp {
+        VectorioApp {
             committed: doc.clone(),
+            trace_jobs: HashMap::new(),
+            styles: crate::styles::load(),
+            style_name: String::new(),
             shown: doc.clone(),
             doc,
             history: vec![],
@@ -132,14 +153,8 @@ impl VectorioApp {
             focus_text: false,
             toast: None,
             show_help: false,
-            menu: NativeMenu::install(&cc.egui_ctx),
-        };
-        crate::macos::install_reopen_handler();
-        // Archivo pasado al abrir (`vectorio dibujo.vectorio`, `vectorio foto.jpg`).
-        if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.exists()) {
-            app.open_path(&cc.egui_ctx, &path);
+            menu: None,
         }
-        app
     }
 
     pub fn notify(&mut self, ctx: &egui::Context, msg: impl Into<String>) {
@@ -238,14 +253,7 @@ impl VectorioApp {
     }
 
     pub fn duplicate_selected(&mut self) {
-        let mut new = Vec::new();
-        for id in self.selection() {
-            if let Some(mut it) = self.doc.get(id).cloned() {
-                it.place.pos = it.place.pos + vectorio_core::p(8.0, 8.0);
-                it.name = format!("{} copia", it.name);
-                new.push(self.doc.add(it));
-            }
-        }
+        let new = self.doc.duplicate(&self.selection(), vectorio_core::p(8.0, 8.0));
         if !new.is_empty() {
             self.set_selection(new);
         }
@@ -333,6 +341,51 @@ impl VectorioApp {
 
     /// Registra cambios para deshacer cuando termina el gesto en curso y lanza el
     /// recálculo de las capas de plotter en segundo plano.
+    /// Recalcula en segundo plano los trazos de las tintas vivas cuyos ajustes o grosor
+    /// de rotulador han cambiado. Un solo cálculo por tinta a la vez: si los ajustes
+    /// cambian mientras tanto (un deslizador), al terminar se lanza el siguiente.
+    fn update_traces(&mut self, ctx: &egui::Context) {
+        let mut done = Vec::new();
+        self.trace_jobs.retain(|id, (key, rx)| match rx.try_recv() {
+            Ok(lines) => {
+                done.push((*id, key.clone(), Shared::new(lines)));
+                false
+            }
+            Err(mpsc::TryRecvError::Empty) => true,
+            Err(mpsc::TryRecvError::Disconnected) => false,
+        });
+        for (id, key, lines) in done {
+            // También en la versión confirmada: el resultado no es un paso de deshacer.
+            for doc in [&mut self.doc, &mut self.committed] {
+                let width = doc.get(id).and_then(|it| doc.pens.get(it.fill.pen)).map(|p| p.width_mm);
+                if let Some(t) = doc.get_mut(id).and_then(|it| it.traced_mut()).filter(|t| t.key(width.unwrap_or(0.6)) == key) {
+                    t.lines = lines.clone();
+                    t.made = Some(key.clone());
+                }
+            }
+        }
+        for it in &self.doc.items {
+            let Some(t) = it.traced() else { continue };
+            let width = self.doc.pens.get(it.fill.pen).map_or(0.6, |p| p.width_mm);
+            if t.is_current(width) || self.trace_jobs.contains_key(&it.id) {
+                continue;
+            }
+            let (tx, rx) = mpsc::channel();
+            let (key, coverage, seed, ctx) = (t.key(width), t.coverage.clone(), t.seed, ctx.clone());
+            let job = key.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(Traced::generate(&coverage, &job, seed));
+                ctx.request_repaint();
+            });
+            self.trace_jobs.insert(it.id, (key, rx));
+        }
+    }
+
+    /// ¿Hay tintas vivas recalculándose?
+    pub fn tracing(&self) -> bool {
+        !self.trace_jobs.is_empty()
+    }
+
     fn track_changes(&mut self, ctx: &egui::Context) {
         if self.doc != self.shown {
             self.shown = self.doc.clone();
@@ -801,19 +854,24 @@ impl eframe::App for VectorioApp {
         egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
         self.floating_panels(ctx, &pal);
         self.status_bar(ctx, &pal);
-        if let Some(items) = self.vec_ui.show(ctx, &self.doc) {
-            let (items, new_pens) = items;
-            self.doc.pens.extend(new_pens);
-            let ids: Vec<u64> = items.into_iter().map(|it| self.doc.add(it)).collect();
+        if let Some(import) = self.vec_ui.show(ctx, &self.doc) {
+            self.doc.pens.extend(import.pens);
+            let replacing = import.replacing.is_some();
+            let ids = self.doc.add_photo_items(import.items, import.photo, import.replacing);
             self.set_selection(ids);
             self.tool = Tool::Select;
-            self.notify(ctx, "Dibujo añadido y seleccionado entero: muévelo o bórralo de una vez.");
+            self.notify(ctx, if replacing {
+                "Foto separada de nuevo en el mismo sitio."
+            } else {
+                "Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho."
+            });
         }
         if self.show_help {
             self.help_sheet(ctx, &pal);
         }
         self.show_color_panel(ctx);
         self.toast(ctx, &pal);
+        self.update_traces(ctx);
         self.track_changes(ctx);
     }
 }

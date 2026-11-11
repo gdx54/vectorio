@@ -9,7 +9,9 @@ use std::path::Path;
 use std::sync::{mpsc, Arc};
 use vectorio_core::mix::{self, MixPalette, Screen, ScreenParams};
 use vectorio_core::vectorize::{self, VecMode, VecParams, VecResult};
-use vectorio_core::{fill, p, Document, Fill, FillStyle, Geometry, Item, Pen, Polyline};
+use vectorio_core::photo::EncodedImage;
+use vectorio_core::trace::TraceKey;
+use vectorio_core::{fill, p, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, Traced};
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"];
 
@@ -115,6 +117,17 @@ pub struct VectorizeUi {
     look: Look,
     size_pct: f64,
     view: PreviewView,
+    /// Grupo de foto que se sustituye al aceptar («Volver a separar»).
+    replacing: Option<u64>,
+}
+
+/// Lo que se añade al documento al aceptar.
+pub struct Import {
+    pub items: Vec<Item>,
+    pub pens: Vec<Pen>,
+    /// Foto viva de las tintas de Mezcla (los objetos llevan `group` provisional 0).
+    pub photo: Option<Photo>,
+    pub replacing: Option<u64>,
 }
 
 impl Default for VectorizeUi {
@@ -136,6 +149,7 @@ impl Default for VectorizeUi {
             look: Look::default(),
             size_pct: 100.0,
             view: PreviewView::default(),
+            replacing: None,
         }
     }
 }
@@ -163,12 +177,30 @@ impl VectorizeUi {
 
     pub fn load(&mut self, ctx: &egui::Context, path: &Path) -> Result<(), String> {
         let img = image::open(path).map_err(|e| e.to_string())?;
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Foto").to_string();
+        self.set_image(ctx, img, name);
+        self.replacing = None;
+        Ok(())
+    }
+
+    /// Vuelve a abrir una foto viva del documento para separar sus colores de nuevo;
+    /// al aceptar, sus tintas se sustituyen en el mismo sitio.
+    pub fn reopen(&mut self, ctx: &egui::Context, photo: &Photo) -> Result<(), String> {
+        let img = photo.image.decode()?;
+        self.set_image(ctx, img, photo.name.clone());
+        self.params = photo.params.clone();
+        self.size_pct = photo.size_pct;
+        self.replacing = Some(photo.id);
+        Ok(())
+    }
+
+    fn set_image(&mut self, ctx: &egui::Context, img: DynamicImage, name: String) {
         let shown = vectorize::working_image(&img, 1600);
         let size = [shown.width() as usize, shown.height() as usize];
         let color = egui::ColorImage::from_rgb(size, shown.as_raw());
         self.texture = Some(ctx.load_texture("vectorize-src", color, egui::TextureOptions::LINEAR));
         self.image = Some(Arc::new(img));
-        self.name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Foto").to_string();
+        self.name = name;
         self.computed = None;
         self.result = None;
         self.result_revision = self.result_revision.wrapping_add(1);
@@ -179,7 +211,6 @@ impl VectorizeUi {
         self.pending_key = None;
         self.view = PreviewView::default();
         self.open = true;
-        Ok(())
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
@@ -214,7 +245,7 @@ impl VectorizeUi {
     }
 
     /// Muestra la hoja modal. Devuelve los objetos (y rotuladores nuevos) al aceptar.
-    pub fn show(&mut self, ctx: &egui::Context, doc: &Document) -> Option<(Vec<Item>, Vec<Pen>)> {
+    pub fn show(&mut self, ctx: &egui::Context, doc: &Document) -> Option<Import> {
         if !self.open {
             return None;
         }
@@ -261,7 +292,7 @@ impl VectorizeUi {
                     let head = ui.horizontal(|ui| {
                         ui.set_height(52.0);
                         ui.add_space(18.0);
-                        ui.label(RichText::new("Foto → dibujo").size(15.0).strong().color(pal.text));
+                        ui.label(RichText::new(if self.replacing.is_some() { "Volver a separar la foto" } else { "Foto → dibujo" }).size(15.0).strong().color(pal.text));
                         ui.label(RichText::new(&self.name).color(pal.secondary));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(14.0);
@@ -324,7 +355,7 @@ impl VectorizeUi {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(16.0);
                             ui.spacing_mut().item_spacing.x = 8.0;
-                            let add = ui.add_enabled_ui(ready, |ui| theme::accent_button(ui, "Añadir al papel")).inner;
+                            let add = ui.add_enabled_ui(ready, |ui| theme::accent_button(ui, if self.replacing.is_some() { "Sustituir en el papel" } else { "Añadir al papel" })).inner;
                             if add.on_hover_text("⏎").clicked() {
                                 accept = true;
                             }
@@ -342,7 +373,7 @@ impl VectorizeUi {
             });
 
         if accept && ready {
-            let built = self.build(doc);
+            let built = self.build(doc).map(|(items, pens)| Import { photo: self.photo(), items, pens, replacing: self.replacing });
             self.open = false;
             return built;
         }
@@ -451,26 +482,23 @@ impl VectorizeUi {
 
     /// Rotulador de cada capa. En Colores y Mezcla se crean rotuladores nuevos, salvo
     /// que ya tengas uno casi igual; en los modos de tinta se usa el tuyo más parecido.
+    /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
+    /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
     fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
         let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix);
         let width = if self.params.mode == VecMode::Mix { self.look.screen.pen_width_mm } else { 0.8 };
         res.layers
             .iter()
-            .enumerate()
-            .map(|(i, l)| {
-                let near = doc.nearest_pen(l.color);
+            .map(|l| {
                 if !new_pens {
-                    return PenChoice::Existing(near);
+                    return PenChoice::Existing(doc.nearest_pen(l.color));
                 }
-                let d = doc.pens.get(near).map(|p| {
-                    let c = p.color;
-                    ((c[0] as f64 - l.color[0] as f64).powi(2) + (c[1] as f64 - l.color[1] as f64).powi(2) + (c[2] as f64 - l.color[2] as f64).powi(2)).sqrt()
-                });
-                if d.is_some_and(|d| d < 28.0) {
-                    PenChoice::Existing(near)
-                } else {
-                    let name = l.name.map(|n| n.to_string()).unwrap_or_else(|| format!("{} {}", self.name, i + 1));
-                    PenChoice::New(l.color, name, width)
+                match doc.pens.iter().position(|p| color_distance(p.color, l.color) <= SAME_INK) {
+                    Some(i) => PenChoice::Existing(i),
+                    None => {
+                        let name = l.name.map(str::to_string).unwrap_or_else(|| Pen::automatic(l.color, width).name);
+                        PenChoice::New(l.color, name, width)
+                    }
                 }
             })
             .collect()
@@ -605,19 +633,11 @@ impl VectorizeUi {
                 }
             }
             VecMode::Mix => {
-                theme::section(ui, "TRAMA");
-                crate::app::choice(ui, &mut look.screen.screen, &[(Screen::Hatch, "Rayado"), (Screen::Dots, "Puntos")]);
+                theme::section(ui, "TRAMA INICIAL");
+                crate::inspector::style_choice(ui, &mut look.screen.screen);
                 field(ui, "Separación", |ui| ui.add(egui::Slider::new(&mut look.screen.spacing_mm, 0.4..=4.0).logarithmic(true).suffix(" mm")));
-                if look.screen.screen == Screen::Hatch {
-                    field(ui, "Ángulo", |ui| ui.add(egui::Slider::new(&mut look.screen.angle_deg, 0.0..=180.0).suffix("°")));
-                }
-                field(ui, "Grosor punta", |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")));
-                let help = if look.screen.screen == Screen::Hatch {
-                    "Cada rotulador raya en su propio ángulo; donde se cruzan, los colores se mezclan."
-                } else {
-                    "Los puntos de cada rotulador se intercalan sin taparse."
-                };
-                ui.label(RichText::new(help).small().color(pal.secondary));
+                field(ui, "Grosor punta", |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")).on_hover_text("Grosor de los rotuladores nuevos"));
+                ui.label(RichText::new("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.").small().color(pal.secondary));
             }
             _ => {}
         }
@@ -625,10 +645,14 @@ impl VectorizeUi {
         theme::section(ui, "ROTULADORES");
         if let Some(res) = self.result.clone() {
             let choices = self.assign(doc, &res);
-            let new = choices.iter().filter(|c| matches!(c, PenChoice::New(..))).count();
+            let mut colors: Vec<[u8; 3]> = choices.iter().filter_map(|c| if let PenChoice::New(c, ..) = c { Some(*c) } else { None }).collect();
+            colors.sort_unstable();
+            colors.dedup();
+            let new = colors.len();
             let help = match (self.params.mode, new) {
                 (VecMode::Colors | VecMode::Mix, 0) => "Usa rotuladores que ya tienes.".to_string(),
-                (VecMode::Colors | VecMode::Mix, n) => format!("Se añadirán {n} rotuladores nuevos; luego puedes cambiarles el color."),
+                (VecMode::Colors | VecMode::Mix, 1) => "Se añadirá 1 tinta nueva al panel de tintas.".to_string(),
+                (VecMode::Colors | VecMode::Mix, n) => format!("Se añadirán {n} tintas nuevas al panel de tintas."),
                 _ => "Se usará tu rotulador más parecido.".to_string(),
             };
             ui.label(RichText::new(help).small().color(pal.secondary));
@@ -699,18 +723,25 @@ impl VectorizeUi {
         for (i, (layer, choice)) in res.layers.iter().zip(self.assign(doc, res)).enumerate() {
             let pen = match choice {
                 PenChoice::Existing(i) => i,
-                PenChoice::New(c, name, w) => {
-                    pens.push(Pen::new(&name, c, w));
-                    doc.pens.len() + pens.len() - 1
-                }
+                // Dos capas del mismo color comparten la tinta nueva.
+                PenChoice::New(c, name, w) => match pens.iter().position(|p: &Pen| p.color == c) {
+                    Some(j) => doc.pens.len() + j,
+                    None => {
+                        pens.push(Pen::new(&name, c, w));
+                        doc.pens.len() + pens.len() - 1
+                    }
+                },
             };
             let label = layer.name.map(|n| format!("{} · {}", self.name, n)).unwrap_or_else(|| format!("{} · {}", self.name, i + 1));
             let to_local = |l: &Polyline| -> Polyline { l.iter().map(|q| p(q.x * s - half.x, q.y * s - half.y)).collect() };
             let mut item = match &layer.coverage {
-                // Mezcla: la trama ya es el dibujo.
-                Some(_) => {
+                // Mezcla: cada tinta guarda su mapa y su trama, que se puede retocar luego.
+                Some(cov) => {
                     let lines = plot?.layers[i].iter().map(|l| l.iter().map(|q| *q - half).collect()).collect();
-                    Item::new(label, Geometry::Screened { lines, screen: self.look.screen.screen }, center)
+                    let trace = mix::trace_params(&key.look.screen, i, res.layers.len());
+                    let mut ink = Traced::new(Coverage { map: (**cov).clone(), mm_per_px: s }, trace.clone(), i);
+                    ink.set_lines(TraceKey { trace, pen_width_mm: key.widths.get(i).copied().unwrap_or(0.8) }, lines);
+                    Item::new(label, Geometry::Traced(ink), center)
                 }
                 None => Item::new(label, Geometry::Path { lines: layer.lines.iter().map(to_local).collect(), closed: layer.closed }, center),
             };
@@ -723,10 +754,25 @@ impl VectorizeUi {
             } else {
                 item.stroke = Some(pen);
             }
+            // Grupo provisional: el documento le da su número al añadir la foto.
+            item.group = Some(0);
             items.push(item);
         }
         Some((items, pens))
     }
+
+    /// Foto viva del grupo: la imagen (reducida) y los ajustes de esta separación.
+    fn photo(&self) -> Option<Photo> {
+        let image = EncodedImage::from_image(self.image.as_ref()?).ok()?;
+        Some(Photo { id: 0, name: self.name.clone(), image: vectorio_core::Shared::new(image), params: self.params.clone(), size_pct: self.size_pct })
+    }
+}
+
+/// Diferencia máxima (RGB) para considerar que una tinta de la paleta ya es ese color.
+const SAME_INK: f64 = 6.0;
+
+fn color_distance(a: [u8; 3], b: [u8; 3]) -> f64 {
+    a.iter().zip(b).map(|(&x, y)| (x as f64 - y as f64).powi(2)).sum::<f64>().sqrt()
 }
 
 fn choice_color(doc: &Document, c: &PenChoice) -> [u8; 3] {
@@ -878,6 +924,11 @@ mod tests {
         assert!(item.is_screened() && item.has_fill());
         assert_eq!(item.stroke, None);
         assert_eq!(item.fill.pen, 1);
+        // Tinta viva: sus trazos ya están al día y recalcularlos da lo mismo.
+        let ink = item.traced().unwrap();
+        assert_eq!(item.group, Some(0));
+        assert!(ink.is_current(doc.pens[1].width_mm));
+        assert_eq!(vectorio_core::Traced::generate(&ink.coverage, ink.made.as_ref().unwrap(), ink.seed), *ink.lines);
         let paths = item.plot(&doc.pens);
         assert_eq!(paths[0].1.len(), expected.layers[0].len());
         let scale = view.scale(&doc, res);
@@ -889,6 +940,26 @@ mod tests {
         view.view.zoom = 12.0;
         view.view.center = Vec2::new(-0.3, 0.8);
         assert_eq!(view.build(&doc).unwrap().0, items);
+    }
+
+    #[test]
+    fn color_import_adds_each_new_color_as_an_ink_once() {
+        let doc = Document::default();
+        let square = vec![p(0.0, 0.0), p(4.0, 0.0), p(4.0, 4.0), p(0.0, 0.0)];
+        let layer = |color| vectorize::VecLayer { color, closed: true, lines: vec![square.clone()], coverage: None, name: None };
+        let near_red = [doc.pens[1].color[0] - 20, doc.pens[1].color[1], doc.pens[1].color[2] + 10];
+        let mut view = VectorizeUi::default();
+        view.params.mode = VecMode::Colors;
+        view.result = Some(Arc::new(VecResult {
+            width: 8.0, height: 6.0,
+            layers: vec![layer(doc.pens[0].color), layer(near_red), layer([150, 96, 60]), layer([150, 96, 60])],
+        }));
+        let (items, pens) = view.build(&doc).unwrap();
+        // El negro ya estaba; el rojo parecido y el marrón son tintas nuevas, y el
+        // marrón repetido no se duplica.
+        assert_eq!(pens.iter().map(|p| (p.name.as_str(), p.color)).collect::<Vec<_>>(), vec![("Rojo", near_red), ("Marrón", [150, 96, 60])]);
+        let n = doc.pens.len();
+        assert_eq!(items.iter().map(|it| it.fill.pen).collect::<Vec<_>>(), vec![0, n, n + 1, n + 1]);
     }
 
     #[test]

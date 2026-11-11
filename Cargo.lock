@@ -3542,6 +3542,8 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "rayon",
  "rfd",
+ "serde",
+ "serde_json",
  "vectorio-core",
 ]
 

@@ -196,6 +196,9 @@ fn visuals(dark: bool) -> egui::Visuals {
         w.bg_stroke = Stroke::new(1.0f32, stroke);
         w.expansion = 0.0;
     }
+    // egui atenúa los controles desactivados hacia este color; si fuese transparente,
+    // no los dibujaría.
+    v.widgets.noninteractive.weak_bg_fill = pal.canvas;
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0f32, pal.text);
     v.widgets.inactive.fg_stroke = Stroke::new(1.0f32, pal.text);
     v.widgets.hovered.fg_stroke = Stroke::new(1.0f32, pal.text);

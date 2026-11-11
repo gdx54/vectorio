@@ -1,14 +1,16 @@
 //! Mezcla óptica: la foto se reproduce superponiendo varios rotuladores, como en una
 //! cuatricromía. Cada color se descompone en cuánto aporta cada rotulador (cobertura
 //! 0–1) y cada cobertura se convierte en una trama: rayado con un ángulo distinto por
-//! rotulador (las líneas se intercalan y se cruzan) o puntillismo.
+//! rotulador (las líneas se intercalan y se cruzan) o puntillismo, con el motor de
+//! tramas de [`crate::trace`].
 //!
 //! Modelo de color: las tintas se comportan como filtros. Trabajamos con densidad óptica
 //! (D = −ln reflectancia) por canal, donde las tintas superpuestas se suman, y
 //! resolvemos para cada color unas coberturas no negativas cuya suma de densidades se
 //! parezca a la del píxel.
 
-use crate::geom::{p, Polyline};
+use crate::geom::Polyline;
+use crate::trace::{self, TraceParams};
 use crate::raster::Grid;
 use image::RgbImage;
 use rayon::prelude::*;
@@ -43,22 +45,8 @@ impl MixPalette {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Screen {
-    /// Rayado: cada rotulador con su ángulo; la cobertura decide qué líneas se dibujan.
-    Hatch,
-    /// Puntillismo: rejilla hexagonal con umbrales intercalados.
-    Dots,
-}
-
-impl Screen {
-    pub fn label(self) -> &'static str {
-        match self {
-            Screen::Hatch => "Rayado",
-            Screen::Dots => "Puntos",
-        }
-    }
-}
+/// Tipo de trama de la mezcla (el mismo que usa el motor de tramas).
+pub use crate::trace::TraceStyle as Screen;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScreenParams {
@@ -146,132 +134,21 @@ pub fn coverage(rgb: &RgbImage, pens: &[[u8; 3]]) -> Vec<Grid<f32>> {
     maps
 }
 
-fn sample(g: &Grid<f32>, x: f64, y: f64) -> f64 {
-    if g.w == 0 || g.h == 0 {
-        return 0.0;
-    }
-    let x = (x - 0.5).clamp(0.0, (g.w - 1) as f64);
-    let y = (y - 0.5).clamp(0.0, (g.h - 1) as f64);
-    let (x0, y0) = (x.floor() as usize, y.floor() as usize);
-    let (x1, y1) = ((x0 + 1).min(g.w - 1), (y0 + 1).min(g.h - 1));
-    let (fx, fy) = (x - x0 as f64, y - y0 as f64);
-    let a = g.get(x0, y0) as f64 * (1.0 - fx) + g.get(x1, y0) as f64 * fx;
-    let b = g.get(x0, y1) as f64 * (1.0 - fx) + g.get(x1, y1) as f64 * fx;
-    a * (1.0 - fy) + b * fy
-}
-
-fn frac(v: f64) -> f64 {
-    v - v.floor()
-}
-
 /// Ángulo de la trama del rotulador `index` de `count`: repartidos en 180° para que las
 /// líneas de cada color se crucen en vez de taparse.
 pub fn screen_angle(prm: &ScreenParams, index: usize, count: usize) -> f64 {
     prm.angle_deg + 180.0 * index as f64 / count.max(1) as f64
 }
 
+/// Ajustes de trama del rotulador `index` de `count` para el motor de tramas.
+pub fn trace_params(prm: &ScreenParams, index: usize, count: usize) -> TraceParams {
+    TraceParams { style: prm.screen, spacing_mm: prm.spacing_mm, angle_deg: screen_angle(prm, index, count).rem_euclid(360.0), ..Default::default() }
+}
+
 /// Trama de un mapa de cobertura, en mm con origen en la esquina superior izquierda de
 /// la imagen. `mm_per_px` es el tamaño en el papel de cada píxel del mapa.
 pub fn render(cov: &Grid<f32>, mm_per_px: f64, prm: &ScreenParams, index: usize, count: usize) -> Vec<Polyline> {
-    match prm.screen {
-        Screen::Hatch => hatch(cov, mm_per_px, prm, index, count),
-        Screen::Dots => dots(cov, mm_per_px, prm, index),
-    }
-}
-
-fn hatch(cov: &Grid<f32>, k: f64, prm: &ScreenParams, index: usize, count: usize) -> Vec<Polyline> {
-    let (wm, hm) = (cov.w as f64 * k, cov.h as f64 * k);
-    let s = prm.spacing_mm.max(0.2);
-    let a = screen_angle(prm, index, count).to_radians();
-    let (u, n) = (p(a.cos(), a.sin()), p(-a.sin(), a.cos()));
-    let corners = [p(0.0, 0.0), p(wm, 0.0), p(0.0, hm), p(wm, hm)];
-    let proj = |d: crate::geom::P| corners.iter().map(|c| c.x * d.x + c.y * d.y).fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
-    let (n0, n1) = proj(n);
-    let (u0, u1) = proj(u);
-    let step = (s * 0.4).min(k).max(0.08);
-    let min_len = (prm.pen_width_mm * 1.2).max(0.4);
-    let dash = (s * 4.0).max(2.0);
-    let first = (n0 / s).floor() as i64;
-    let last = (n1 / s).ceil() as i64;
-    let lines: Vec<Vec<Polyline>> = (first..=last)
-        .into_par_iter()
-        .map(|j| {
-            // Umbral por tramo (línea j, celda m a lo largo de ella) con la secuencia R2:
-            // en tonos claros salen trazos cortos bien repartidos y en los oscuros se
-            // juntan en líneas largas.
-            let threshold = |m: i64| 0.03 + 0.94 * frac(j as f64 * 0.754_877_666 + m as f64 * 0.569_840_291 + index as f64 * 0.31);
-            let o = j as f64 * s;
-            let mut out = Vec::new();
-            let mut cur: Vec<crate::geom::P> = Vec::new();
-            let mut on = false;
-            let mut x = u0;
-            while x <= u1 + step {
-                let q = n * o + u * x;
-                let inside = q.x >= 0.0 && q.y >= 0.0 && q.x <= wm && q.y <= hm;
-                let d = if inside { sample(cov, q.x / k, q.y / k) } else { 0.0 };
-                let t = threshold(((x - u0) / dash).floor() as i64);
-                // Histéresis para no fragmentar las líneas en el borde de un tono.
-                on = if on { d > t - 0.03 } else { d > t + 0.03 };
-                if on && inside {
-                    cur.push(q);
-                } else if !cur.is_empty() {
-                    let seg = std::mem::take(&mut cur);
-                    if seg.len() >= 2 && seg[0].dist(*seg.last().unwrap()) >= min_len {
-                        out.push(vec![seg[0], *seg.last().unwrap()]);
-                    }
-                }
-                x += step;
-            }
-            if cur.len() >= 2 && cur[0].dist(*cur.last().unwrap()) >= min_len {
-                out.push(vec![cur[0], *cur.last().unwrap()]);
-            }
-            if j % 2 != 0 {
-                out.reverse();
-                for l in &mut out {
-                    l.reverse();
-                }
-            }
-            out
-        })
-        .collect();
-    lines.into_iter().flatten().collect()
-}
-
-fn dots(cov: &Grid<f32>, k: f64, prm: &ScreenParams, index: usize) -> Vec<Polyline> {
-    let (wm, hm) = (cov.w as f64 * k, cov.h as f64 * k);
-    let s = prm.spacing_mm.max(0.3);
-    let row_h = s * 0.866;
-    let r = (prm.pen_width_mm * 0.25).max(0.1);
-    let rows = (hm / row_h).ceil() as usize + 1;
-    // Cada rotulador desplaza su rejilla para que los puntos de colores se intercalen.
-    let shift = p(frac(index as f64 * 0.618_034) * s, frac(index as f64 * 0.414_214) * row_h);
-    let out: Vec<Vec<Polyline>> = (0..rows)
-        .into_par_iter()
-        .map(|row| {
-            let y = row as f64 * row_h + shift.y;
-            let off = if row % 2 == 0 { 0.0 } else { s / 2.0 };
-            let mut v = Vec::new();
-            let mut i = 0usize;
-            let mut x = off + shift.x;
-            while x < wm {
-                // Umbral R2 (secuencia de baja discrepancia en 2D).
-                let t = frac(i as f64 * 0.754_877_666 + row as f64 * 0.569_840_291 + index as f64 * 0.31);
-                let jx = (frac(t * 7.31) - 0.5) * s * 0.18;
-                let jy = (frac(t * 3.17) - 0.5) * s * 0.18;
-                let q = p(x + jx, y + jy);
-                if q.x >= 0.0 && q.y >= 0.0 && q.x <= wm && q.y <= hm && sample(cov, q.x / k, q.y / k) > 0.02 + t * 0.96 {
-                    v.push((0..=6).map(|a| q + p(r, 0.0).rotate(a as f64 / 6.0 * std::f64::consts::TAU)).collect());
-                }
-                x += s;
-                i += 1;
-            }
-            if row % 2 == 1 {
-                v.reverse();
-            }
-            v
-        })
-        .collect();
-    out.into_iter().flatten().collect()
+    trace::render(cov, mm_per_px, &trace_params(prm, index, count), prm.pen_width_mm, index)
 }
 
 #[cfg(test)]
