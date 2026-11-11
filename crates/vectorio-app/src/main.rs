@@ -11,7 +11,13 @@ mod theme;
 mod vectorize_ui;
 
 fn main() -> eframe::Result<()> {
-    let icon = image::load_from_memory(include_bytes!("../../../assets/branding/vectorio-icon.png"))
+    // En macOS eframe usa este icono en el Dock y en ⌘⇥ por encima del del paquete, así
+    // que debe ser el de la retícula de Apple (placa de 824 px de 1024, centrada).
+    #[cfg(target_os = "macos")]
+    let png = include_bytes!("../../../assets/branding/vectorio-icon-macos.png");
+    #[cfg(not(target_os = "macos"))]
+    let png = include_bytes!("../../../assets/branding/vectorio-icon.png");
+    let icon = image::load_from_memory(png)
         .expect("El icono de Vectorio debe ser un PNG válido").into_rgba8();
     let icon = egui::IconData { width: icon.width(), height: icon.height(), rgba: icon.into_raw() };
     let options = eframe::NativeOptions {

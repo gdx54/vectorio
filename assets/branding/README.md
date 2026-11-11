@@ -6,7 +6,8 @@ Concepto elegido por el usuario: **E · Relieve**, con la paleta **A02 · Limón
 - `vectorio-icon.png`: icono elegido, 1024 × 1024, con transparencia exterior.
 - `vectorio-icon-relieve-marfil.png`: versión anterior conservada.
 - `paletas-a-amarillos.png`: comparativa en la que se eligió A02.
-- `../../packaging/macos/Vectorio.icns`: icono multirresolución instalado en macOS.
+- `vectorio-icon-macos.png`: el icono para macOS, con la V centrada sobre una placa de 824 px de 1024 (retícula de Apple) y una sombra suave. Se genera con `cargo run -p vectorio-core --example icono_macos --release`.
+- `../../packaging/macos/Vectorio.icns`: icono multirresolución instalado en macOS, salido del mismo generador.
 
 Imágenes generadas y refinadas con la herramienta integrada **image_gen**. El icono se convierte a `.icns` durante su preparación para macOS. La aplicación y el instalador utilizan los archivos guardados en este proyecto.
 

@@ -111,11 +111,10 @@ impl VectorioApp {
         app
     }
 
-    /// App con el documento de bienvenida, sin menú nativo ni archivos abiertos.
+    /// App con un papel en blanco, sin menú nativo ni archivos abiertos.
     pub(crate) fn blank(ctx: &egui::Context) -> Self {
         theme::install(ctx);
-        let mut doc = Document::default();
-        welcome(&mut doc);
+        let doc = Document::default();
         VectorioApp {
             committed: doc.clone(),
             trace_jobs: HashMap::new(),
@@ -880,39 +879,6 @@ impl eframe::App for VectorioApp {
         self.update_traces(ctx);
         self.track_changes(ctx);
     }
-}
-
-/// Documento inicial con una pequeña muestra de lo que hace Vectorio.
-fn welcome(doc: &mut Document) {
-    use vectorio_core::{p, FillStyle, TextSpec};
-    let mut title = Item::new(
-        "Título",
-        Geometry::Text(TextSpec { text: "Vectorio".into(), size_mm: 26.0, jitter: 0.6, seed: 3, ..Default::default() }),
-        p(40.0, 40.0),
-    );
-    title.stroke = Some(0);
-    doc.add(title);
-    let mut sub = Item::new(
-        "Subtítulo",
-        Geometry::Text(TextSpec {
-            text: "cosas bonitas con rotuladores, rellenos y fotos".into(),
-            size_mm: 7.0,
-            jitter: 0.5,
-            seed: 9,
-            ..Default::default()
-        }),
-        p(42.0, 92.0),
-    );
-    sub.stroke = Some(2);
-    doc.add(sub);
-    let mut flower = Item::new("Rosa polar", Geometry::Shape(Shape::Rose { n: 5, d: 3, r: 55.0 }), p(300.0, 150.0));
-    flower.stroke = Some(6);
-    flower.fill = vectorio_core::Fill { style: FillStyle::Hatch, pen: 1, spacing_mm: 1.6, angle_deg: 30.0, inset_mm: 0.0, ..Default::default() };
-    doc.add(flower);
-    let mut heart = Item::new("Corazón", Geometry::Shape(Shape::Heart { size: 70.0 }), p(130.0, 200.0));
-    heart.stroke = Some(1);
-    heart.fill = vectorio_core::Fill { style: FillStyle::Concentric, pen: 1, spacing_mm: 2.0, angle_deg: 0.0, inset_mm: 0.0, ..Default::default() };
-    doc.add(heart);
 }
 
 // ── Controles con aspecto macOS ────────────────────────────────────────────────

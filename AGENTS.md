@@ -5,6 +5,6 @@
 - Usa `/opt/homebrew/opt/rustup/bin` en PATH si `cargo` no está disponible.
 - Después de cambios de código, ejecuta las comprobaciones apropiadas y actualiza la instalación de macOS con `python3 scripts/install-macos.py`. La instalación autorizada por el usuario es `/Applications/Vectorio.app`.
 - No cierres ni reinicies ventanas con trabajo del usuario. La versión que ya está abierta continúa hasta el siguiente inicio.
-- La app instalada comprueba los cambios al abrir mediante `VectorioLauncher`; el instalador conserva el último binario si la compilación falla.
+- La app instalada abre su binario directamente (sin lanzador que lea el proyecto, para que macOS no pida acceso a Documentos en cada apertura); el instalador conserva la versión anterior si la compilación falla.
 - Para las comprobaciones visuales, prefiere la instalación en Aplicaciones. No crees copias adicionales de la aplicación salvo que sea necesario para preservar una sesión abierta del usuario.
-- El logo elegido es **E · Relieve**, paleta **A02 · Limón suave / índigo**: fondo `#F6F095` y V de curvas de nivel `#35216C`. Recursos de identidad en `assets/branding` e icono macOS en `packaging/macos/Vectorio.icns`.
+- El logo elegido es **E · Relieve**, paleta **A02 · Limón suave / índigo**: fondo `#F6F095` y V de curvas de nivel `#35216C`. Recursos de identidad en `assets/branding` e icono macOS en `packaging/macos/Vectorio.icns`, generado con `cargo run -p vectorio-core --example icono_macos --release` (placa de 824 px de 1024, centrada).

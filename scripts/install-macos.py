@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Compila e instala Vectorio; --if-needed evita compilar si no hubo cambios."""
+"""Compila e instala Vectorio; --if-needed evita compilar si no hubo cambios.
+
+La aplicación instalada abre directamente su binario: no lee el proyecto al arrancar,
+así macOS no pide permiso para la carpeta Documentos en cada apertura."""
 
 import argparse
 import fcntl
@@ -25,6 +28,7 @@ def fingerprint():
         paths.extend(p for p in (PROJECT / folder).rglob("*")
                      if p.is_file() and "__pycache__" not in p.parts)
     paths.append(PROJECT / "assets/branding/vectorio-icon.png")
+    paths.append(PROJECT / "assets/branding/vectorio-icon-macos.png")
     for path in sorted(set(paths)):
         if path.is_file():
             digest.update(str(path.relative_to(PROJECT)).encode())
@@ -50,7 +54,7 @@ def install(destination, if_needed):
     if (if_needed and previous.get("source_hash") == source_hash
             and previous.get("project") == str(PROJECT)
             and (destination / "Contents/MacOS/vectorio").is_file()
-            and (destination / "Contents/MacOS/VectorioLauncher").is_file()):
+            and not (destination / "Contents/MacOS/VectorioLauncher").exists()):
         print("Vectorio ya está actualizado: {}".format(destination))
         return
 
@@ -66,8 +70,7 @@ def install(destination, if_needed):
         "/opt/homebrew/opt/rustup/bin", "/opt/homebrew/bin",
         str(Path.home() / ".cargo/bin"), env.get("PATH", "/usr/bin:/bin")])
     cargo = shutil.which("cargo", path=env["PATH"])
-    rustc = shutil.which("rustc", path=env["PATH"])
-    if not cargo or not rustc:
+    if not cargo:
         raise RuntimeError("No se encuentra Rust. La versión instalada se conserva.")
     icon = PROJECT / "packaging/macos/Vectorio.icns"
     if not icon.is_file():
@@ -90,16 +93,13 @@ def install(destination, if_needed):
         macos.mkdir(parents=True)
         resources.mkdir(parents=True)
         shutil.copy2(binary, macos / "vectorio")
-        run([rustc, "--edition=2021", "-O", PROJECT / "scripts/macos-launcher.rs",
-             "-o", macos / "VectorioLauncher"], env)
         shutil.copy2(icon, resources / "Vectorio.icns")
-        (resources / "project-path.txt").write_text(str(PROJECT) + "\n")
         (resources / "build.json").write_text(json.dumps({
             "project": str(PROJECT), "source_hash": source_hash, "version": version,
         }, indent=2) + "\n")
         info = {
             "CFBundleName": "Vectorio", "CFBundleDisplayName": "Vectorio",
-            "CFBundleIdentifier": BUNDLE_ID, "CFBundleExecutable": "VectorioLauncher",
+            "CFBundleIdentifier": BUNDLE_ID, "CFBundleExecutable": "vectorio",
             "CFBundleIconFile": "Vectorio.icns", "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": version, "CFBundleVersion": version,
             "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
@@ -130,7 +130,7 @@ def main():
         parser.error("Este instalador es para macOS.")
     target = PROJECT / "target"
     target.mkdir(exist_ok=True)
-    # Las aperturas simultáneas y las actualizaciones manuales comparten el bloqueo.
+    # Dos instalaciones a la vez no deben pisarse.
     with (target / "macos-install.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         install(arguments.destination, arguments.if_needed)
