@@ -84,7 +84,7 @@ const PLAIN_KEYS: &[(Key, Command)] = &[
 pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     (
         "Herramientas",
-        &[("V", "Seleccionar y mover"), ("P", "Mano alzada"), ("T", "Texto manuscrito"), ("S", "Formas"), ("I · ⇧⌘I", "Foto → dibujo")],
+        &[("V", "Seleccionar y mover"), ("P", "Mano alzada"), ("T", "Caja de texto manuscrito"), ("S", "Formas"), ("I · ⇧⌘I", "Foto → dibujo")],
     ),
     (
         "Archivo",
@@ -115,6 +115,13 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
 impl VectorioApp {
     /// Lee el teclado y lanza las órdenes que correspondan.
     pub fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.color_edit.is_some() { return; }
+        if self.renaming_pen.is_some() || self.renaming_item.is_some() {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                self.finish_rename(true);
+            }
+            return;
+        }
         // Una hoja modal abierta gestiona su propio teclado.
         if self.vec_ui.open {
             return;
@@ -196,7 +203,13 @@ impl VectorioApp {
                 }
                 return;
             }
-            Interaction::Draw(_) | Interaction::Box(..) | Interaction::Marquee(..) => return,
+            Interaction::ResizeText { id, width, height, .. } => {
+                if let Some(it) = self.doc.get_mut(id) {
+                    if let vectorio_core::Geometry::Text(spec) = &mut it.geometry { spec.wrap_mm = width; spec.frame_height_mm = height; }
+                }
+                return;
+            }
+            Interaction::Draw(_) | Interaction::Box(..) | Interaction::TextBox(..) | Interaction::Marquee(..) => return,
         }
         if self.pen_focus {
             self.pen_focus = false;
@@ -217,12 +230,15 @@ impl VectorioApp {
             Command::ExportSvg => self.export_svg(ctx),
             Command::ExportPerPen => self.export_per_pen(ctx),
             Command::CloseWindow => {
-                if self.vec_ui.open {
+                if self.color_edit.is_some() {
+                    self.cancel_color_edit();
+                } else if self.vec_ui.open {
                     self.vec_ui.open = false;
                 } else if self.show_help {
                     self.show_help = false;
                 } else {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    // Como en cualquier app de Mac: se cierra la ventana, no el programa.
+                    crate::macos::close_window(ctx);
                 }
             }
             Command::Undo | Command::Redo => {
@@ -240,8 +256,7 @@ impl VectorioApp {
             Command::Delete => {
                 if self.pen_focus && self.doc.pens.len() > 1 {
                     // La lista de rotuladores tiene el foco: se borra el rotulador activo.
-                    self.doc.remove_pen(self.active_pen);
-                    self.active_pen = self.active_pen.min(self.doc.pens.len() - 1);
+                    self.remove_pen(self.active_pen);
                 } else if !self.pen_focus {
                     self.delete_selected();
                 }
@@ -270,17 +285,9 @@ impl VectorioApp {
             }
             Command::Deselect => self.set_selection(vec![]),
             Command::BringForward | Command::SendBackward | Command::BringToFront | Command::SendToBack => {
-                if let Some(i) = self.selected.and_then(|id| self.doc.index_of(id)) {
-                    let n = self.doc.items.len();
-                    let it = self.doc.items.remove(i);
-                    let j = match cmd {
-                        Command::BringForward => (i + 1).min(n - 1),
-                        Command::SendBackward => i.saturating_sub(1),
-                        Command::BringToFront => n - 1,
-                        _ => 0,
-                    };
-                    self.doc.items.insert(j, it);
-                }
+                let forward = matches!(cmd, Command::BringForward | Command::BringToFront);
+                let edge = matches!(cmd, Command::BringToFront | Command::SendToBack);
+                self.doc.reorder_items(&self.selection(), forward, edge);
             }
             Command::ToggleLock => {
                 if let Some(it) = self.selected.and_then(|id| self.doc.get_mut(id)) {
@@ -473,7 +480,12 @@ impl NativeMenu {
 
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
+        let close = ids.iter().find(|(_, c)| *c == Command::CloseWindow).map(|(id, _)| id.clone());
         muda::MenuEvent::set_event_handler(Some(move |e: muda::MenuEvent| {
+            // Con la ventana oculta, una orden del menú (Nuevo, Abrir…) la vuelve a mostrar.
+            if Some(&e.id) != close.as_ref() {
+                crate::macos::show_window();
+            }
             let _ = tx.send(e);
             ctx.request_repaint();
         }));

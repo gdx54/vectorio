@@ -4,20 +4,33 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
 
 ## Qué hace
 
-- **Texto manuscrito de un solo trazo**, con 11 tipografías:
+- **Texto manuscrito en cajas**, con 11 tipografías de un solo trazo:
   - 8 de trazo sencillo de Evil Mad Scientist y Hershey: Capitol (cursiva unida), Allure, Society, Hershey Script, Pepita, Casual, Neato y Arquitecto.
   - 3 propias: Vectorio manuscrita, cuidada y técnica.
+  - Con T, arrastra una caja y escribe o pega un texto completo. Los tiradores derecho, inferior y de esquina cambian el ancho y el alto sin escalar la letra; el contenido se redistribuye.
+  - Márgenes interiores, interlineado, espacio entre párrafos, sangría de primera línea y alineación izquierda, centrada, derecha o justificada. El guionado automático usa un diccionario español incluido.
+  - La caja conserva todo el texto y lo pagina automáticamente según su alto. «Anterior/Siguiente» recorre las páginas; «Salto de página» (⌘Enter) inserta un corte en el cursor. «Exportar páginas…» genera un SVG por hoja y repite los demás objetos del diseño.
+  - «Ocupar hoja» ajusta la caja al área útil; «Folio A4» prepara papel A4 vertical y su caja de texto. Los textos antiguos pueden convertirse en cajas desde el inspector.
   - Ajustes de pulso (0–2), inclinación, interlínea, alineación y ajuste de línea. «Unir letras» escribe cada palabra sin levantar el rotulador.
   - «Otra variación» cambia la letra sin cambiar el texto. Incluye acentos, ñ, ¿ y ¡.
-- **Rotuladores**: color, nombre y grosor físico. Cada objeto tiene un rotulador de contorno y otro de relleno.
-  - Clic para elegir, doble clic para cambiar el color con el selector de color de macOS, ⌫ para borrar.
-  - Funcionan como capas: el de arriba de la lista se dibuja el último y queda encima. Al arrastrar un rotulador para reordenarlo, sus objetos se reordenan con él.
+- **Capas**: una lista plana, con un objeto por fila. Arriba queda delante.
+  - Arrastra uno o varios objetos para cambiar el orden, sin cambiar sus tintas. Traer adelante/Enviar atrás y los atajos funcionan sobre toda la selección.
+  - Doble clic en el nombre para renombrar; Enter confirma y Esc cancela.
+  - Cada fila muestra el color del contorno (aro) y del relleno (círculo lleno). Un clic abre el editor integrado en español, con RGB, hexadecimal y vista previa. La X, Cancelar o Esc descartan el cambio; Hecho confirma. Las acciones están en un pie fijo y permanecen visibles.
+  - Editar un color desde la fila afecta solo a ese objeto y a ese contorno o relleno. Las demás tintas y objetos se conservan.
+- **Paleta de rotuladores**: independiente de las capas, con nombre, color y grosor físico de cada tinta.
+  - Cada tinta es una tarjeta con su color, una muestra del trazo con su grosor real, el nombre, el hexadecimal y los milímetros.
+  - Clic para usarla al dibujar; doble clic en el color para editarlo y en el nombre para renombrarla. El inspector permite cambiar el grosor.
+  - Arrastra una tarjeta: las demás se apartan para mostrar dónde caerá. Suéltala sobre una capa o un objeto del lienzo para asignarle esa tinta al contorno; con ⌥, al relleno.
+  - La paleta no agrupa objetos ni determina el orden visual del dibujo. El inspector muestra el color real en hexadecimal y permite editarlo directamente; elegir una tinta compartida queda en «Elegir de la paleta…».
+  - Los nombres automáticos de los colores se actualizan al recolorear; los nombres escritos por el usuario se conservan.
 - **Rellenos**: rayado, cruzado, zigzag continuo (sin levantar el rotulador), sólido, concéntrico, puntillismo y ondas. Se pueden ajustar la separación, el ángulo y el margen.
 - **Formas y generativos**: rectángulo, elipse, polígono, estrella, corazón, espiral, espirógrafo, Lissajous y rosa polar.
 - **Mano alzada**: el trazo se suaviza automáticamente. Si lo cierras, se puede rellenar.
 - **Foto → dibujo** (tecla I o arrastrar la foto), en una sola hoja con la vista «Dibujo» en vivo: muestra los rellenos y tramas reales con el grosor de cada rotulador.
+  - Vista previa navegable: pellizco para ampliar alrededor del puntero, dos dedos o arrastre para desplazar, botones Acercar/Alejar y Ajustar (también doble clic). Original, Dibujo y Superpuesto comparten el encuadre; el zoom no cambia el tamaño en el papel.
   - Colores: k-means; cada color se convierte en un rotulador con relleno. Sin contorno por defecto y con todos los rayados en el mismo ángulo (ajustable, o uno distinto por color).
-  - Mezcla: superpone tramas de rayado o puntos de varios rotuladores (CMYK, RYB o los colores de la foto) para mezclar los colores en el ojo, con colores más vivos que un relleno plano. Prefiere el negro para las sombras.
+  - Mezcla: superpone tramas de rayado o puntos de varios rotuladores (CMYK, RYB o los colores de la foto) para mezclar los colores en el ojo, con colores más vivos que un relleno plano. Prefiere el negro para las sombras. Las capas importadas se identifican como tramas de relleno, con su tinta en la muestra de relleno. La importación conserva los mismos trazos y grosores que la vista previa.
   - Líneas: centro de los trazos.
   - Siluetas: formas cerradas.
   - Grabado: ondas moduladas.
@@ -51,10 +64,12 @@ La lista completa está en la app con ⌘/.
 
 | Tecla | Acción |
 |---|---|
-| V · P · T · S | Seleccionar · Mano alzada · Texto · Formas |
+| V · P · T · S | Seleccionar · Mano alzada · Caja de texto · Formas |
+| T + arrastrar · ⌘Enter | Dibujar caja de texto · Salto de página en el editor |
 | I · ⇧⌘I | Foto → dibujo |
 | ⌘Z / ⇧⌘Z | Deshacer / Rehacer |
 | ⌘D · ⌫ | Duplicar · Eliminar (en la lista de rotuladores, borra el rotulador) |
+| ⌘W · ⌘Q | Cerrar la ventana (la app sigue abierta; el Dock la recupera con el documento) · Salir |
 | ⌘A · arrastrar en vacío · ⇧/⌘ clic | Seleccionar todo · Recuadro · Añadir o quitar |
 | ⇥ · ⇧⇥ | Objeto siguiente · anterior |
 | Esc | Cancelar, cerrar, deseleccionar |
@@ -75,6 +90,16 @@ cargo test -p vectorio-core
 cargo run --release -p vectorio-app
 ```
 
+## Instalación en macOS
+
+```bash
+python3 scripts/install-macos.py
+```
+
+Instala o actualiza `/Applications/Vectorio.app`, con el icono Relieve. Después de cada cambio del proyecto se actualiza esta misma aplicación. También comprueba el código al abrir: si ha cambiado, compila antes de iniciar; si la compilación falla, abre la última versión instalada. Los registros están en `~/Library/Logs/Vectorio/updates.log`.
+
+La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan disponibles en este Mac. Si el proyecto no está disponible, abre el binario instalado. Una ventana ya abierta conserva su versión hasta cerrarla; guarda el proyecto antes de reiniciar para cargar una actualización.
+
 ## Estructura
 
 - `crates/vectorio-core`: lógica pura y con tests:
@@ -86,7 +111,7 @@ cargo run --release -p vectorio-app
   - optimización;
   - SVG;
   - documento.
-- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `colorpanel`, `theme`).
+- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `colorpanel` (editor integrado), `theme`).
 - `crates/vectorio-core/fonts`: tipografías SVG de un solo trazo.
 
 ## Próximos pasos

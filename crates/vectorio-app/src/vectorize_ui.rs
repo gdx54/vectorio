@@ -54,7 +54,7 @@ impl Look {
 /// Clave de la vista previa: si cambia, se recalcula.
 #[derive(Clone, PartialEq)]
 struct PlotKey {
-    result: usize,
+    result: u64,
     look: Look,
     scale: f64,
     widths: Vec<f64>,
@@ -65,6 +65,38 @@ struct PlotPreview {
     layers: Vec<Vec<Polyline>>,
 }
 
+/// Cámara de la vista previa. El zoom es relativo al encuadre inicial y `center`
+/// indica el punto de la imagen que se mantiene en el centro al redimensionar.
+#[derive(Clone, Copy)]
+struct PreviewView {
+    zoom: f32,
+    center: Vec2,
+}
+
+impl Default for PreviewView {
+    fn default() -> Self { Self { zoom: 1.0, center: Vec2::splat(0.5) } }
+}
+
+impl PreviewView {
+    fn image_rect(&self, viewport: Rect, source: Vec2) -> Rect {
+        let fit = ((viewport.width() - 24.0).max(1.0) / source.x).min((viewport.height() - 24.0).max(1.0) / source.y);
+        let size = source * fit * self.zoom;
+        Rect::from_min_size(viewport.center() - self.center * size, size)
+    }
+
+    fn zoom_at(&mut self, factor: f32, anchor: Pos2, viewport: Rect, source: Vec2) {
+        let image = self.image_rect(viewport, source);
+        let point = (anchor - image.min) / image.size();
+        self.zoom = (self.zoom * factor).clamp(0.25, 32.0);
+        let size = self.image_rect(viewport, source).size();
+        self.center = point - (anchor - viewport.center()) / size;
+    }
+
+    fn pan(&mut self, delta: Vec2, viewport: Rect, source: Vec2) {
+        self.center -= delta / self.image_rect(viewport, source).size();
+    }
+}
+
 pub struct VectorizeUi {
     pub open: bool,
     name: String,
@@ -73,6 +105,7 @@ pub struct VectorizeUi {
     params: VecParams,
     computed: Option<VecParams>,
     result: Option<Arc<VecResult>>,
+    result_revision: u64,
     job: Option<(VecParams, mpsc::Receiver<VecResult>)>,
     plot: Option<(PlotKey, Arc<PlotPreview>)>,
     plot_job: Option<(PlotKey, mpsc::Receiver<PlotPreview>)>,
@@ -81,6 +114,7 @@ pub struct VectorizeUi {
     preview: Preview,
     look: Look,
     size_pct: f64,
+    view: PreviewView,
 }
 
 impl Default for VectorizeUi {
@@ -93,6 +127,7 @@ impl Default for VectorizeUi {
             params: VecParams::default(),
             computed: None,
             result: None,
+            result_revision: 0,
             job: None,
             plot: None,
             plot_job: None,
@@ -100,6 +135,7 @@ impl Default for VectorizeUi {
             preview: Preview::Result,
             look: Look::default(),
             size_pct: 100.0,
+            view: PreviewView::default(),
         }
     }
 }
@@ -135,6 +171,13 @@ impl VectorizeUi {
         self.name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Foto").to_string();
         self.computed = None;
         self.result = None;
+        self.result_revision = self.result_revision.wrapping_add(1);
+        // Una foto nueva invalida también los trabajos y la trama de la anterior.
+        self.job = None;
+        self.plot = None;
+        self.plot_job = None;
+        self.pending_key = None;
+        self.view = PreviewView::default();
         self.open = true;
         Ok(())
     }
@@ -145,13 +188,13 @@ impl VectorizeUi {
                 Ok(r) => {
                     self.computed = Some(prm.clone());
                     self.result = Some(Arc::new(r));
+                    self.result_revision = self.result_revision.wrapping_add(1);
                     self.job = None;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => self.job = None,
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
-        self.poll_plot(ctx);
         let stale = self.computed.as_ref() != Some(&self.params);
         let running_same = self.job.as_ref().is_some_and(|(p, _)| *p == self.params);
         if stale && self.job.is_none() && !running_same {
@@ -175,10 +218,11 @@ impl VectorizeUi {
         if !self.open {
             return None;
         }
+        self.poll(ctx);
         if let Some(res) = self.result.clone() {
             self.pending_key = Some(self.key(doc, &res));
         }
-        self.poll(ctx);
+        self.poll_plot(ctx);
         let pal = theme::current(ctx);
         let ready = self.result.is_some() && self.computed.as_ref() == Some(&self.params);
 
@@ -203,7 +247,7 @@ impl VectorizeUi {
 
         let size = Vec2::new((screen.width() - 80.0).clamp(560.0, 980.0), (screen.height() - theme::TOOLBAR_H - 60.0).clamp(420.0, 680.0));
         let pos = Pos2::new(screen.center().x - size.x / 2.0, (theme::TOOLBAR_H + (screen.height() - theme::TOOLBAR_H - size.y) / 2.0).max(theme::TOOLBAR_H));
-        let frame = theme::glass_frame(&pal).fill(pal.glass.to_opaque()).inner_margin(egui::Margin::same(0.0));
+        let frame = theme::glass_frame(&pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(0.0));
         egui::Area::new(egui::Id::new("vectorize-sheet"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
@@ -241,7 +285,8 @@ impl VectorizeUi {
                         let preview = Vec2::new(size.x - side - 1.0, body_h);
                         ui.allocate_ui(preview, |ui| {
                             let (r, _) = ui.allocate_exact_size(preview, Sense::hover());
-                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink(14.0)));
+                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink(14.0)).layout(egui::Layout::top_down(egui::Align::Min)));
+                            child.set_clip_rect(child.clip_rect().intersect(r.shrink(14.0)));
                             self.preview_area(&mut child, r.shrink(14.0).size(), doc);
                         });
                         let x = ui.cursor().left();
@@ -268,7 +313,7 @@ impl VectorizeUi {
                             Some(res) => {
                                 let (w, h) = self.target_size(doc, res);
                                 let n: usize = match &self.plot {
-                                    Some((k, plot)) if k.result == Arc::as_ptr(res) as usize => plot.layers.iter().map(|l| l.len()).sum(),
+                                    Some((k, plot)) if k.result == self.result_revision => plot.layers.iter().map(|l| l.len()).sum(),
                                     _ => res.layers.iter().map(|l| l.lines.len()).sum(),
                                 };
                                 format!("{w:.0} × {h:.0} mm · {n} trazos · {} capas", res.layers.len())
@@ -309,7 +354,17 @@ impl VectorizeUi {
 
     fn preview_area(&mut self, ui: &mut egui::Ui, size: Vec2, doc: &Document) {
         let pal = theme::current(ui.ctx());
-        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        // Los controles de navegación quedan fuera del área que se amplía y recorta.
+        ui.horizontal(|ui| {
+            ui.set_min_height(30.0);
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if ui.button("Alejar").clicked() { self.view.zoom = (self.view.zoom * 0.8).clamp(0.25, 32.0); }
+            ui.label(RichText::new(format!("{:.0} %", self.view.zoom * 100.0)).color(pal.secondary));
+            if ui.button("Acercar").clicked() { self.view.zoom = (self.view.zoom * 1.25).clamp(0.25, 32.0); }
+            if ui.button("Ajustar").clicked() { self.view = PreviewView::default(); }
+        });
+        let preview_size = Vec2::new(size.x, (size.y - 38.0).max(1.0));
+        let (rect, response) = ui.allocate_exact_size(preview_size, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, egui::Rounding::same(theme::CONTROL_RADIUS), Color32::WHITE);
         let Some(tex) = &self.texture else {
@@ -317,8 +372,21 @@ impl VectorizeUi {
             return;
         };
         let ts = tex.size_vec2();
-        let k = ((rect.width() - 24.0) / ts.x).min((rect.height() - 24.0) / ts.y);
-        let img_rect = Rect::from_center_size(rect.center(), ts * k);
+        let (zoom, scroll, touch) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta, i.multi_touch()));
+        if let Some(pos) = response.hover_pos() {
+            if zoom != 1.0 { self.view.zoom_at(zoom, pos, rect, ts); }
+            if let Some(touch) = touch {
+                self.view.pan(touch.translation_delta, rect, ts);
+            } else if zoom == 1.0 && scroll != Vec2::ZERO {
+                self.view.pan(scroll, rect, ts);
+            }
+        }
+        if response.dragged() && touch.is_none() {
+            self.view.pan(response.drag_delta(), rect, ts);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Grab); }
+        if response.double_clicked() { self.view = PreviewView::default(); }
+        let img_rect = self.view.image_rect(rect, ts);
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         match self.preview {
             Preview::Original => {
@@ -334,7 +402,7 @@ impl VectorizeUi {
                 let choices = self.assign(doc, &res);
                 let colors: Vec<[u8; 3]> = choices.iter().map(|c| choice_color(doc, c)).collect();
                 let widths = self.widths(doc, &choices);
-                let fresh = self.plot.as_ref().filter(|(k, _)| k.result == Arc::as_ptr(&res) as usize);
+                let fresh = self.plot.as_ref().filter(|(k, _)| k.result == self.result_revision);
                 let mut shapes = Vec::new();
                 match fresh {
                     // Simulación: trazos finales con el grosor real de cada rotulador.
@@ -369,13 +437,15 @@ impl VectorizeUi {
         }
         if self.plot_job.is_some() && self.job.is_none() {
             let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.circle_filled(c, 14.0, pal.glass);
-            ui.put(Rect::from_center_size(c, Vec2::splat(18.0)), egui::Spinner::new());
+            painter.circle_filled(c, 14.0, pal.bar);
+            let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
+            overlay.add(egui::Spinner::new());
         }
         if self.job.is_some() {
             let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.circle_filled(c, 14.0, pal.glass);
-            ui.put(Rect::from_center_size(c, Vec2::splat(18.0)), egui::Spinner::new());
+            painter.circle_filled(c, 14.0, pal.bar);
+            let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
+            overlay.add(egui::Spinner::new());
         }
     }
 
@@ -610,7 +680,7 @@ impl VectorizeUi {
 
     fn key(&self, doc: &Document, res: &Arc<VecResult>) -> PlotKey {
         let choices = self.assign(doc, res);
-        PlotKey { result: Arc::as_ptr(res) as usize, look: self.look.clone(), scale: self.scale(doc, res), widths: self.widths(doc, &choices) }
+        PlotKey { result: self.result_revision, look: self.look.clone(), scale: self.scale(doc, res), widths: self.widths(doc, &choices) }
     }
 
     fn build(&self, doc: &Document) -> Option<(Vec<Item>, Vec<Pen>)> {
@@ -619,6 +689,11 @@ impl VectorizeUi {
         let center = p(doc.paper.width_mm / 2.0, doc.paper.height_mm / 2.0);
         let half = p(res.width * s / 2.0, res.height * s / 2.0);
         let key = self.key(doc, res);
+        // La trama añadida usa exactamente los mismos trazos y grosores que la vista
+        // previa. Si ya está calculada, se aprovecha sin volver a generar los puntos.
+        let cached = self.plot.as_ref().filter(|(cached_key, _)| *cached_key == key);
+        let generated = if cached.is_none() && res.layers.iter().any(|layer| layer.coverage.is_some()) { Some(plot_lines(res, &key)) } else { None };
+        let plot = cached.map(|(_, plot)| plot.as_ref()).or(generated.as_ref());
         let mut pens = Vec::new();
         let mut items = Vec::new();
         for (i, (layer, choice)) in res.layers.iter().zip(self.assign(doc, res)).enumerate() {
@@ -633,15 +708,16 @@ impl VectorizeUi {
             let to_local = |l: &Polyline| -> Polyline { l.iter().map(|q| p(q.x * s - half.x, q.y * s - half.y)).collect() };
             let mut item = match &layer.coverage {
                 // Mezcla: la trama ya es el dibujo.
-                Some(cov) => {
-                    let lines = mix::render(cov, s, &key.look.screen, i, res.layers.len());
-                    let lines = lines.iter().map(|l| l.iter().map(|q| *q - half).collect()).collect();
-                    Item::new(label, Geometry::Path { lines, closed: false }, center)
+                Some(_) => {
+                    let lines = plot?.layers[i].iter().map(|l| l.iter().map(|q| *q - half).collect()).collect();
+                    Item::new(label, Geometry::Screened { lines, screen: self.look.screen.screen }, center)
                 }
                 None => Item::new(label, Geometry::Path { lines: layer.lines.iter().map(to_local).collect(), closed: layer.closed }, center),
             };
             item.fill.pen = pen;
-            if layer.closed && self.look.fill != FillStyle::None {
+            if item.is_screened() {
+                item.stroke = None;
+            } else if layer.closed && self.look.fill != FillStyle::None {
                 item.fill = Fill { pen, ..self.look.fill_for(i) };
                 item.stroke = if self.look.outline { Some(pen) } else { None };
             } else {
@@ -716,4 +792,127 @@ fn close_button(ui: &mut egui::Ui, pal: &theme::Palette) -> egui::Response {
     ui.painter().line_segment([c + Vec2::new(-d, -d), c + Vec2::new(d, d)], s);
     ui.painter().line_segment([c + Vec2::new(-d, d), c + Vec2::new(d, -d)], s);
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vectorio_core::raster::Grid;
+
+    fn mixed_result(color: [u8; 3]) -> Arc<VecResult> {
+        let mut coverage = Grid::new(8, 6);
+        coverage.data.fill(1.0);
+        Arc::new(VecResult {
+            width: 8.0, height: 6.0,
+            layers: vec![vectorize::VecLayer { color, closed: false, lines: vec![], coverage: Some(Arc::new(coverage)), name: None }],
+        })
+    }
+
+    #[test]
+    fn preview_zoom_keeps_the_point_under_the_pointer_and_clamps() {
+        let viewport = Rect::from_min_size(Pos2::new(20.0, 50.0), Vec2::new(500.0, 350.0));
+        let source = Vec2::new(800.0, 600.0);
+        let anchor = Pos2::new(190.0, 170.0);
+        let mut view = PreviewView::default();
+        view.pan(Vec2::new(35.0, -20.0), viewport, source);
+        let before = view.image_rect(viewport, source);
+        let point = (anchor - before.min) / before.size();
+        for factor in [2.0, 1000.0, 0.00001] {
+            view.zoom_at(factor, anchor, viewport, source);
+            let after = view.image_rect(viewport, source);
+            assert!((after.min + point * after.size()).distance(anchor) < 0.001);
+            assert!((0.25..=32.0).contains(&view.zoom));
+        }
+    }
+
+    #[test]
+    fn preview_pan_follows_the_gesture_at_any_zoom() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 350.0));
+        let source = Vec2::new(800.0, 600.0);
+        for zoom in [0.25, 1.0, 8.0, 32.0] {
+            let mut view = PreviewView { zoom, ..Default::default() };
+            let before = view.image_rect(viewport, source);
+            let delta = Vec2::new(45.0, -32.0);
+            view.pan(delta, viewport, source);
+            assert!((view.image_rect(viewport, source).min - before.min - delta).length() < 0.001);
+        }
+    }
+
+    #[test]
+    fn pinch_events_only_navigate_inside_the_preview() {
+        let ctx = egui::Context::default();
+        let mut view = VectorizeUi::default();
+        view.texture = Some(ctx.load_texture("test-preview", egui::ColorImage::new([8, 6], Color32::WHITE), Default::default()));
+        view.preview = Preview::Original;
+        let doc = Document::default();
+        let mut frame = |time: f64, events| {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))), time: Some(time), events, ..Default::default() };
+            let _ = ctx.run(input, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.preview_area(ui, Vec2::new(400.0, 300.0), &doc)); });
+            view.view.zoom
+        };
+        frame(0.0, vec![]);
+        frame(0.1, vec![egui::Event::PointerMoved(Pos2::new(180.0, 140.0))]);
+        assert_eq!(frame(0.2, vec![egui::Event::Zoom(2.0)]), 2.0);
+        frame(0.3, vec![egui::Event::PointerMoved(Pos2::new(600.0, 140.0))]);
+        assert_eq!(frame(0.4, vec![egui::Event::Zoom(2.0)]), 2.0);
+    }
+
+    #[test]
+    fn mix_import_is_fill_and_matches_preview_with_existing_objects() {
+        let mut doc = Document::default();
+        doc.pens[1].width_mm = 1.4;
+        doc.add(Item::new("Dibujo anterior", Geometry::Shape(vectorio_core::Shape::Heart { size: 25.0 }), p(30.0, 40.0)));
+        let mut view = VectorizeUi::default();
+        view.params.mode = VecMode::Mix;
+        view.look.screen.screen = Screen::Dots;
+        view.look.screen.spacing_mm = 3.0;
+        view.size_pct = 10.0;
+        view.result = Some(mixed_result(doc.pens[1].color));
+        let res = view.result.as_ref().unwrap();
+        let key = view.key(&doc, res);
+        let expected = plot_lines(res, &key);
+        assert!(!expected.layers[0].is_empty());
+        let (items, pens) = view.build(&doc).unwrap();
+        assert!(pens.is_empty());
+        let item = &items[0];
+        assert!(item.is_screened() && item.has_fill());
+        assert_eq!(item.stroke, None);
+        assert_eq!(item.fill.pen, 1);
+        let paths = item.plot(&doc.pens);
+        assert_eq!(paths[0].1.len(), expected.layers[0].len());
+        let scale = view.scale(&doc, res);
+        let offset = item.place.pos - p(res.width * scale / 2.0, res.height * scale / 2.0);
+        for (actual, expected) in paths[0].1.iter().zip(&expected.layers[0]) {
+            for (a, b) in actual.iter().zip(expected) { assert!(a.dist(*b + offset) < 1e-9); }
+        }
+        // Navegar por la vista previa no cambia el tamaño ni el dibujo importado.
+        view.view.zoom = 12.0;
+        view.view.center = Vec2::new(-0.3, 0.8);
+        assert_eq!(view.build(&doc).unwrap().0, items);
+    }
+
+    #[test]
+    fn loading_another_photo_discards_previous_results_and_jobs() {
+        let ctx = egui::Context::default();
+        let mut view = VectorizeUi::default();
+        let doc = Document::default();
+        let result = mixed_result([20, 20, 20]);
+        let key = view.key(&doc, &result);
+        let (tx, rx) = mpsc::channel();
+        tx.send((*result).clone()).unwrap();
+        view.job = Some((view.params.clone(), rx));
+        view.result = Some(result);
+        view.plot = Some((key.clone(), Arc::new(PlotPreview { layers: vec![] })));
+        let (_, plot_rx) = mpsc::channel();
+        view.plot_job = Some((key.clone(), plot_rx));
+        view.pending_key = Some(key);
+        view.view.zoom = 4.0;
+        let path = std::env::temp_dir().join(format!("vectorio-photo-reload-{}.png", std::process::id()));
+        image::RgbImage::from_pixel(8, 6, image::Rgb([255, 0, 0])).save(&path).unwrap();
+        view.load(&ctx, &path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert!(view.job.is_none() && view.result.is_none() && view.plot.is_none() && view.plot_job.is_none() && view.pending_key.is_none());
+        assert_eq!(view.view.zoom, 1.0);
+        assert_eq!(view.result_revision, 1);
+    }
 }

@@ -67,10 +67,16 @@ pub struct VectorioApp {
     also_anchor: Option<u64>,
     /// El último clic fue en la lista de rotuladores: ⌫ borra el rotulador activo.
     pub pen_focus: bool,
-    /// Rotulador cuyo color se está eligiendo en el selector del sistema.
+    /// Rotulador cuyo color se está eligiendo en el editor integrado.
     pub color_edit: Option<usize>,
+    pub color_picker: crate::colorpanel::ColorEditor,
+    color_original: Option<Document>,
+    color_targets: Vec<usize>,
     /// Rotulador que se está renombrando.
     pub renaming_pen: Option<usize>,
+    pub renaming_item: Option<u64>,
+    pub rename_focus: bool,
+    rename_original: String,
     pub tool: Tool,
     pub shape_kind: usize,
     pub active_pen: usize,
@@ -106,7 +112,13 @@ impl VectorioApp {
             also_anchor: None,
             pen_focus: false,
             color_edit: None,
+            color_picker: Default::default(),
+            color_original: None,
+            color_targets: vec![],
             renaming_pen: None,
+            renaming_item: None,
+            rename_focus: false,
+            rename_original: String::new(),
             tool: Tool::Select,
             shape_kind: 1,
             active_pen: 0,
@@ -122,6 +134,7 @@ impl VectorioApp {
             show_help: false,
             menu: NativeMenu::install(&cc.egui_ctx),
         };
+        crate::macos::install_reopen_handler();
         // Archivo pasado al abrir (`vectorio dibujo.vectorio`, `vectorio foto.jpg`).
         if let Some(path) = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.exists()) {
             app.open_path(&cc.egui_ctx, &path);
@@ -154,6 +167,49 @@ impl VectorioApp {
         self.selected = ids.pop();
         self.also = ids;
         self.also_anchor = self.selected;
+    }
+
+    pub fn rename_pen(&mut self, pen: usize) {
+        self.finish_rename(false);
+        if let Some(p) = self.doc.pens.get(pen) {
+            self.rename_original = p.name.clone();
+            self.renaming_pen = Some(pen);
+            self.rename_focus = true;
+        }
+    }
+
+    pub fn rename_item(&mut self, id: u64) {
+        self.finish_rename(false);
+        if let Some(it) = self.doc.get(id) {
+            self.rename_original = it.name.clone();
+            self.renaming_item = Some(id);
+            self.rename_focus = true;
+        }
+    }
+
+    pub fn finish_rename(&mut self, cancel: bool) {
+        let pen = self.renaming_pen;
+        let name = if let Some(i) = self.renaming_pen.take() {
+            self.doc.pens.get_mut(i).map(|p| &mut p.name)
+        } else {
+            self.renaming_item.take().and_then(|id| self.doc.get_mut(id)).map(|it| &mut it.name)
+        };
+        if let Some(name) = name {
+            *name = if cancel || name.trim().is_empty() { self.rename_original.clone() } else { name.trim().to_string() };
+        }
+        if !cancel {
+            if let Some(pen) = pen.and_then(|i| self.doc.pens.get_mut(i)) { pen.custom_name = true; }
+        }
+        self.rename_focus = false;
+    }
+
+    pub fn remove_pen(&mut self, pen: usize) {
+        if self.doc.pens.len() <= 1 || pen >= self.doc.pens.len() { return; }
+        self.finish_rename(false);
+        if self.color_edit == Some(pen) { self.color_edit = None; }
+        self.color_edit = self.color_edit.map(|i| if i > pen { i - 1 } else { i });
+        self.active_pen = if self.active_pen == pen { 0 } else if self.active_pen > pen { self.active_pen - 1 } else { self.active_pen };
+        self.doc.remove_pen(pen);
     }
 
     /// Añade o quita un objeto de la selección (⇧ o ⌘ clic).
@@ -218,29 +274,51 @@ impl VectorioApp {
         !self.future.is_empty()
     }
 
-    /// Abre el selector de color del sistema para un rotulador.
+    /// La paleta edita una tinta compartida; la fila de un objeto edita solo su color.
     pub fn edit_pen_color(&mut self, i: usize) {
+        self.color_targets.clear();
         if let Some(pen) = self.doc.pens.get(i) {
+            self.color_original = Some(self.doc.clone());
             self.color_edit = Some(i);
-            crate::colorpanel::open(pen.color);
+            self.color_picker = crate::colorpanel::ColorEditor::new(pen.color);
+            self.color_picker.subtitle = format!("{} · tinta compartida", pen.name);
         }
     }
 
-    /// Lleva al rotulador el color del selector mientras siga abierto.
-    fn poll_color_panel(&mut self, ctx: &egui::Context) {
+    pub fn edit_item_color(&mut self, id: u64, fill: bool) {
+        self.edit_items_color(&[id], fill);
+    }
+
+    pub fn edit_items_color(&mut self, ids: &[u64], fill: bool) {
+        let original = self.doc.clone();
+        let name = ids.first().and_then(|id| self.doc.get(*id)).map(|it| it.name.clone()).unwrap_or_default();
+        let targets: Vec<usize> = ids.iter().filter_map(|id| self.doc.isolate_ink(*id, fill)).collect();
+        let Some(index) = targets.first().copied() else { return };
+        self.color_original = Some(original);
+        self.color_targets = targets;
+        self.color_edit = Some(index);
+        self.color_picker = crate::colorpanel::ColorEditor::new(self.doc.pens[index].color);
+        self.color_picker.title = if fill { "Color del relleno" } else { "Color del contorno" }.into();
+        self.color_picker.subtitle = if self.color_targets.len() == 1 { name } else { format!("{} objetos seleccionados", self.color_targets.len()) };
+    }
+
+    pub fn cancel_color_edit(&mut self) {
+        if let Some(original) = self.color_original.take() { self.doc = original; }
+        self.color_edit = None;
+        self.color_targets.clear();
+    }
+
+    fn show_color_panel(&mut self, ctx: &egui::Context) {
         let Some(i) = self.color_edit else { return };
-        match (crate::colorpanel::read(), self.doc.pens.get_mut(i)) {
-            (Some(c), Some(pen)) => {
-                if pen.color != c {
-                    pen.color = c;
-                }
-                ctx.request_repaint_after(std::time::Duration::from_millis(60));
-            }
-            (_, None) => {
-                crate::colorpanel::close();
-                self.color_edit = None;
-            }
-            (None, _) => self.color_edit = None,
+        let Some(pen) = self.doc.pens.get_mut(i) else { self.cancel_color_edit(); return };
+        let open = self.color_picker.show(ctx, pen);
+        let color = pen.color;
+        for index in &self.color_targets {
+            if let Some(pen) = self.doc.pens.get_mut(*index) { pen.set_color(color); }
+        }
+        if !open {
+            if self.color_picker.cancelled { self.cancel_color_edit(); }
+            else { self.color_edit = None; self.color_original = None; self.color_targets.clear(); }
         }
     }
 
@@ -260,7 +338,7 @@ impl VectorioApp {
             self.shown = self.doc.clone();
             self.rev += 1;
         }
-        let gesture = ctx.input(|i| i.pointer.any_down());
+        let gesture = ctx.input(|i| i.pointer.any_down()) || self.color_edit.is_some() || self.renaming_pen.is_some() || self.renaming_item.is_some();
         if !gesture && self.doc != self.committed {
             self.history.push(std::mem::replace(&mut self.committed, self.doc.clone()));
             if self.history.len() > 120 {
@@ -307,8 +385,13 @@ impl VectorioApp {
     // ── Archivos ────────────────────────────────────────────────────────────────
 
     pub fn new_document(&mut self) {
+        self.finish_rename(false);
+        self.color_edit = None;
+        self.color_original = None;
+        self.pen_focus = false;
         self.doc = Document::default();
         self.selected = None;
+        self.fix_selection();
         self.file = None;
         self.view.fitted = false;
     }
@@ -330,8 +413,13 @@ impl VectorioApp {
         match ext.as_str() {
             "vectorio" | "json" => match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| Document::from_json(&s)) {
                 Ok(doc) => {
+                    self.finish_rename(false);
+                    self.color_edit = None;
+                    self.color_original = None;
+                    self.pen_focus = false;
                     self.doc = doc;
                     self.selected = None;
+                    self.fix_selection();
                     self.file = Some(path.to_path_buf());
                     self.view.fitted = false;
                 }
@@ -397,6 +485,25 @@ impl VectorioApp {
         }
     }
 
+    pub fn export_text_pages(&mut self, ctx: &egui::Context, id: u64) {
+        let Some(item) = self.doc.get(id) else { return };
+        let Geometry::Text(spec) = &item.geometry else { return };
+        let count = vectorio_core::font::compose(spec).page_count;
+        let name: String = item.name.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(50).collect();
+        let name = if name.is_empty() { "texto" } else { &name };
+        let Some(folder) = rfd::FileDialog::new().set_title("Carpeta para las páginas SVG").pick_folder() else { return };
+        let mut doc = self.doc.clone();
+        for page in 0..count {
+            if let Some(Item { geometry: Geometry::Text(spec), .. }) = doc.get_mut(id) { spec.page = page; }
+            let svg = svg_out::export(&doc, &doc.layers());
+            if let Err(error) = std::fs::write(folder.join(format!("{name}-pagina-{:03}.svg", page + 1)), svg) {
+                self.notify(ctx, format!("No se pudieron exportar las páginas: {error}"));
+                return;
+            }
+        }
+        self.notify(ctx, format!("{count} páginas SVG exportadas"));
+    }
+
     pub fn export_per_pen(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Carpeta para un SVG por rotulador").pick_folder() else {
             return;
@@ -428,7 +535,7 @@ impl VectorioApp {
     // ── Interfaz ────────────────────────────────────────────────────────────────
 
     fn toolbar(&mut self, ctx: &egui::Context, pal: &Palette) {
-        let frame = egui::Frame::none().fill(pal.glass).stroke(Stroke::new(1.0f32, pal.separator));
+        let frame = egui::Frame::none().fill(pal.bar).stroke(Stroke::new(1.0f32, pal.separator));
         egui::TopBottomPanel::top("toolbar").exact_height(theme::TOOLBAR_H).frame(frame).show(ctx, |ui| {
             // Arrastrar la barra vacía mueve la ventana; doble clic la amplía.
             let bg = ui.interact(ui.max_rect(), egui::Id::new("toolbar-drag"), Sense::click_and_drag());
@@ -550,7 +657,7 @@ impl VectorioApp {
             .fixed_pos(Pos2::new(theme::INSET, top))
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
-                theme::glass_frame(pal).show(ui, |ui| {
+                theme::glass_panel(ui, pal, |ui| {
                     ui.set_width(inspector::LEFT_W);
                     ui.set_max_height(avail_h);
                     egui::ScrollArea::vertical().id_salt("left-scroll").show(ui, |ui| inspector::left_panel(self, ui));
@@ -560,7 +667,7 @@ impl VectorioApp {
             .fixed_pos(Pos2::new(screen.right() - inspector::RIGHT_W - theme::INSET - 28.0, top))
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
-                theme::glass_frame(pal).show(ui, |ui| {
+                theme::glass_panel(ui, pal, |ui| {
                     ui.set_width(inspector::RIGHT_W);
                     ui.set_max_height(avail_h);
                     egui::ScrollArea::vertical().id_salt("right-scroll").show(ui, |ui| inspector::right_panel(self, ui));
@@ -574,8 +681,7 @@ impl VectorioApp {
             .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -theme::INSET))
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
-                let frame = theme::glass_frame(pal).rounding(Rounding::same(22.0)).inner_margin(egui::Margin::symmetric(16.0, 8.0));
-                frame.show(ui, |ui| {
+                theme::glass_panel_with(ui, pal, 22.0, egui::Margin::symmetric(16.0, 8.0), |ui| {
                     ui.set_max_width(screen.width() - 2.0 * (inspector::RIGHT_W + 60.0));
                     ui.horizontal(|ui| {
                         let st = &self.rendered.stats;
@@ -635,7 +741,7 @@ impl VectorioApp {
             self.show_help = false;
         }
         egui::Area::new(egui::Id::new("help-sheet")).anchor(egui::Align2::CENTER_CENTER, Vec2::new(0.0, theme::TOOLBAR_H / 2.0)).order(egui::Order::Foreground).show(ctx, |ui| {
-            theme::glass_frame(pal).fill(pal.glass.to_opaque()).inner_margin(egui::Margin::same(22.0)).show(ui, |ui| {
+            theme::glass_frame(pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(22.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Atajos de teclado").size(15.0).strong().color(pal.text));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -680,13 +786,17 @@ impl eframe::App for VectorioApp {
         let picked = self.menu.as_ref().map(|m| m.poll()).unwrap_or_default();
         for cmd in picked {
             // Con una hoja abierta, del menú solo valen cerrar y lo que no toca el documento.
-            if self.vec_ui.open && !matches!(cmd, commands::Command::CloseWindow) {
+            if (self.vec_ui.open || self.color_edit.is_some()) && !matches!(cmd, commands::Command::CloseWindow) {
                 continue;
             }
             self.run(ctx, cmd);
         }
+        // El botón rojo oculta la ventana igual que ⌘W; ⌘Q sale del programa.
+        if cfg!(target_os = "macos") && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            crate::macos::close_window(ctx);
+        }
         self.shortcuts(ctx);
-        self.poll_color_panel(ctx);
         self.toolbar(ctx, &pal);
         egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
         self.floating_panels(ctx, &pal);
@@ -702,6 +812,7 @@ impl eframe::App for VectorioApp {
         if self.show_help {
             self.help_sheet(ctx, &pal);
         }
+        self.show_color_panel(ctx);
         self.toast(ctx, &pal);
         self.track_changes(ctx);
     }

@@ -15,6 +15,8 @@
 use crate::geom::{catmull_rom, p, Polyline, Rng, P};
 use crate::svgfont::{self, SvgFont};
 use serde::{Deserialize, Serialize};
+use hyphenation::{Hyphenator, Language, Load, Standard};
+use std::sync::OnceLock;
 
 const CAP: f64 = 8.0;
 
@@ -105,6 +107,7 @@ pub enum Align {
     Left,
     Center,
     Right,
+    Justify,
 }
 
 fn yes() -> bool {
@@ -132,6 +135,20 @@ pub struct TextSpec {
     /// Unir las letras de cada palabra en un solo trazo (letras cursivas).
     #[serde(default = "yes")]
     pub connect: bool,
+    /// Alto de la caja en mm. Cero conserva el texto sin límite vertical de proyectos antiguos.
+    #[serde(default)]
+    pub frame_height_mm: f64,
+    #[serde(default)]
+    pub padding_mm: f64,
+    #[serde(default)]
+    pub first_indent_mm: f64,
+    #[serde(default)]
+    pub paragraph_spacing_mm: f64,
+    #[serde(default)]
+    pub hyphenate: bool,
+    /// Página visible del texto; el contenido completo se conserva en `text`.
+    #[serde(default)]
+    pub page: usize,
 }
 
 impl Default for TextSpec {
@@ -148,6 +165,12 @@ impl Default for TextSpec {
             wrap_mm: 0.0,
             seed: 1,
             connect: true,
+            frame_height_mm: 0.0,
+            padding_mm: 0.0,
+            first_indent_mm: 0.0,
+            paragraph_spacing_mm: 0.0,
+            hyphenate: false,
+            page: 0,
         }
     }
 }
@@ -491,27 +514,145 @@ fn line_width(face: &Face, text: &str, spacing: f64) -> f64 {
     text.chars().map(|c| face.adv(c) + spacing).sum()
 }
 
-fn wrap_lines(spec: &TextSpec, face: &Face) -> Vec<String> {
+/// Composición en milímetros, independiente de la geometría de los glifos.
+#[derive(Clone, Debug)]
+pub struct TextLine {
+    pub text: String,
+    pub page: usize,
+    pub top_mm: f64,
+    pub width_mm: f64,
+    pub indent_mm: f64,
+    pub justify: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TextFlow {
+    pub lines: Vec<TextLine>,
+    pub page_count: usize,
+}
+
+impl TextSpec {
+    pub fn padding(&self) -> f64 {
+        let mut padding = self.padding_mm.max(0.0);
+        if self.wrap_mm > 0.0 { padding = padding.min((self.wrap_mm / 2.0 - 0.5).max(0.0)); }
+        if self.frame_height_mm > 0.0 { padding = padding.min((self.frame_height_mm / 2.0 - 0.5).max(0.0)); }
+        padding
+    }
+
+    pub fn is_frame(&self) -> bool { self.wrap_mm > 0.0 && self.frame_height_mm > 0.0 }
+}
+
+fn spanish() -> &'static Standard {
+    static DICTIONARY: OnceLock<Standard> = OnceLock::new();
+    DICTIONARY.get_or_init(|| Standard::from_embedded(Language::Spanish).expect("Diccionario español incluido"))
+}
+
+fn paragraph_lines(spec: &TextSpec, face: &Face, paragraph: &str, width: f64) -> Vec<String> {
+    if !width.is_finite() { return vec![paragraph.replace('\u{ad}', "")]; }
     let cap = spec.size_mm.max(0.5);
-    let mut out = Vec::new();
-    for para in spec.text.split('\n') {
-        if spec.wrap_mm <= 0.0 {
-            out.push(para.to_string());
-            continue;
-        }
-        let mut line = String::new();
-        for word in para.split(' ') {
-            let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-            if !line.is_empty() && line_width(face, &candidate, spec.letter_spacing) * cap > spec.wrap_mm {
-                out.push(std::mem::take(&mut line));
-                line = word.to_string();
-            } else {
+    let indent = spec.first_indent_mm.max(0.0).min((width - cap).max(0.0));
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in paragraph.split_whitespace() {
+        let mut word = word.replace('\u{ad}', "");
+        while !word.is_empty() {
+            let available = width - if lines.is_empty() { indent } else { 0.0 };
+            let prefix = if line.is_empty() { String::new() } else { format!("{line} ") };
+            let candidate = format!("{prefix}{word}");
+            if line_width(face, &candidate, spec.letter_spacing) * cap <= available {
                 line = candidate;
+                break;
+            }
+            let split = if spec.hyphenate {
+                let lower = word.to_lowercase();
+                if lower.len() == word.len() {
+                    spanish().hyphenate(&lower).breaks.into_iter().filter(|i| word.is_char_boundary(*i))
+                        .rfind(|i| line_width(face, &format!("{prefix}{}-", &word[..*i]), spec.letter_spacing) * cap <= available)
+                } else { None }
+            } else { None };
+            if let Some(index) = split {
+                lines.push(format!("{prefix}{}-", &word[..index]));
+                line.clear();
+                word = word[index..].to_string();
+            } else if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            } else {
+                // Los tokens sin puntos de guionado (URL, números…) también caben.
+                let mut end = 0;
+                for (i, c) in word.char_indices() {
+                    let next = i + c.len_utf8();
+                    if end > 0 && line_width(face, &word[..next], spec.letter_spacing) * cap > available { break; }
+                    end = next;
+                }
+                if end == word.len() { line = word; break; }
+                lines.push(word[..end].to_string());
+                word = word[end..].to_string();
             }
         }
-        out.push(line);
     }
-    out
+    if !line.is_empty() || lines.is_empty() { lines.push(line); }
+    lines
+}
+
+/// Distribuye párrafos y saltos explícitos (\u{000c}) sin descartar texto al paginar.
+pub fn compose(spec: &TextSpec) -> TextFlow {
+    let face = Face::of(spec.style);
+    let cap = spec.size_mm.max(0.5);
+    let padding = spec.padding();
+    let width = if spec.wrap_mm > 0.0 { (spec.wrap_mm - padding * 2.0).max(0.5) } else { f64::INFINITY };
+    let height = if spec.frame_height_mm > 0.0 { (spec.frame_height_mm - padding * 2.0).max(0.5) } else { f64::INFINITY };
+    let mut page = 0;
+    let mut y = 0.0;
+    let mut lines = Vec::new();
+    let text = spec.text.replace("\r\n", "\n").replace('\r', "\n");
+    for (section, text) in text.split('\u{c}').enumerate() {
+        if section > 0 { page += 1; y = 0.0; }
+        let paragraphs: Vec<_> = text.split('\n').collect();
+        for (pi, paragraph) in paragraphs.iter().enumerate() {
+            if pi + 1 == paragraphs.len() && paragraph.is_empty() && pi > 0 { continue; }
+            let wrapped = paragraph_lines(spec, &face, paragraph, width);
+            for (li, text) in wrapped.iter().enumerate() {
+                if y > 0.0 && y + cap * 1.4 > height + 1e-6 { page += 1; y = 0.0; }
+                lines.push(TextLine {
+                    text: text.clone(), page, top_mm: y + padding,
+                    width_mm: line_width(&face, text, spec.letter_spacing) * cap,
+                    indent_mm: if li == 0 { spec.first_indent_mm.max(0.0).min((width - cap).max(0.0)) } else { 0.0 },
+                    justify: spec.align == Align::Justify && li + 1 < wrapped.len() && text.contains(' '),
+                });
+                y += cap * spec.line_height.max(1.0);
+            }
+            y += spec.paragraph_spacing_mm.max(0.0);
+        }
+    }
+    TextFlow { lines, page_count: page + 1 }
+}
+
+/// Recorta los trazos a la caja; evita que pulso, inclinación o descendentes salgan de ella.
+fn clip_to_frame(lines: Vec<Polyline>, width: f64, height: f64) -> Vec<Polyline> {
+    let mut output = Vec::new();
+    for line in lines {
+        let mut current = Vec::new();
+        for pair in line.windows(2) {
+            let a = pair[0];
+            let d = pair[1] - a;
+            let (mut lo, mut hi) = (0.0f64, 1.0f64);
+            let mut valid = true;
+            for (p, q) in [(-d.x, a.x), (d.x, width - a.x), (-d.y, a.y), (d.y, height - a.y)] {
+                if p.abs() < 1e-12 { if q < 0.0 { valid = false; break; } }
+                else if p < 0.0 { lo = lo.max(q / p); } else { hi = hi.min(q / p); }
+            }
+            if valid && lo <= hi {
+                let (start, end) = (a + d * lo, a + d * hi);
+                if current.last().is_some_and(|p: &P| p.dist(start) > 1e-6) {
+                    if current.len() >= 2 { output.push(std::mem::take(&mut current)); } else { current.clear(); }
+                }
+                if current.is_empty() { current.push(start); }
+                current.push(end);
+            } else if current.len() >= 2 { output.push(std::mem::take(&mut current)); }
+        }
+        if current.len() >= 2 { output.push(current); }
+    }
+    output
 }
 
 /// Dirección unitaria desde `from` hacia el primer punto de `pts` que esté a cierta distancia.
@@ -616,25 +757,31 @@ pub fn layout(spec: &TextSpec) -> Vec<Polyline> {
     let xh = face.xh();
     let join = if spec.connect { face.join() } else { 0.0 };
     let shear = spec.slant_deg.to_radians().tan();
-    let lines = wrap_lines(spec, &face);
-    let widths: Vec<f64> = lines.iter().map(|l| line_width(&face, l, spec.letter_spacing)).collect();
-    let max_w = widths.iter().cloned().fold(0.0, f64::max);
-    let mut rng = Rng::new(spec.seed);
+    let flow = compose(spec);
+    let page = spec.page.min(flow.page_count - 1);
+    let padding = spec.padding();
+    let max_w = if spec.wrap_mm > 0.0 { spec.wrap_mm - padding * 2.0 }
+        else { flow.lines.iter().map(|line| line.width_mm + line.indent_mm).fold(0.0f64, f64::max) } / cap;
+    let mut rng = Rng::new(spec.seed.wrapping_add(page as u64 * 1_000_003));
     let mut out = Vec::new();
 
-    for (li, line) in lines.iter().enumerate() {
-        let mut x = match spec.align {
-            Align::Left => 0.0,
-            Align::Center => (max_w - widths[li]) / 2.0,
-            Align::Right => max_w - widths[li],
+    for line in flow.lines.iter().filter(|line| line.page == page) {
+        let available = max_w - line.indent_mm / cap;
+        let width = line.width_mm / cap;
+        let mut x = (padding + line.indent_mm) / cap + match spec.align {
+            Align::Left | Align::Justify => 0.0,
+            Align::Center => (available - width) / 2.0,
+            Align::Right => available - width,
         };
+        let spaces = line.text.chars().filter(|c| *c == ' ').count();
+        let extra_space = if line.justify && spaces > 0 { ((available - width) / spaces as f64).max(0.0) } else { 0.0 };
         let wave_phase = rng.f() * std::f64::consts::TAU;
         let wave_len = 6.0 + rng.f() * 3.0;
         let mut row: Vec<Polyline> = Vec::new();
         // Salida pendiente de enlazar: (índice en `row`, punto, dirección).
         let mut pending: Option<(usize, P, P)> = None;
 
-        for c in line.chars() {
+        for c in line.text.chars() {
             let (adv, mut strokes) = face.glyph(c, &mut rng, jitter);
             // Imperfecciones de cada letra: tamaño, giro, altura y avance.
             let (size, rot, lift, adv_k) = if jitter > 0.0 {
@@ -704,7 +851,9 @@ pub fn layout(spec: &TextSpec) -> Vec<Polyline> {
             if !letter {
                 pending = None;
             }
-            x += adv * adv_k + spec.letter_spacing;
+            // En cajas las posiciones nominales respetan el ajuste y la justificación.
+            // El pulso se conserva en la forma, giro y altura de cada letra.
+            x += adv * if spec.wrap_mm > 0.0 { 1.0 } else { adv_k } + spec.letter_spacing + if c == ' ' { extra_space } else { 0.0 };
         }
 
         // Temblor del pulso: un campo suave y continuo, igual a ambos lados de cada unión.
@@ -721,18 +870,94 @@ pub fn layout(spec: &TextSpec) -> Vec<Polyline> {
                             gy += amp * ((q.x * 13.0 + ph2).sin() + 0.5 * (q.y * 21.0 + ph1).sin());
                         }
                         let sx = gx + gy * shear;
-                        p(sx * cap, (li as f64 * spec.line_height + 1.0 - gy) * cap)
+                        p(sx * cap, line.top_mm + (1.0 - gy) * cap)
                     })
                     .collect(),
             );
         }
     }
-    out
+    if spec.is_frame() { clip_to_frame(out, spec.wrap_mm, spec.frame_height_mm) } else { out }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn frame(text: &str) -> TextSpec {
+        TextSpec { text: text.into(), style: FontStyle::Tecnica, jitter: 0.0, size_mm: 4.0,
+            wrap_mm: 50.0, frame_height_mm: 35.0, padding_mm: 2.0, ..Default::default() }
+    }
+
+    #[test]
+    fn area_text_wraps_and_paginates_without_losing_words() {
+        let text = "El texto manuscrito debe adaptarse a su caja y continuar en las páginas siguientes. ".repeat(12);
+        let spec = frame(&text);
+        let flow = compose(&spec);
+        assert!(flow.page_count > 1);
+        let reconstructed = flow.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join(" ");
+        assert_eq!(reconstructed.split_whitespace().collect::<Vec<_>>(), text.split_whitespace().collect::<Vec<_>>());
+        assert!(flow.lines.iter().all(|line| line.width_mm + line.indent_mm <= spec.wrap_mm - spec.padding() * 2.0 + 1e-6));
+        let wider = compose(&TextSpec { wrap_mm: 100.0, ..spec });
+        assert!(wider.page_count < flow.page_count);
+    }
+
+    #[test]
+    fn justification_respects_paragraph_ends_and_first_line_indents() {
+        let spec = TextSpec { align: Align::Justify, first_indent_mm: 5.0, paragraph_spacing_mm: 3.0,
+            frame_height_mm: 200.0, ..frame("Una frase con suficientes palabras para ocupar varias líneas completas y terminar un párrafo.\nOtro párrafo.") };
+        let flow = compose(&spec);
+        assert!(flow.lines[0].justify);
+        assert_eq!(flow.lines[0].indent_mm, 5.0);
+        assert!(!flow.lines.last().unwrap().justify);
+        assert_eq!(flow.lines.last().unwrap().indent_mm, 5.0);
+        assert!(flow.lines.iter().skip(1).any(|line| line.indent_mm == 0.0));
+        let last = flow.lines.last().unwrap();
+        let previous = &flow.lines[flow.lines.len() - 2];
+        assert!(last.top_mm - previous.top_mm >= spec.size_mm * spec.line_height + 2.9);
+    }
+
+    #[test]
+    fn spanish_hyphenation_handles_accents_without_losing_letters() {
+        let word = "extraordinariamente";
+        let spec = TextSpec { wrap_mm: 24.0, hyphenate: true, ..frame(word) };
+        let flow = compose(&spec);
+        assert!(flow.lines.iter().any(|line| line.text.ends_with('-')));
+        assert_eq!(flow.lines.iter().map(|line| line.text.trim_end_matches('-')).collect::<String>(), word);
+        let accented = compose(&TextSpec { text: "organización".into(), ..spec });
+        assert_eq!(accented.lines.iter().map(|line| line.text.trim_end_matches('-')).collect::<String>(), "organización");
+    }
+
+    #[test]
+    fn explicit_page_breaks_and_manual_paragraphs_are_preserved() {
+        let flow = compose(&frame("Primera hoja\u{c}Segunda hoja\n\nOtro párrafo"));
+        assert_eq!(flow.page_count, 2);
+        assert_eq!(flow.lines[0].page, 0);
+        assert!(flow.lines.iter().filter(|line| line.page == 1).any(|line| line.text.is_empty()));
+        assert!(flow.lines.iter().find(|line| line.text == "Segunda hoja").is_some_and(|line| line.page == 1));
+    }
+
+    #[test]
+    fn every_page_is_clipped_to_the_frame_even_with_slant_and_jitter() {
+        let spec = TextSpec { text: "Un texto largo con inclinación y pulso para probar los límites. ".repeat(8),
+            style: FontStyle::Capitol, jitter: 2.0, slant_deg: 30.0, ..frame("") };
+        let flow = compose(&spec);
+        for page in 0..flow.page_count {
+            let strokes = layout(&TextSpec { page, ..spec.clone() });
+            assert!(!strokes.is_empty());
+            assert!(strokes.iter().flatten().all(|q| q.x >= -1e-8 && q.y >= -1e-8 && q.x <= spec.wrap_mm + 1e-8 && q.y <= spec.frame_height_mm + 1e-8));
+        }
+    }
+
+    #[test]
+    fn old_text_projects_keep_unbounded_layout_defaults() {
+        let mut json = serde_json::to_value(TextSpec::default()).unwrap();
+        for key in ["frame_height_mm", "padding_mm", "first_indent_mm", "paragraph_spacing_mm", "hyphenate", "page"] {
+            json.as_object_mut().unwrap().remove(key);
+        }
+        let restored: TextSpec = serde_json::from_value(json).unwrap();
+        assert!(!restored.is_frame());
+        assert_eq!(layout(&restored), layout(&TextSpec::default()));
+    }
 
     #[test]
     fn every_style_renders_ascii_and_spanish() {

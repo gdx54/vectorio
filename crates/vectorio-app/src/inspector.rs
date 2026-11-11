@@ -5,15 +5,32 @@ use crate::theme;
 use egui::{RichText, Ui};
 use vectorio_core::geom::{chaikin, simplify};
 use vectorio_core::{Align, Fill, FillStyle, FontStyle, Geometry, Paper, Pen, Shape};
+use vectorio_core::font;
 
-pub const LEFT_W: f32 = 236.0;
+pub const LEFT_W: f32 = 252.0;
 pub const RIGHT_W: f32 = 264.0;
 
 fn pen_label(pens: &[Pen], i: usize) -> RichText {
     match pens.get(i) {
-        Some(p) => RichText::new(&p.name).color(theme::pen_color(p.color)),
+        Some(p) => RichText::new(format!("{} · #{:02X}{:02X}{:02X}", p.name, p.color[0], p.color[1], p.color[2])),
         None => RichText::new("—"),
     }
+}
+
+/// El inspector muestra primero la tinta real; la asignación compartida es secundaria.
+fn ink_property(ui: &mut Ui, id: &str, pens: &[Pen], pen: &mut usize, fill: bool, edit: &mut Option<bool>) {
+    ui.vertical(|ui| {
+    if let Some(ink) = pens.get(*pen) {
+        ui.horizontal(|ui| {
+            let swatch = theme::swatch(ui, ink.color, 24.0);
+            let button = ui.button(format!("#{:02X}{:02X}{:02X} · {:.2} mm", ink.color[0], ink.color[1], ink.color[2], ink.width_mm));
+            if swatch.clicked() || button.on_hover_text("Editar el color de este objeto").clicked() { *edit = Some(fill); }
+        });
+    }
+    egui::CollapsingHeader::new("Elegir de la paleta…").id_salt(id).show(ui, |ui| {
+        pen_combo(ui, id, pens, pen);
+    });
+    });
 }
 
 /// Desplegable de rotuladores con su color.
@@ -59,260 +76,392 @@ fn visibility_toggle(ui: &mut Ui, visible: bool) -> egui::Response {
 
 // ── Izquierda ───────────────────────────────────────────────────────────────────
 
-pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
-    theme::section(ui, "ROTULADORES");
-    let pal = theme::current(ui.ctx());
-    // Acción del menú: (rotulador, destino) para mover, o destino usize::MAX para borrar.
-    let mut action: Option<(usize, usize)> = None;
-    let n = app.doc.pens.len();
-    // Arriba el que se dibuja el último (queda encima), como en una lista de capas.
-    let mut rows: Vec<(usize, egui::Rect)> = Vec::with_capacity(n);
-    let mut dragging: Option<usize> = None;
-    let mut dropped: Option<usize> = None;
-    for i in (0..n).rev() {
-        let active = app.active_pen == i;
-        let renaming = app.renaming_pen == Some(i);
-        let editing_color = app.color_edit == Some(i);
-        // La fila se registra antes que sus controles para que éstos queden encima:
-        // el grosor y la muestra siguen respondiendo, y el resto de la fila se arrastra.
-        let full = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 22.0)).expand2(egui::vec2(4.0, 1.0));
-        let resp = ui.interact(full, egui::Id::new(("pen-row", i)), egui::Sense::click_and_drag());
-        // Fondo de la fila, que se rellena después (debajo de los controles).
-        let bg = ui.painter().add(egui::Shape::Noop);
-        let row = ui.horizontal(|ui| {
-            ui.set_min_height(22.0);
-            let pen = &mut app.doc.pens[i];
-            // Muestra de color: doble clic abre el selector del sistema.
-            let (sw, sw_resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
-            ui.painter().circle_filled(sw.center(), 8.0, theme::pen_color(pen.color));
-            ui.painter().circle_stroke(sw.center(), 8.0, egui::Stroke::new(1.0f32, pal.glass_stroke));
-            if editing_color {
-                ui.painter().circle_stroke(sw.center(), 10.5, egui::Stroke::new(1.5f32, pal.accent));
-            }
-            if renaming {
-                let r = ui.add(egui::TextEdit::singleline(&mut pen.name).desired_width(104.0));
-                if !r.has_focus() && !r.gained_focus() {
-                    r.request_focus();
-                }
-                if r.lost_focus() {
-                    app.renaming_pen = None;
-                }
-            } else {
-                ui.allocate_ui_with_layout(egui::vec2(104.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.set_min_width(104.0);
-                    ui.add(egui::Label::new(RichText::new(&pen.name).color(pal.text)).truncate().selectable(false));
-                });
-            }
-            ui.add(egui::DragValue::new(&mut pen.width_mm).range(0.1..=5.0).speed(0.01).suffix(" mm").max_decimals(2))
-                .on_hover_text("Grosor del trazo");
-            sw_resp
-        });
-        let full = full.union(row.response.rect.expand2(egui::vec2(4.0, 1.0)));
-        rows.push((i, full));
-        let sw_resp = row.inner;
-        if resp.clicked() || sw_resp.clicked() {
-            app.active_pen = i;
-            app.pen_focus = true;
-        }
-        if resp.double_clicked() || sw_resp.double_clicked() {
-            app.edit_pen_color(i);
-        }
-        if resp.dragged() {
-            dragging = Some(i);
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        } else if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
-        if resp.drag_stopped() {
-            dropped = Some(i);
-        }
-        if active || dragging == Some(i) {
-            let lift = dragging == Some(i);
-            let fill = if lift {
-                pal.accent.gamma_multiply(0.22)
-            } else if app.pen_focus {
-                pal.accent.gamma_multiply(0.16)
-            } else {
-                egui::Color32::TRANSPARENT
-            };
-            let stroke = egui::Stroke::new(1.0f32, pal.accent.gamma_multiply(if app.pen_focus || lift { 0.8 } else { 0.45 }));
-            ui.painter().set(bg, egui::epaint::RectShape::new(full, egui::Rounding::same(theme::CONTROL_RADIUS), fill, stroke));
-        }
-        resp.on_hover_text("Arrastra para cambiar el orden · doble clic: color · ⌫: eliminar").context_menu(|ui| {
-            if ui.button("Cambiar color…").clicked() {
-                app.edit_pen_color(i);
-                ui.close_menu();
-            }
-            if ui.button("Renombrar").clicked() {
-                app.renaming_pen = Some(i);
-                ui.close_menu();
-            }
-            if ui.button("Usar para dibujar").clicked() {
-                app.active_pen = i;
-                ui.close_menu();
-            }
-            ui.separator();
-            if i + 1 < n && ui.button("Subir (se dibuja después, queda encima)").clicked() {
-                action = Some((i, i + 1));
-                ui.close_menu();
-            }
-            if i > 0 && ui.button("Bajar (se dibuja antes, queda debajo)").clicked() {
-                action = Some((i, i - 1));
-                ui.close_menu();
-            }
-            if n > 1 && ui.button("Eliminar").clicked() {
-                action = Some((i, usize::MAX));
-                ui.close_menu();
-            }
-        });
-    }
-    // Arrastre: hueco de inserción según la posición del puntero entre las filas.
-    if let Some(from) = dragging.or(dropped) {
-        if let Some(y) = ui.ctx().pointer_latest_pos().map(|p| p.y) {
-            // `slot` = número de filas (de arriba abajo) por encima del puntero.
-            let slot = rows.iter().filter(|(_, r)| r.center().y < y).count();
-            let from_row = n - 1 - from;
-            let to_row = if slot > from_row { slot - 1 } else { slot };
-            if dragging.is_some() && to_row != from_row {
-                let line_y = match rows.get(slot) {
-                    Some((_, r)) => r.top() - 1.0,
-                    None => rows.last().map(|(_, r)| r.bottom() + 1.0).unwrap_or(y),
-                };
-                let x = rows.first().map(|(_, r)| r.x_range()).unwrap_or(ui.max_rect().x_range());
-                ui.painter().hline(x, line_y, egui::Stroke::new(2.0f32, pal.accent));
-                ui.painter().circle_filled(egui::pos2(x.min + 2.0, line_y), 3.0, pal.accent);
-            }
-            if dropped.is_some() && to_row != from_row {
-                action = Some((from, n - 1 - to_row));
-            }
+/// Enter confirma; salir confirma; Esc cancela desde los atajos de la app.
+fn rename_field(ui: &mut Ui, name: &mut String, focus: &mut bool, width: f32) -> bool {
+    let response = ui.add(egui::TextEdit::singleline(name).desired_width(width));
+    let first = std::mem::take(focus);
+    if first {
+        response.request_focus();
+        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(name.chars().count()))));
+            state.store(ui.ctx(), response.id);
         }
     }
-    match action {
-        Some((i, usize::MAX)) => {
-            app.doc.remove_pen(i);
-            app.active_pen = app.active_pen.min(app.doc.pens.len() - 1);
-        }
-        Some((from, to)) => {
-            let new_of = app.doc.move_pen(from, to);
-            let map = |p: usize| new_of.get(p).copied().unwrap_or(p);
-            app.active_pen = map(app.active_pen);
-            app.color_edit = app.color_edit.map(map);
-            app.renaming_pen = app.renaming_pen.map(map);
-            let rel = if to > from { "encima de" } else { "debajo de" };
-            let other = &app.doc.pens[if to > from { to - 1 } else { to + 1 }].name;
-            let msg = format!("{} se dibuja ahora {} {}; sus objetos también.", app.doc.pens[to].name, rel, other);
-            app.notify(ui.ctx(), msg);
-        }
-        None => {}
-    }
-    ui.horizontal(|ui| {
-        if ui.button("+ Rotulador").clicked() {
-            app.doc.pens.push(Pen::new(&format!("Rotulador {}", app.doc.pens.len() + 1), [60, 60, 70], 0.8));
-            let i = app.doc.pens.len() - 1;
-            app.active_pen = i;
-            app.pen_focus = true;
-            app.edit_pen_color(i);
-        }
-        ui.label(RichText::new("arriba = encima").small().color(pal.secondary))
-            .on_hover_text("El de arriba se dibuja el último y queda encima. Arrastra para reordenar; los objetos se reordenan con su rotulador.");
-    });
+    !first && (response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)))
+}
 
+fn layer_name(ui: &mut Ui, width: f32, text: RichText) -> egui::Response {
+    ui.allocate_ui_with_layout(egui::vec2(width, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.set_min_width(width);
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(text).truncate().selectable(false).sense(egui::Sense::click_and_drag()))
+    }).inner
+}
+
+/// Una muestra hueca representa el contorno; una llena, el relleno.
+fn ink_swatch(ui: &mut Ui, color: Option<[u8; 3]>, fill: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(22.0, 26.0), egui::Sense::click());
+    let pal = theme::current(ui.ctx());
+    let center = rect.center();
+    if let Some(color) = color {
+        let color = theme::pen_color(color);
+        if fill { ui.painter().circle_filled(center, 7.0, color); }
+        else { ui.painter().circle_stroke(center, 7.0, egui::Stroke::new(3.0f32, color)); }
+    } else {
+        ui.painter().circle_stroke(center, 7.0, egui::Stroke::new(1.0f32, pal.secondary));
+        ui.painter().line_segment([center + egui::vec2(-5.0, 5.0), center + egui::vec2(5.0, -5.0)], egui::Stroke::new(1.0f32, pal.secondary));
+    }
+    response.on_hover_text(match (fill, color.is_some()) {
+        (true, true) => "Color del relleno de este objeto",
+        (true, false) => "Sin relleno · clic para añadir color",
+        (false, true) => "Color del contorno de este objeto",
+        (false, false) => "Sin contorno · clic para añadir color",
+    })
+}
+
+pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
+    let pal = theme::current(ui.ctx());
+    theme::section(ui, "CAPAS");
+    ui.label(RichText::new("Un objeto por capa · arriba queda delante").small().color(pal.secondary));
+    ui.add_space(5.0);
+    if app.doc.items.is_empty() {
+        ui.label(RichText::new("Dibuja, escribe o importa una imagen para empezar.").color(pal.secondary));
+    }
+    let ids: Vec<u64> = app.doc.items.iter().rev().map(|it| it.id).collect();
+    let mut drop = None;
+    for id in ids { object_row(app, ui, id, &mut drop); }
+    if let Some((ids, anchor)) = drop {
+        app.doc.move_items(&ids, Some(anchor));
+    }
+    // Las acciones quedan después de la lista: seleccionar nunca desplaza sus filas.
+    let selection = app.selection();
+    if !selection.is_empty() && !app.pen_focus {
+        ui.add_space(6.0);
+        ui.label(RichText::new(format!("{} seleccionado{}", selection.len(), if selection.len() == 1 { "" } else { "s" })).small().color(pal.secondary));
+        ui.horizontal(|ui| {
+            if ui.button("Traer adelante").on_hover_text("Toda la selección · ⌘]").clicked() { app.doc.reorder_items(&selection, true, false); }
+            if ui.button("Enviar atrás").on_hover_text("Toda la selección · ⌘[").clicked() { app.doc.reorder_items(&selection, false, false); }
+        });
+    }
+    ui.add_space(6.0);
+    ui.label(RichText::new("Doble clic para renombrar · arrastra para ordenar").small().color(pal.secondary));
+    ui.add_space(6.0);
+    ui.separator();
+    theme::section(ui, "TINTAS");
+    ui.label(RichText::new("Arrastra para ordenar o suéltala en una capa").small().color(pal.secondary));
+    ui.add_space(4.0);
+    pen_cards(app, ui);
     ui.add_space(6.0);
     theme::section(ui, "PAPEL (VISTA PREVIA)");
     ui.horizontal(|ui| {
-        for (i, (name, c)) in PAPER_TINTS.iter().enumerate() {
-            let r = theme::swatch(ui, *c, 20.0).on_hover_text(*name);
-            if app.paper_tint == i {
-                let pal = theme::current(ui.ctx());
-                ui.painter().circle_stroke(r.rect.center(), 13.0, egui::Stroke::new(2.0f32, pal.accent));
-            }
-            if r.clicked() {
-                app.paper_tint = i;
-            }
+        for (i, (name, color)) in PAPER_TINTS.iter().enumerate() {
+            let response = theme::swatch(ui, *color, 22.0).on_hover_text(*name);
+            if app.paper_tint == i { ui.painter().circle_stroke(response.rect.center(), 13.5, egui::Stroke::new(2.0f32, pal.accent)); }
+            if response.clicked() { app.paper_tint = i; }
         }
     });
+}
 
-    ui.add_space(6.0);
-    ui.separator();
-    theme::section(ui, "OBJETOS");
-    if app.doc.items.is_empty() {
-        ui.label(RichText::new("Todavía no hay nada en el papel.").color(theme::current(ui.ctx()).secondary));
+// ── Tarjetas de tinta ───────────────────────────────────────────────────────────
+
+/// Tinta que se está arrastrando desde la paleta y punto por el que se agarró.
+#[derive(Clone, Copy)]
+pub struct PenDrag {
+    pub pen: usize,
+    pub grab: egui::Vec2,
+}
+
+const CARD_H: f32 = 74.0;
+const CARD_GAP: f32 = 8.0;
+const CARD_RADIUS: f32 = 12.0;
+const CARD_BAND: f32 = 40.0;
+
+/// Texto que acompaña a la tarjeta arrastrada (qué pasará al soltar). Lo escriben las
+/// capas y el lienzo durante el fotograma; la paleta lo muestra y lo borra.
+pub fn set_drop_hint(ctx: &egui::Context, hint: String) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("pen-drop-hint"), hint));
+}
+
+/// Qué hará la tinta al soltarla sobre un objeto, con la pista de ⌥ si admite relleno.
+pub fn drop_hint(app: &VectorioApp, id: u64, fill: bool) -> String {
+    let Some(it) = app.doc.get(id) else { return String::new() };
+    let alt = if !fill && it.is_fillable() { " · ⌥ relleno" } else { "" };
+    format!("{} de «{}»{alt}", if fill { "Relleno" } else { "Contorno" }, it.name)
+}
+
+/// Destino de una tinta soltada sobre un objeto: con ⌥ va al relleno (si lo admite);
+/// si el objeto no tiene contorno pero sí relleno, también. `None` si está bloqueado.
+pub fn pen_drop_fill(app: &VectorioApp, id: u64, alt: bool) -> Option<bool> {
+    let it = app.doc.get(id).filter(|it| !it.locked)?;
+    Some(it.is_screened() || (it.is_fillable() && (alt || (it.stroke.is_none() && it.has_fill()))))
+}
+
+fn truncated(painter: &egui::Painter, text: &str, size: f32, color: egui::Color32, width: f32, strong: bool) -> std::sync::Arc<egui::Galley> {
+    let font = egui::FontId::proportional(size);
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(10.0));
+    if strong { job.sections.iter_mut().for_each(|s| s.format.extra_letter_spacing = 0.1); }
+    painter.layout_job(job)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum CardLook { Normal, Hover, Ghost }
+
+/// Tarjeta: banda superior con el color y una muestra del trazo con su grosor real,
+/// y debajo el nombre, el hexadecimal y el grosor.
+fn paint_pen_card(painter: &egui::Painter, rect: egui::Rect, pen: &Pen, pal: &theme::Palette, active: bool, look: CardLook) {
+    use egui::{epaint::Shadow, Color32, Rounding, Stroke, Vec2};
+    let color = theme::pen_color(pen.color);
+    if look != CardLook::Normal {
+        let lift = if look == CardLook::Ghost { 1.0 } else { 0.5 };
+        let shadow = Shadow { offset: Vec2::new(0.0, 6.0 + 8.0 * lift), blur: 14.0 + 18.0 * lift, spread: 0.0, color: pal.shadow.gamma_multiply(0.6 + 0.6 * lift) };
+        painter.add(shadow.as_shape(rect, Rounding::same(CARD_RADIUS)));
     }
-    let mut op: Option<(usize, i32)> = None;
-    let mut clicked: Option<(u64, bool)> = None;
-    let count = app.doc.items.len();
-    for idx in (0..count).rev() {
-        let id = app.doc.items[idx].id;
-        let is_sel = app.is_selected(id);
-        let it = &mut app.doc.items[idx];
-        ui.horizontal(|ui| {
-            if visibility_toggle(ui, it.visible).on_hover_text("Mostrar u ocultar").clicked() {
-                it.visible = !it.visible;
-            }
-            let pens = &app.doc.pens;
-            let color = it.stroke.or(Some(it.fill.pen)).and_then(|p| pens.get(p)).map(|p| p.color).unwrap_or([128, 128, 128]);
-            theme::swatch(ui, color, 10.0);
-            let mut text = RichText::new(&it.name);
-            if !it.visible {
-                text = text.weak();
-            }
-            let resp = ui.add(egui::SelectableLabel::new(is_sel, text));
-            if resp.clicked() {
-                clicked = Some((id, ui.input(|i| i.modifiers.shift || i.modifiers.command)));
-            }
-            if it.locked {
-                ui.label(RichText::new("bloqueado").small().weak());
-            }
-            resp.context_menu(|ui| {
-                if ui.button(if it.locked { "Desbloquear" } else { "Bloquear" }).clicked() {
-                    it.locked = !it.locked;
-                    ui.close_menu();
-                }
-                if idx + 1 < count && ui.button("Traer adelante").clicked() {
-                    op = Some((idx, 1));
-                    ui.close_menu();
-                }
-                if idx > 0 && ui.button("Enviar atrás").clicked() {
-                    op = Some((idx, -1));
-                    ui.close_menu();
-                }
-                if ui.button("Duplicar").clicked() {
-                    op = Some((idx, 2));
-                    ui.close_menu();
-                }
-                if ui.button("Eliminar").clicked() {
-                    op = Some((idx, 0));
-                    ui.close_menu();
-                }
-            });
+    painter.rect_filled(rect, CARD_RADIUS, if look == CardLook::Ghost { pal.card.to_opaque() } else { pal.card });
+    let band = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width(), CARD_BAND));
+    painter.rect_filled(band, Rounding { nw: CARD_RADIUS, ne: CARD_RADIUS, sw: 0.0, se: 0.0 }, color);
+    // Reflejo superior de la banda, como una tinta vista a través del vidrio.
+    let sheen = egui::Rect::from_min_size(band.min, Vec2::new(band.width(), band.height() * 0.45));
+    painter.rect_filled(sheen, Rounding { nw: CARD_RADIUS, ne: CARD_RADIUS, sw: 0.0, se: 0.0 }, Color32::from_white_alpha(26));
+    // Muestra del trazo: una onda con el grosor físico del rotulador.
+    let luma = 0.299 * pen.color[0] as f32 + 0.587 * pen.color[1] as f32 + 0.114 * pen.color[2] as f32;
+    let ink = if luma > 150.0 { Color32::from_black_alpha(120) } else { Color32::from_white_alpha(170) };
+    let width = (pen.width_mm as f32 * 5.0).clamp(1.2, 7.0);
+    let (x0, x1) = (band.left() + 12.0, band.right() - 12.0);
+    let wave: Vec<egui::Pos2> = (0..=24).map(|i| {
+        let t = i as f32 / 24.0;
+        egui::pos2(x0 + (x1 - x0) * t, band.center().y + 3.0 + (t * std::f32::consts::TAU * 1.25).sin() * 6.0)
+    }).collect();
+    painter.add(egui::Shape::line(wave, Stroke::new(width, ink)));
+    let text_w = rect.width() - 20.0;
+    let name = truncated(painter, &pen.name, 12.5, pal.text, text_w, true);
+    painter.galley(egui::pos2(rect.left() + 10.0, band.bottom() + 5.0), name, pal.text);
+    let meta = format!("#{:02X}{:02X}{:02X} · {} mm", pen.color[0], pen.color[1], pen.color[2], format!("{:.2}", pen.width_mm).replace('.', ","));
+    let meta = truncated(painter, &meta, 10.5, pal.secondary, text_w, false);
+    painter.galley(egui::pos2(rect.left() + 10.0, band.bottom() + 20.0), meta, pal.secondary);
+    painter.rect_stroke(rect, CARD_RADIUS, Stroke::new(1.0f32, pal.glass_stroke));
+    if active { painter.rect_stroke(rect.expand(2.0), CARD_RADIUS + 2.0, Stroke::new(2.0f32, pal.accent)); }
+}
+
+fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
+    use egui::{vec2, Rect, Sense, Stroke};
+    let pal = theme::current(ui.ctx());
+    let ctx = ui.ctx().clone();
+    let n = app.doc.pens.len();
+    let width = ui.available_width();
+    let card_w = ((width - CARD_GAP) / 2.0).floor();
+    let rows = (n + 1).div_ceil(2);
+    let (grid, _) = ui.allocate_exact_size(vec2(width, rows as f32 * (CARD_H + CARD_GAP) - CARD_GAP), Sense::hover());
+    let slot = |k: usize| vec2((k % 2) as f32 * (card_w + CARD_GAP), (k / 2) as f32 * (CARD_H + CARD_GAP));
+    let dragging = egui::DragAndDrop::payload::<PenDrag>(&ctx).map(|d| *d).filter(|d| d.pen < n);
+    let pointer = ctx.pointer_latest_pos();
+    let over_grid = pointer.filter(|p| grid.expand(CARD_GAP).contains(*p) && ui.clip_rect().contains(*p));
+    // Mientras se arrastra, las demás tarjetas se apartan para mostrar dónde caerá.
+    let target = dragging.map(|d| match over_grid {
+        Some(p) => {
+            let local = p - grid.min;
+            let row = (local.y / (CARD_H + CARD_GAP)).floor().max(0.0) as usize;
+            (row * 2 + usize::from(local.x > width / 2.0)).min(n - 1)
+        }
+        None => d.pen,
+    });
+    let mut order: Vec<usize> = (0..n).collect();
+    if let (Some(d), Some(t)) = (dragging, target) {
+        order.remove(d.pen);
+        order.insert(t, d.pen);
+    }
+    let mut remove = None;
+    let mut ghost = None;
+    for (k, &pen) in order.iter().enumerate() {
+        let id = ui.id().with(("pen-card", pen));
+        let home = Rect::from_min_size(grid.min + slot(k), vec2(card_w, CARD_H));
+        // Posición animada relativa a la rejilla: el desplazamiento del panel no la retrasa.
+        let offset = vec2(
+            ctx.animate_value_with_time(id.with("x"), slot(k).x, 0.16),
+            ctx.animate_value_with_time(id.with("y"), slot(k).y, 0.16),
+        );
+        let rect = Rect::from_min_size(grid.min + offset, home.size());
+        let renaming = app.renaming_pen == Some(pen);
+        let response = ui.interact(home, id, if renaming { Sense::hover() } else { Sense::click_and_drag() });
+        let active = app.active_pen == pen && app.pen_focus;
+        if dragging.is_some_and(|d| d.pen == pen) {
+            // Hueco que ocupará la tarjeta al soltarla.
+            let color = theme::pen_color(app.doc.pens[pen].color);
+            ui.painter().rect_filled(rect, CARD_RADIUS, color.gamma_multiply(0.12));
+            ui.painter().rect_stroke(rect, CARD_RADIUS, Stroke::new(1.5f32, color.gamma_multiply(0.7)));
+            ghost = Some(pen);
+        } else {
+            let look = if response.hovered() && dragging.is_none() { CardLook::Hover } else { CardLook::Normal };
+            let rect = if look == CardLook::Hover { rect.translate(vec2(0.0, -1.0)) } else { rect };
+            paint_pen_card(ui.painter(), rect, &app.doc.pens[pen], &pal, active, look);
+        }
+        if renaming {
+            let field = Rect::from_min_size(egui::pos2(rect.left() + 6.0, rect.top() + CARD_BAND + 4.0), vec2(rect.width() - 12.0, 24.0));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(field));
+            if rename_field(&mut child, &mut app.doc.pens[pen].name, &mut app.rename_focus, field.width()) { app.finish_rename(false); }
+        }
+        if response.drag_started() {
+            let grab = pointer.map(|p| p - home.min).unwrap_or(vec2(card_w / 2.0, CARD_H / 2.0));
+            egui::DragAndDrop::set_payload(&ctx, PenDrag { pen, grab });
+        }
+        if response.clicked() { app.active_pen = pen; app.pen_focus = true; app.set_selection(vec![]); }
+        if response.double_clicked() {
+            // Doble clic en la banda: color; en el texto: nombre.
+            let on_band = response.interact_pointer_pos().is_some_and(|p| p.y < home.top() + CARD_BAND);
+            if on_band { app.edit_pen_color(pen); } else { app.rename_pen(pen); }
+        }
+        if response.hovered() && dragging.is_none() { ctx.set_cursor_icon(egui::CursorIcon::Grab); }
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Tinta {}", app.doc.pens[pen].name)));
+        response.on_hover_text("Clic: dibujar con esta tinta · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa").context_menu(|ui| {
+            if ui.button("Renombrar").clicked() { app.rename_pen(pen); ui.close_menu(); }
+            if ui.button("Cambiar color compartido…").clicked() { app.edit_pen_color(pen); ui.close_menu(); }
+            if ui.add_enabled(n > 1, egui::Button::new("Eliminar rotulador")).on_hover_text("Los objetos conservan su posición y pasan a la primera tinta.").clicked() { remove = Some(pen); ui.close_menu(); }
         });
     }
-    if let Some((id, add)) = clicked {
-        app.pen_focus = false;
-        if add {
-            app.toggle_selected(id);
-        } else {
-            app.set_selection(vec![id]);
+
+    // Tarjeta para añadir una tinta, siempre al final.
+    let add_rect = Rect::from_min_size(grid.min + slot(n), vec2(card_w, CARD_H));
+    let add = ui.interact(add_rect, ui.id().with("pen-card-add"), Sense::click());
+    let tint = if add.hovered() { pal.accent } else { pal.secondary };
+    ui.painter().rect_filled(add_rect, CARD_RADIUS, if add.hovered() { pal.accent_soft.gamma_multiply(0.8) } else { egui::Color32::TRANSPARENT });
+    ui.painter().rect_stroke(add_rect.shrink(0.5), CARD_RADIUS, Stroke::new(1.0f32, tint.gamma_multiply(0.45)));
+    let c = add_rect.center() - vec2(0.0, 8.0);
+    ui.painter().line_segment([c - vec2(7.0, 0.0), c + vec2(7.0, 0.0)], Stroke::new(1.6f32, tint));
+    ui.painter().line_segment([c - vec2(0.0, 7.0), c + vec2(0.0, 7.0)], Stroke::new(1.6f32, tint));
+    ui.painter().text(add_rect.center() + vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Añadir tinta", egui::FontId::proportional(11.5), tint);
+    if add.clicked() {
+        app.doc.pens.push(Pen::new(&format!("Rotulador {}", app.doc.pens.len() + 1), [60, 60, 70], 0.8));
+        app.active_pen = app.doc.pens.len() - 1;
+        app.pen_focus = true;
+        app.edit_pen_color(app.active_pen);
+    }
+    add.on_hover_text("Añadir un rotulador a la paleta");
+
+    // La tarjeta arrastrada sigue al puntero por encima de los paneles y del lienzo.
+    let hint = ctx.data_mut(|d| d.remove_temp::<String>(egui::Id::new("pen-drop-hint")));
+    if let (Some(pen), Some(d), Some(p)) = (ghost, dragging, pointer) {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("pen-card-ghost")));
+        let rect = Rect::from_min_size(p - d.grab, vec2(card_w, CARD_H)).expand(3.0);
+        paint_pen_card(&painter, rect, &app.doc.pens[pen], &pal, false, CardLook::Ghost);
+        let label = hint.or_else(|| over_grid.map(|_| "Soltar para ordenar".to_owned()));
+        if let Some(label) = label {
+            let galley = painter.layout_no_wrap(label, egui::FontId::proportional(11.5), egui::Color32::WHITE);
+            let pill = Rect::from_center_size(egui::pos2(rect.center().x, rect.bottom() + 16.0), galley.size() + vec2(16.0, 8.0));
+            painter.rect_filled(pill, pill.height() / 2.0, pal.accent);
+            painter.galley(pill.center() - galley.size() / 2.0, galley, egui::Color32::WHITE);
+        }
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        // Soltar sobre la paleta reordena; en otro sitio sin destino, se cancela.
+        if ctx.input(|i| i.pointer.any_released()) {
+            if let Some(t) = target.filter(|t| over_grid.is_some() && *t != pen) {
+                app.finish_rename(false);
+                let new_of = app.doc.move_pen(pen, t);
+                app.active_pen = new_of.get(app.active_pen).copied().unwrap_or(0);
+                // Los índices cambian: las tarjetas parten ya de su sitio nuevo.
+                ctx.clear_animations();
+            }
+            egui::DragAndDrop::clear_payload(&ctx);
         }
     }
-    match op {
-        Some((i, 0)) => {
-            let id = app.doc.items.remove(i).id;
-            let left: Vec<u64> = app.selection().into_iter().filter(|x| *x != id).collect();
-            app.set_selection(left);
+    if let Some(pen) = remove { app.remove_pen(pen); }
+}
+
+fn object_row(app: &mut VectorioApp, ui: &mut Ui, id: u64, drop: &mut Option<(Vec<u64>, (u64, bool))>) {
+    ui.push_id(("object", id), |ui| {
+        let pal = theme::current(ui.ctx());
+        let selected = app.is_selected(id);
+        let full = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 32.0));
+        let response = ui.interact(full, ui.id().with("row"), egui::Sense::click_and_drag());
+        if selected { ui.painter().rect_filled(full, theme::CONTROL_RADIUS, pal.accent_soft); }
+        let mut finish = false;
+        let row = ui.horizontal(|ui| {
+            ui.set_min_height(32.0);
+            ui.spacing_mut().item_spacing.x = 6.0;
+            let it = app.doc.get(id).unwrap();
+            let (visible, locked, fillable) = (it.visible, it.locked, it.is_fillable() || it.is_screened());
+            let screened = it.is_screened();
+            let stroke = it.stroke.and_then(|p| app.doc.pens.get(p)).map(|p| p.color);
+            let fill = if it.has_fill() { app.doc.pens.get(it.fill.pen).map(|p| p.color) } else { None };
+            if visibility_toggle(ui, visible).on_hover_text("Mostrar u ocultar objeto").clicked() { app.doc.get_mut(id).unwrap().visible = !visible; }
+            ui.add_enabled_ui(!locked && !screened, |ui| {
+                if ink_swatch(ui, stroke, false).clicked() { app.edit_item_color(id, false); }
+            });
+            ui.add_enabled_ui(!locked && fillable, |ui| {
+                if ink_swatch(ui, fill, true).clicked() { app.edit_item_color(id, true); }
+            });
+            let width = (ui.available_width() - if locked { 18.0 } else { 0.0 }).max(30.0);
+            let index = app.doc.index_of(id).unwrap();
+            let it = &mut app.doc.items[index];
+            if app.renaming_item == Some(id) {
+                finish = rename_field(ui, &mut it.name, &mut app.rename_focus, width);
+                None
+            } else {
+                let response = layer_name(ui, width, RichText::new(&it.name).color(if visible { pal.text } else { pal.secondary }));
+                if locked { ui.label(RichText::new("L").small().color(pal.secondary)).on_hover_text("Objeto bloqueado"); }
+                Some(response)
+            }
+        });
+        if finish { app.finish_rename(false); }
+        let response = if let Some(label) = row.inner { response.union(label) } else { response };
+        if response.clicked() {
+            app.pen_focus = false;
+            if ui.input(|i| i.modifiers.shift || i.modifiers.command) { app.toggle_selected(id); }
+            else { app.set_selection(vec![id]); }
         }
-        Some((i, 2)) => {
-            app.set_selection(vec![app.doc.items[i].id]);
-            app.duplicate_selected();
+        if response.double_clicked() { app.rename_item(id); }
+        if response.drag_started() && !app.doc.get(id).unwrap().locked {
+            if !app.is_selected(id) { app.set_selection(vec![id]); }
+            app.pen_focus = false;
+            egui::DragAndDrop::set_payload(ui.ctx(), app.selection());
         }
-        Some((i, d)) => app.doc.items.swap(i, (i as i32 + d) as usize),
-        None => {}
-    }
+        if let Some(ids) = egui::DragAndDrop::payload::<Vec<u64>>(ui.ctx()) {
+            if let Some(pointer) = ui.ctx().pointer_latest_pos().filter(|p| full.intersect(ui.clip_rect()).contains(*p)) {
+                if !ids.contains(&id) {
+                    let above = pointer.y < full.center().y;
+                    let y = if above { full.top() } else { full.bottom() };
+                    ui.painter().hline(full.x_range(), y, egui::Stroke::new(2.0f32, pal.accent));
+                    if ui.input(|i| i.pointer.any_released()) {
+                        *drop = Some((ids.as_ref().clone(), (id, above)));
+                        egui::DragAndDrop::clear_payload(ui.ctx());
+                    }
+                }
+            }
+        }
+        if let Some(drag) = egui::DragAndDrop::payload::<PenDrag>(ui.ctx()).map(|d| *d) {
+            let alt = ui.input(|i| i.modifiers.alt);
+            let over = ui.ctx().pointer_latest_pos().is_some_and(|p| full.intersect(ui.clip_rect()).contains(p));
+            if let (true, Some(fill), Some(pen)) = (over, pen_drop_fill(app, id, alt), app.doc.pens.get(drag.pen)) {
+                ui.painter().rect_stroke(full, theme::CONTROL_RADIUS, egui::Stroke::new(2.0f32, theme::pen_color(pen.color)));
+                set_drop_hint(ui.ctx(), drop_hint(app, id, fill));
+                if ui.input(|i| i.pointer.any_released()) {
+                    app.doc.assign_pen(id, drag.pen, fill);
+                    egui::DragAndDrop::clear_payload(ui.ctx());
+                }
+            }
+        }
+        response.on_hover_text("Doble clic: nombre · arrastra: orden de capas, sin cambiar tintas").context_menu(|ui| {
+            if !app.is_selected(id) { app.set_selection(vec![id]); }
+            app.pen_focus = false;
+            if ui.button("Renombrar").clicked() { app.rename_item(id); ui.close_menu(); }
+            let locked = app.doc.get(id).unwrap().locked;
+            if ui.button(if locked { "Desbloquear" } else { "Bloquear" }).clicked() { app.doc.get_mut(id).unwrap().locked = !locked; ui.close_menu(); }
+            for (label, forward, edge) in [("Traer adelante", true, false), ("Enviar atrás", false, false), ("Traer al frente", true, true), ("Enviar al fondo", false, true)] {
+                if ui.button(label).clicked() { app.doc.reorder_items(&app.selection(), forward, edge); ui.close_menu(); }
+            }
+            ui.separator();
+            if ui.button("Duplicar selección").clicked() { app.duplicate_selected(); ui.close_menu(); }
+            if ui.button("Eliminar selección").clicked() { app.delete_selected(); ui.close_menu(); }
+        });
+    });
 }
 
 // ── Derecha ─────────────────────────────────────────────────────────────────────
 
 pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
+    if app.pen_focus {
+        pen_settings(app, ui);
+        return;
+    }
     if app.selection().len() > 1 {
         multi_panel(app, ui);
         return;
@@ -322,11 +471,16 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
         return;
     };
     let pens = app.doc.pens.clone();
+    let paper = app.doc.paper.clone();
+    let mut export_pages = false;
+    let mut a4 = false;
     let focus = std::mem::take(&mut app.focus_text);
     let mut duplicate = false;
     let mut delete = false;
+    let mut edit_color = None;
     let it = app.doc.get_mut(id).unwrap();
     let fillable = it.is_fillable();
+    let screened = it.is_screened();
 
     ui.add(egui::TextEdit::singleline(&mut it.name).font(egui::TextStyle::Heading).frame(false).desired_width(f32::INFINITY));
     ui.add_space(2.0);
@@ -334,63 +488,100 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     // Contenido específico.
     match &mut it.geometry {
         Geometry::Text(spec) => {
-            theme::section(ui, "TEXTO MANUSCRITO");
-            let te = ui.add(egui::TextEdit::multiline(&mut spec.text).desired_rows(3).desired_width(f32::INFINITY));
-            if focus {
-                te.request_focus();
+            theme::section(ui, "TEXTO Y PÁRRAFO");
+            let editor_id = egui::Id::new(("text-content", id));
+            let shortcut = ui.memory(|memory| memory.has_focus(editor_id))
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
+            let editor = egui::ScrollArea::vertical().id_salt(("text-editor-scroll", id))
+                .max_height(150.0).show(ui, |ui| {
+                    egui::TextEdit::multiline(&mut spec.text).desired_rows(6).desired_width(f32::INFINITY)
+                        .id(editor_id).hint_text("Escribe o pega tu texto completo…").show(ui)
+                }).inner;
+            if focus { editor.response.request_focus(); editor.response.scroll_to_me(Some(egui::Align::Min)); }
+            let mut page_break = shortcut;
+            ui.horizontal(|ui| {
+                page_break |= ui.button("Salto de página").on_hover_text("Insertar en el cursor · ⌘Enter").clicked();
+                if ui.button("Exportar páginas…").on_hover_text("Un SVG por página; los demás objetos se repiten en cada hoja").clicked() { export_pages = true; }
+            });
+            if page_break {
+                let range = editor.state.cursor.char_range().map(|range| range.sorted());
+                let (cursor, end) = range.map(|range| (range[0].index, range[1].index)).unwrap_or_else(|| { let end = spec.text.chars().count(); (end, end) });
+                let byte = spec.text.char_indices().nth(cursor).map(|(i, _)| i).unwrap_or(spec.text.len());
+                let end = spec.text.char_indices().nth(end).map(|(i, _)| i).unwrap_or(spec.text.len());
+                spec.text.replace_range(byte..end, "\u{c}");
+                let mut state = editor.state;
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor + 1))));
+                state.store(ui.ctx(), editor.response.id);
+                editor.response.request_focus();
             }
+
+            theme::section(ui, "CAJA DE TEXTO");
+            if !spec.is_frame() && ui.button("Convertir en caja de texto").clicked() {
+                spec.wrap_mm = spec.wrap_mm.max(120.0); spec.frame_height_mm = 100.0; spec.padding_mm = 2.0;
+            }
+            row(ui, "Ancho", |ui| { drag(ui, &mut spec.wrap_mm, 0.0..=2000.0, 0.5, " mm").on_hover_text("Ancho de la caja; 0 conserva el texto sin ajuste de línea"); });
+            row(ui, "Alto", |ui| { drag(ui, &mut spec.frame_height_mm, 0.0..=2000.0, 0.5, " mm").on_hover_text("Alto de la caja; 0 permite un texto sin límite vertical"); });
+            row(ui, "Margen", |ui| { drag(ui, &mut spec.padding_mm, 0.0..=25.0, 0.2, " mm"); });
+            ui.horizontal(|ui| {
+                let fit = ui.button("Ocupar hoja").clicked();
+                let folio = ui.button("Folio A4").on_hover_text("Papel A4 vertical y caja en su área útil").clicked();
+                if fit || folio {
+                    let target = if folio { Paper::presets().into_iter().find(|p| p.name == "A4 vertical").unwrap() } else { paper.clone() };
+                    spec.wrap_mm = target.width_mm - target.margin_mm * 2.0;
+                    spec.frame_height_mm = target.height_mm - target.margin_mm * 2.0;
+                    spec.padding_mm = 2.0;
+                    spec.page = 0;
+                    it.place = vectorio_core::Placement { pos: vectorio_core::p(target.margin_mm, target.margin_mm), ..Default::default() };
+                    a4 = folio;
+                }
+            });
+
+            theme::section(ui, "PÁRRAFO");
+            let label = |a: Align| match a { Align::Left => "Izquierda", Align::Center => "Centrado", Align::Right => "Derecha", Align::Justify => "Justificado" };
+            egui::ComboBox::from_id_salt("paragraph-align").width(ui.available_width()).selected_text(label(spec.align)).show_ui(ui, |ui| {
+                for a in [Align::Left, Align::Center, Align::Right, Align::Justify] { ui.selectable_value(&mut spec.align, a, label(a)); }
+            });
+            row(ui, "Interlínea", |ui| { drag(ui, &mut spec.line_height, 1.0..=3.5, 0.02, " ×"); });
+            row(ui, "Párrafos", |ui| { drag(ui, &mut spec.paragraph_spacing_mm, 0.0..=40.0, 0.2, " mm").on_hover_text("Espacio después de cada párrafo"); });
+            row(ui, "Sangría", |ui| { drag(ui, &mut spec.first_indent_mm, 0.0..=50.0, 0.2, " mm").on_hover_text("Primera línea del párrafo"); });
+            ui.checkbox(&mut spec.hyphenate, "Guionado automático en español");
+            let flow = font::compose(spec);
+            spec.page = spec.page.min(flow.page_count - 1);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(spec.page > 0, egui::Button::new("Anterior")).clicked() { spec.page -= 1; }
+                ui.label(format!("{} / {}", spec.page + 1, flow.page_count));
+                if ui.add_enabled(spec.page + 1 < flow.page_count, egui::Button::new("Siguiente")).clicked() { spec.page += 1; }
+            });
+            if flow.page_count > 1 { ui.label(egui::RichText::new("El texto continúa en las siguientes páginas.").small().weak()); }
+
+            theme::section(ui, "LETRA MANUSCRITA");
             row(ui, "Letra", |ui| {
                 let before = spec.style;
                 egui::ComboBox::from_id_salt("font-style").width(ui.available_width()).selected_text(spec.style.label()).show_ui(ui, |ui| {
-                    for (i, s) in FontStyle::ALL.into_iter().enumerate() {
-                        if i == 8 {
-                            ui.separator();
-                        }
-                        ui.selectable_value(&mut spec.style, s, s.label());
+                    for (i, style) in FontStyle::ALL.into_iter().enumerate() {
+                        if i == 8 { ui.separator(); }
+                        ui.selectable_value(&mut spec.style, style, style.label());
                     }
                 });
-                // Las letras de Hershey ya traen su inclinación; la propia queda mejor algo inclinada.
-                if spec.style != before && spec.style.is_builtin() != before.is_builtin() {
-                    spec.slant_deg = if spec.style.is_builtin() { 8.0 } else { 0.0 };
-                }
+                if spec.style != before && spec.style.is_builtin() != before.is_builtin() { spec.slant_deg = if spec.style.is_builtin() { 8.0 } else { 0.0 }; }
             });
-            if spec.style.joins() {
-                row(ui, "", |ui| {
-                    ui.checkbox(&mut spec.connect, "Unir letras").on_hover_text("Cada palabra en un solo trazo, sin levantar el rotulador");
-                });
-            }
-            row(ui, "Tamaño", |ui| {
-                drag(ui, &mut spec.size_mm, 1.0..=200.0, 0.1, " mm").on_hover_text("Altura de las mayúsculas");
+            row(ui, "Tamaño", |ui| { drag(ui, &mut spec.size_mm, 1.0..=200.0, 0.1, " mm").on_hover_text("Altura de las mayúsculas"); });
+            if spec.style.joins() { ui.checkbox(&mut spec.connect, "Unir letras"); }
+            egui::CollapsingHeader::new("Carácter y variación").id_salt("handwriting-details").show(ui, |ui| {
+                row(ui, "Inclinación", |ui| { drag(ui, &mut spec.slant_deg, -20.0..=30.0, 0.2, "°"); });
+                if spec.style.has_jitter() { row(ui, "Pulso", |ui| { ui.add(egui::Slider::new(&mut spec.jitter, 0.0..=2.0)); }); }
+                row(ui, "Espaciado", |ui| { drag(ui, &mut spec.letter_spacing, -0.3..=1.0, 0.01, " ×"); });
+                if ui.button("Otra variación de la letra").clicked() { spec.seed = spec.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) >> 1; }
             });
-            row(ui, "Inclinación", |ui| {
-                ui.add(egui::Slider::new(&mut spec.slant_deg, -20.0..=30.0).suffix("°"));
-            });
-            if spec.style.has_jitter() {
-                row(ui, "Pulso", |ui| {
-                    ui.add(egui::Slider::new(&mut spec.jitter, 0.0..=2.0)).on_hover_text("Imperfecciones de la mano: tamaño, giro, línea base y temblor");
-                });
-            }
-            row(ui, "Espaciado", |ui| {
-                ui.add(egui::Slider::new(&mut spec.letter_spacing, -0.3..=1.0));
-            });
-            row(ui, "Interlínea", |ui| {
-                ui.add(egui::Slider::new(&mut spec.line_height, 1.0..=3.0));
-            });
-            row(ui, "Alinear", |ui| {
-                for (a, l) in [(Align::Left, "Izq."), (Align::Center, "Centro"), (Align::Right, "Der.")] {
-                    ui.selectable_value(&mut spec.align, a, l);
-                }
-            });
-            row(ui, "Ancho", |ui| {
-                drag(ui, &mut spec.wrap_mm, 0.0..=1000.0, 0.5, " mm").on_hover_text("0 = sin ajuste de línea");
-            });
-            if ui.button("Otra variación de la letra").clicked() {
-                spec.seed = spec.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) >> 1;
-            }
         }
         Geometry::Shape(shape) => {
             theme::section(ui, &shape.label().to_uppercase());
             shape_params(ui, shape);
+        }
+        Geometry::Screened { lines, screen } => {
+            theme::section(ui, "TRAMA DE RELLENO");
+            ui.label(format!("{} · {} trazos", screen.label(), lines.len()));
+            ui.label(RichText::new("Relleno de Mezcla, formado por recorridos de tinta.").small().color(theme::current(ui.ctx()).secondary));
         }
         Geometry::Path { lines, closed } => {
             theme::section(ui, "TRAZADO");
@@ -418,6 +609,10 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
 
     ui.add_space(4.0);
     ui.separator();
+    if screened {
+        theme::section(ui, "COLOR DEL RELLENO");
+        ui.add_enabled_ui(!it.locked, |ui| ink_property(ui, "screened-pen", &pens, &mut it.fill.pen, true, &mut edit_color));
+    } else {
     theme::section(ui, "CONTORNO");
     let mut has_stroke = it.stroke.is_some();
     ui.horizontal(|ui| {
@@ -425,7 +620,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
             it.stroke = if has_stroke { Some(it.fill.pen) } else { None };
         }
         if let Some(pen) = it.stroke.as_mut() {
-            pen_combo(ui, "stroke-pen", &pens, pen);
+            ui.add_enabled_ui(!it.locked, |ui| ink_property(ui, "stroke-pen", &pens, pen, false, &mut edit_color));
         } else {
             ui.label(RichText::new("Sin contorno").weak());
         }
@@ -442,9 +637,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
             });
         });
         if fill.style != FillStyle::None {
-            row(ui, "Rotulador", |ui| {
-                pen_combo(ui, "fill-pen", &pens, &mut fill.pen);
-            });
+            ui.add_enabled_ui(!it.locked, |ui| ink_property(ui, "fill-pen", &pens, &mut fill.pen, true, &mut edit_color));
             if fill.style != FillStyle::Solid {
                 row(ui, "Separación", |ui| {
                     ui.add(egui::Slider::new(&mut fill.spacing_mm, 0.3..=10.0).suffix(" mm").logarithmic(true));
@@ -462,6 +655,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     });
     if !fillable {
         ui.label(RichText::new("Solo las figuras cerradas admiten relleno.").small().color(theme::current(ui.ctx()).secondary));
+    }
     }
 
     ui.add_space(4.0);
@@ -494,12 +688,41 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
             delete = true;
         }
     });
+    if a4 {
+        app.doc.paper = Paper::presets().into_iter().find(|p| p.name == "A4 vertical").unwrap();
+        app.view.fitted = false;
+    }
+    if export_pages { app.export_text_pages(ui.ctx(), id); }
     if duplicate {
         app.duplicate_selected();
     }
     if delete {
         app.delete_selected();
     }
+    if let Some(fill) = edit_color { app.edit_item_color(id, fill); }
+}
+
+fn pen_settings(app: &mut VectorioApp, ui: &mut Ui) {
+    let index = app.active_pen.min(app.doc.pens.len().saturating_sub(1));
+    let count = app.doc.items.iter().filter(|it| it.stroke == Some(index) || (it.has_fill() && it.fill.pen == index)).count();
+    let pal = theme::current(ui.ctx());
+    ui.heading("Rotulador");
+    ui.label(RichText::new(format!("Tinta compartida por {count} objetos")).color(pal.secondary));
+    ui.add_space(8.0);
+    ui.label("Nombre");
+    if ui.add(egui::TextEdit::singleline(&mut app.doc.pens[index].name).desired_width(f32::INFINITY)).changed() {
+        app.doc.pens[index].custom_name = true;
+    }
+    ui.add_space(4.0);
+    row(ui, "Color", |ui| {
+        let swatch = theme::swatch(ui, app.doc.pens[index].color, 28.0);
+        if ui.button("Cambiar…").clicked() || swatch.clicked() { app.edit_pen_color(index); }
+    });
+    row(ui, "Grosor", |ui| {
+        drag(ui, &mut app.doc.pens[index].width_mm, 0.1..=5.0, 0.01, " mm");
+    });
+    ui.add_space(8.0);
+    ui.label(RichText::new("El nombre y el color describen una tinta. El orden de los objetos se cambia en la lista de capas.").small().color(pal.secondary));
 }
 
 fn shape_params(ui: &mut Ui, shape: &mut Shape) {
@@ -584,7 +807,7 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
     ui.separator();
     theme::section(ui, "IDEAS PARA EMPEZAR");
     for tip in [
-        "T · clic en el papel y escribe a mano",
+        "T · arrastra una caja y escribe a mano",
         "P · dibuja a mano alzada; cierra la figura para rellenarla",
         "S · arrastra para crear formas y generativos",
         "I · convierte una foto en dibujo por colores",
@@ -602,11 +825,14 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let pal = theme::current(ui.ctx());
     ui.label(RichText::new(format!("{} objetos", ids.len())).heading());
     ui.label(RichText::new("Lo que cambies aquí se aplica a todos. Arrástralos para moverlos juntos.").small().color(pal.secondary));
-    let Some(first) = ids.iter().find_map(|id| app.doc.get(*id)).cloned() else { return };
+    let first = ids.iter().filter_map(|id| app.doc.get(*id)).find(|it| !it.is_screened()).cloned();
     let fillable: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.is_fillable())).collect();
+    let mut edit_ink = None;
+    let mut edit_all = None;
 
     ui.add_space(4.0);
     ui.separator();
+    if let Some(first) = first {
     theme::section(ui, "CONTORNO");
     let mut stroke = first.stroke;
     let mut has = stroke.is_some();
@@ -615,9 +841,9 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
         changed |= ui.checkbox(&mut has, "").changed();
         if has {
             let mut pen = stroke.unwrap_or(first.fill.pen);
-            if pen_combo(ui, "multi-stroke", &pens, &mut pen).changed() {
-                changed = true;
-            }
+            let old = pen;
+            ink_property(ui, "multi-stroke", &pens, &mut pen, false, &mut edit_all);
+            changed |= pen != old;
             stroke = Some(pen);
         } else {
             ui.label(RichText::new("Sin contorno").weak());
@@ -625,15 +851,32 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     });
     if changed {
         for id in &ids {
-            if let Some(it) = app.doc.get_mut(*id) {
+            if let Some(it) = app.doc.get_mut(*id).filter(|it| !it.is_screened()) {
                 // Sin contorno solo si el objeto tiene relleno; si no, desaparecería.
                 it.stroke = if has { stroke.or(Some(it.fill.pen)) } else if it.is_fillable() { None } else { it.stroke };
             }
         }
     }
 
+    }
+    let screened: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.is_screened())).collect();
+    if !screened.is_empty() {
+        theme::section(ui, "RELLENOS DE MEZCLA");
+        ui.label(RichText::new("Cada trama conserva su color.").small().color(pal.secondary));
+        for id in screened {
+            if let Some(it) = app.doc.get_mut(id) {
+                let name = it.name.clone();
+                ui.add(egui::Label::new(name).truncate());
+                let mut edit = None;
+                ui.add_enabled_ui(!it.locked, |ui| ink_property(ui, &format!("screened-{id}"), &pens, &mut it.fill.pen, true, &mut edit));
+                if edit.is_some() { edit_ink = Some(id); }
+            }
+        }
+    }
+
     if !fillable.is_empty() {
         theme::section(ui, "RELLENO");
+        if ui.button("Cambiar color de los rellenos…").clicked() { edit_all = Some(true); }
         let base = fillable.iter().find_map(|id| app.doc.get(*id)).map(|it| it.fill.clone()).unwrap_or_default();
         let mut f = base.clone();
         row(ui, "Estilo", |ui| {
@@ -702,4 +945,6 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
             app.set_selection(vec![]);
         }
     });
+    if let Some(fill) = edit_all { app.edit_items_color(&ids, fill); }
+    else if let Some(id) = edit_ink { app.edit_item_color(id, true); }
 }

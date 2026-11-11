@@ -14,11 +14,40 @@ pub struct Pen {
     pub color: [u8; 3],
     /// Ancho del trazo físico en mm.
     pub width_mm: f64,
+    /// Un nombre elegido por el usuario no cambia al editar la tinta.
+    #[serde(default)]
+    pub custom_name: bool,
 }
 
 impl Pen {
     pub fn new(name: &str, color: [u8; 3], width_mm: f64) -> Self {
-        Pen { name: name.into(), color, width_mm }
+        Pen { name: name.into(), color, width_mm, custom_name: false }
+    }
+
+    pub fn set_color(&mut self, color: [u8; 3]) {
+        if color == self.color { return; }
+        let automatic = !self.custom_name && (matches!(self.name.as_str(),
+            "Negro fino" | "Negro" | "Blanco" | "Gris" | "Rojo" | "Naranja" | "Amarillo" | "Verde" |
+            "Turquesa" | "Cian" | "Azul" | "Índigo" | "Violeta" | "Morado" | "Magenta" | "Rosa" | "Marrón")
+            || self.name.starts_with("Rotulador ") || self.name.starts_with("Tinta de "));
+        self.color = color;
+        if automatic { self.name = color_name(color).into(); }
+    }
+}
+
+fn color_name([r, g, b]: [u8; 3]) -> &'static str {
+    let (r, g, b) = (r as f32, g as f32, b as f32);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    if max < 48.0 { return "Negro"; }
+    if max - min < 24.0 { return if min > 225.0 { "Blanco" } else { "Gris" }; }
+    let d = max - min;
+    let h = (if max == r { (g - b) / d } else if max == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 }) * 60.0;
+    match h.rem_euclid(360.0) as u32 {
+        0..=14 | 345..=359 => "Rojo",
+        15..=44 => if max < 165.0 { "Marrón" } else { "Naranja" },
+        45..=74 => "Amarillo", 75..=164 => "Verde", 165..=194 => "Turquesa",
+        195..=254 => "Azul", 255..=294 => "Morado", _ => "Rosa",
     }
 }
 
@@ -87,6 +116,8 @@ impl Default for PlotSettings {
 pub enum Geometry {
     /// Trazados libres (mano alzada, vectorizado o SVG importado).
     Path { lines: Vec<Polyline>, closed: bool },
+    /// Trama de relleno ya vectorizada (Mezcla). Son recorridos de tinta, no contornos.
+    Screened { lines: Vec<Polyline>, screen: crate::mix::Screen },
     Text(TextSpec),
     Shape(Shape),
 }
@@ -122,6 +153,7 @@ impl Item {
     pub fn local_lines(&self) -> (Vec<Polyline>, bool) {
         match &self.geometry {
             Geometry::Path { lines, closed } => (lines.clone(), *closed),
+            Geometry::Screened { lines, .. } => (lines.clone(), false),
             Geometry::Text(spec) => (font::layout(spec), false),
             Geometry::Shape(s) => (vec![s.outline()], s.is_closed()),
         }
@@ -132,15 +164,38 @@ impl Item {
     }
 
     pub fn is_fillable(&self) -> bool {
-        self.local_lines().1
+        match &self.geometry {
+            Geometry::Path { closed, .. } => *closed,
+            Geometry::Shape(shape) => shape.is_closed(),
+            Geometry::Text(_) | Geometry::Screened { .. } => false,
+        }
+    }
+
+    pub fn is_screened(&self) -> bool { matches!(self.geometry, Geometry::Screened { .. }) }
+
+    pub fn has_fill(&self) -> bool {
+        self.is_screened() || (self.is_fillable() && self.fill.style != fill::FillStyle::None)
     }
 
     pub fn bbox(&self) -> BBox {
+        if let Geometry::Text(spec) = &self.geometry {
+            if spec.is_frame() {
+                return BBox::of([&vec![self.place.apply(P::default()), self.place.apply(crate::p(spec.wrap_mm, 0.0)),
+                    self.place.apply(crate::p(spec.wrap_mm, spec.frame_height_mm)), self.place.apply(crate::p(0.0, spec.frame_height_mm))]]);
+            }
+        }
         BBox::of(self.world_lines().iter())
     }
 
     /// ¿Toca el punto (mundo) el objeto? Dentro de figuras cerradas o cerca de un trazo.
     pub fn hit(&self, q: P, tol: f64) -> bool {
+        if let Geometry::Text(spec) = &self.geometry {
+            if spec.is_frame() {
+                let local = self.place.inverse(q);
+                let tol = tol / self.place.scale.max(1e-9);
+                return local.x >= -tol && local.y >= -tol && local.x <= spec.wrap_mm + tol && local.y <= spec.frame_height_mm + tol;
+            }
+        }
         let lines = self.world_lines();
         if !BBox::of(lines.iter()).contains(q, tol) {
             return false;
@@ -156,6 +211,10 @@ impl Item {
         let (local, closed) = self.local_lines();
         let world = self.place.apply_all(&local);
         let mut out = Vec::new();
+        if self.is_screened() {
+            if self.fill.pen < pens.len() { out.push((self.fill.pen, world)); }
+            return out;
+        }
         if closed && self.fill.style != fill::FillStyle::None && self.fill.pen < pens.len() {
             let w = pens[self.fill.pen].width_mm;
             let lines = fill::generate(&world, &self.fill, w, self.id);
@@ -213,6 +272,47 @@ impl Document {
         self.items.iter_mut().find(|i| i.id == id)
     }
 
+    /// Prepara una tinta independiente para editar solo el contorno o relleno de un
+    /// objeto. Reutiliza la tinta si ya es exclusiva; conserva el grosor físico.
+    pub fn isolate_ink(&mut self, id: u64, fill: bool) -> Option<usize> {
+        let it = self.get(id).filter(|it| !it.locked && (if fill { it.is_fillable() || it.is_screened() } else { !it.is_screened() }))?;
+        let old = if fill { it.fill.pen } else { it.stroke.unwrap_or(it.fill.pen) };
+        let name = format!("Tinta de {}", it.name);
+        let shared = self.items.iter().any(|other| {
+            ((other.id != id || fill) && other.stroke == Some(old))
+                || ((other.id != id || !fill) && other.fill.pen == old && other.has_fill())
+        });
+        let index = if shared || old >= self.pens.len() {
+            let mut pen = self.pens.get(old).cloned().unwrap_or_else(|| Pen::new("Tinta", [60, 60, 70], 0.8));
+            pen.name = name;
+            let index = self.pens.len();
+            self.pens.push(pen);
+            index
+        } else { old };
+        let it = self.get_mut(id)?;
+        if fill {
+            it.fill.pen = index;
+            if !it.is_screened() && it.fill.style == fill::FillStyle::None { it.fill.style = fill::FillStyle::Hatch; }
+        } else { it.stroke = Some(index); }
+        Some(index)
+    }
+
+    /// Asigna una tinta compartida de la paleta al contorno o al relleno de un objeto.
+    /// Las tramas solo tienen relleno; un relleno vacío pasa a rayado para verse.
+    pub fn assign_pen(&mut self, id: u64, pen: usize, fill: bool) -> bool {
+        if pen >= self.pens.len() { return false; }
+        let Some(it) = self.get_mut(id).filter(|it| !it.locked) else { return false };
+        let fill = fill || it.is_screened();
+        if fill {
+            if !it.is_fillable() && !it.is_screened() { return false; }
+            it.fill.pen = pen;
+            if !it.is_screened() && it.fill.style == fill::FillStyle::None { it.fill.style = fill::FillStyle::Hatch; }
+        } else {
+            it.stroke = Some(pen);
+        }
+        true
+    }
+
     /// Al borrar una plumilla, los objetos que la usaban pasan a la primera.
     pub fn remove_pen(&mut self, idx: usize) {
         if self.pens.len() <= 1 || idx >= self.pens.len() {
@@ -239,9 +339,8 @@ impl Document {
         }
     }
 
-    /// Mueve una plumilla a otra posición de la lista (orden de dibujo) y reordena los
-    /// objetos para que el lienzo coincida: lo que va con una plumilla posterior queda
-    /// encima. Devuelve el nuevo índice de cada plumilla antigua.
+    /// Reordena las tintas para el plotter sin alterar el orden visual de los objetos.
+    /// Devuelve el nuevo índice de cada plumilla antigua.
     pub fn move_pen(&mut self, from: usize, to: usize) -> Vec<usize> {
         let n = self.pens.len();
         let mut order: Vec<usize> = (0..n).collect();
@@ -260,14 +359,13 @@ impl Document {
             it.stroke = it.stroke.map(fix);
             it.fill.pen = fix(it.fill.pen);
         }
-        self.sort_items_by_pen();
         new_of
     }
 
     /// Plumilla principal de un objeto: la del relleno si está relleno, si no la del
     /// contorno.
     pub fn item_pen(it: &Item) -> usize {
-        if it.is_fillable() && it.fill.style != fill::FillStyle::None {
+        if it.has_fill() {
             it.fill.pen
         } else {
             it.stroke.unwrap_or(it.fill.pen)
@@ -277,6 +375,41 @@ impl Document {
     /// Ordena los objetos por plumilla (orden estable dentro de cada una).
     pub fn sort_items_by_pen(&mut self) {
         self.items.sort_by_cached_key(Document::item_pen);
+    }
+
+    /// Mueve una selección en el orden visual, conservando sus tintas y orden relativo.
+    /// `above` significa delante del objeto ancla (después en el vector).
+    pub fn move_items(&mut self, ids: &[u64], anchor: Option<(u64, bool)>) {
+        if anchor.is_some_and(|(id, _)| ids.contains(&id)) { return; }
+        let mut moving = Vec::new();
+        let mut rest = Vec::new();
+        for it in std::mem::take(&mut self.items) {
+            if ids.contains(&it.id) && !it.locked { moving.push(it); }
+            else { rest.push(it); }
+        }
+        let index = anchor.and_then(|(id, above)| rest.iter().position(|it| it.id == id).map(|i| i + usize::from(above)))
+            .unwrap_or(rest.len());
+        rest.splice(index..index, moving);
+        self.items = rest;
+    }
+
+    /// Reordena toda la selección sin cambiar sus tintas.
+    pub fn reorder_items(&mut self, ids: &[u64], forward: bool, edge: bool) {
+        let movable = |it: &Item| ids.contains(&it.id) && !it.locked;
+        let passes = if edge { self.items.len() } else { 1 };
+        for _ in 0..passes {
+            let mut changed = false;
+            let n = self.items.len();
+            for k in 0..n.saturating_sub(1) {
+                let i = if forward { n - 2 - k } else { k };
+                let (a, b) = (&self.items[i], &self.items[i + 1]);
+                if if forward { movable(a) && !movable(b) } else { !movable(a) && movable(b) } {
+                    self.items.swap(i, i + 1);
+                    changed = true;
+                }
+            }
+            if !changed { break; }
+        }
     }
 
     /// Plumilla más parecida a un color (distancia perceptual sencilla).
@@ -334,6 +467,16 @@ impl Document {
 mod tests {
     use super::*;
 
+    #[test]
+    fn empty_text_frame_can_be_selected_and_has_exact_bounds() {
+        let it = Item::new("Texto", Geometry::Text(TextSpec { text: String::new(), wrap_mm: 180.0, frame_height_mm: 267.0, ..Default::default() }), crate::p(15.0, 15.0));
+        assert_eq!(it.bbox().width(), 180.0);
+        assert_eq!(it.bbox().height(), 267.0);
+        assert!(it.hit(crate::p(100.0, 100.0), 0.0));
+        assert!(!it.hit(crate::p(200.0, 100.0), 0.0));
+        assert!(it.plot(&default_pens()).iter().all(|(_, lines)| lines.is_empty()));
+    }
+
     fn line(pen: usize) -> Item {
         let mut it = Item::new(format!("p{pen}"), Geometry::Path { lines: vec![vec![crate::geom::p(0.0, 0.0), crate::geom::p(1.0, 1.0)]], closed: false }, P::default());
         it.stroke = Some(pen);
@@ -341,19 +484,156 @@ mod tests {
     }
 
     #[test]
-    fn move_pen_keeps_colors_and_restacks_items() {
+    fn automatic_ink_names_follow_color_and_custom_names_are_preserved() {
+        let mut automatic = default_pens().remove(0);
+        automatic.set_color([150, 60, 180]);
+        assert_eq!(automatic.name, "Morado");
+        assert_eq!(automatic.width_mm, 0.4);
+        automatic.name = "Rotulador de Raúl".into();
+        automatic.custom_name = true;
+        automatic.set_color([20, 140, 60]);
+        assert_eq!(automatic.name, "Rotulador de Raúl");
+        let mut legacy_label = Pen::new("Edición especial", [1, 2, 3], 0.8);
+        legacy_label.set_color([200, 30, 40]);
+        assert_eq!(legacy_label.name, "Edición especial");
+    }
+
+    #[test]
+    fn moving_selection_preserves_inks_order_and_locked_objects() {
+        let mut d = Document::default();
+        let a = d.add(line(0));
+        let b = d.add(line(1));
+        let locked = d.add(line(2));
+        d.get_mut(locked).unwrap().locked = true;
+        let target = d.add(line(3));
+        let originals = d.items.clone();
+        d.move_items(&[b, locked, a], Some((target, true)));
+        assert_eq!(d.items.iter().map(|it| it.id).collect::<Vec<_>>(), vec![locked, target, a, b]);
+        for it in &originals { assert_eq!(d.get(it.id), Some(it)); }
+    }
+
+    #[test]
+    fn editing_object_ink_preserves_other_objects_and_reuses_exclusive_ink() {
+        let mut d = Document::default();
+        let a = d.add(line(1));
+        let b = d.add(line(1));
+        let width = d.pens[1].width_mm;
+        let index = d.isolate_ink(a, false).unwrap();
+        assert_ne!(index, 1);
+        d.pens[index].color = [12, 34, 56];
+        assert_eq!(d.get(b).unwrap().stroke, Some(1));
+        assert_eq!(d.pens[1].color, [214, 48, 49]);
+        assert_eq!(d.pens[index].width_mm, width);
+        let count = d.pens.len();
+        assert_eq!(d.isolate_ink(a, false), Some(index));
+        assert_eq!(d.pens.len(), count);
+    }
+
+    #[test]
+    fn editing_fill_color_keeps_outline_and_locked_objects_unchanged() {
+        let mut d = Document::default();
+        let mut it = Item::new("Figura", Geometry::Shape(Shape::Heart { size: 30.0 }), P::default());
+        it.stroke = Some(1);
+        it.fill.pen = 1;
+        it.fill.style = fill::FillStyle::Hatch;
+        let id = d.add(it);
+        let index = d.isolate_ink(id, true).unwrap();
+        assert_ne!(index, 1);
+        d.pens[index].color = [12, 34, 56];
+        assert_eq!(d.get(id).unwrap().stroke, Some(1));
+        assert_eq!(d.pens[1].color, [214, 48, 49]);
+        d.get_mut(id).unwrap().locked = true;
+        let before = d.clone();
+        assert_eq!(d.isolate_ink(id, false), None);
+        assert_eq!(d, before);
+    }
+
+    #[test]
+    fn screened_fill_keeps_its_ink_and_paths_when_saved_and_recolored() {
+        let mut d = Document::default();
+        let lines = vec![vec![crate::p(0.0, 0.0), crate::p(5.0, 0.0)]];
+        let mut it = Item::new("Mezcla", Geometry::Screened { lines: lines.clone(), screen: crate::mix::Screen::Hatch }, crate::p(20.0, 30.0));
+        it.stroke = None;
+        it.fill.pen = 1;
+        let id = d.add(it);
+        let other = d.add(line(1));
+        let mut restored = Document::from_json(&d.to_json()).unwrap();
+        assert_eq!(restored, d);
+        let index = restored.isolate_ink(id, true).unwrap();
+        assert_ne!(index, 1);
+        restored.pens[index].color = [1, 2, 3];
+        let it = restored.get(id).unwrap();
+        assert!(it.has_fill());
+        assert_eq!(it.stroke, None);
+        assert_eq!(it.plot(&restored.pens)[0], (index, vec![vec![crate::p(20.0, 30.0), crate::p(25.0, 30.0)]]));
+        assert_eq!(restored.get(other).unwrap().stroke, Some(1));
+        assert_eq!(restored.isolate_ink(id, false), None);
+    }
+
+    #[test]
+    fn dropping_a_palette_ink_assigns_outline_or_fill_and_respects_locks() {
+        let mut d = Document::default();
+        let a = d.add(line(0));
+        let b = d.add(line(0));
+        assert!(d.assign_pen(a, 2, false));
+        assert_eq!(d.get(a).unwrap().stroke, Some(2));
+        assert_eq!(d.get(b).unwrap().stroke, Some(0));
+        // Un trazo abierto no tiene relleno que recibir.
+        assert!(!d.assign_pen(a, 3, true));
+        assert!(!d.assign_pen(a, 99, false));
+        let shape = d.add(Item::new("Figura", Geometry::Shape(Shape::Heart { size: 30.0 }), P::default()));
+        assert!(d.assign_pen(shape, 3, true));
+        let it = d.get(shape).unwrap();
+        assert_eq!((it.fill.pen, it.fill.style), (3, fill::FillStyle::Hatch));
+        let mut screened = Item::new("Mezcla", Geometry::Screened { lines: vec![], screen: crate::mix::Screen::Hatch }, P::default());
+        screened.stroke = None;
+        let screened = d.add(screened);
+        assert!(d.assign_pen(screened, 1, false));
+        assert_eq!((d.get(screened).unwrap().fill.pen, d.get(screened).unwrap().stroke), (1, None));
+        d.get_mut(b).unwrap().locked = true;
+        let before = d.clone();
+        assert!(!d.assign_pen(b, 2, false));
+        assert_eq!(d, before);
+    }
+
+    #[test]
+    fn dropping_on_selection_does_not_change_document() {
+        let mut d = Document::default();
+        let id = d.add(line(0));
+        let before = d.clone();
+        d.move_items(&[id], Some((id, true)));
+        assert_eq!(d, before);
+    }
+
+    #[test]
+    fn reorder_selection_freely_across_colors_without_changing_inks() {
+        let mut d = Document::default();
+        let a = d.add(line(0));
+        let b = d.add(line(1));
+        let c = d.add(line(2));
+        let other = d.add(line(3));
+        let originals = d.items.clone();
+        d.reorder_items(&[a, b], true, false);
+        assert_eq!(d.items.iter().map(|it| it.id).collect::<Vec<_>>(), vec![c, a, b, other]);
+        d.reorder_items(&[a, b], true, true);
+        assert_eq!(d.items.iter().map(|it| it.id).collect::<Vec<_>>(), vec![c, other, a, b]);
+        d.reorder_items(&[a, b], false, true);
+        assert_eq!(d.items.iter().map(|it| it.id).collect::<Vec<_>>(), vec![a, b, c, other]);
+        for it in &originals { assert_eq!(d.get(it.id), Some(it)); }
+        d.get_mut(a).unwrap().locked = true;
+        let before = d.clone();
+        d.reorder_items(&[a], true, true);
+        assert_eq!(d, before);
+    }
+
+    #[test]
+    fn reordering_palette_keeps_object_order_and_colors() {
         let mut d = Document::default();
         d.pens.truncate(3);
-        let colors: Vec<_> = d.pens.iter().map(|p| p.color).collect();
-        for pen in [2, 0, 1] {
-            d.add(line(pen));
-        }
-        // La primera plumilla pasa al final: se dibuja la última y queda encima.
-        let new_of = d.move_pen(0, 2);
-        assert_eq!(new_of, vec![2, 0, 1]);
-        assert_eq!(d.pens[2].color, colors[0]);
-        // Cada objeto sigue con el mismo color y están ordenados por plumilla.
-        let got: Vec<_> = d.items.iter().map(|i| (i.name.clone(), d.pens[i.stroke.unwrap()].color)).collect();
-        assert_eq!(got, vec![("p1".into(), colors[1]), ("p2".into(), colors[2]), ("p0".into(), colors[0])]);
+        for pen in [2, 0, 1] { d.add(line(pen)); }
+        let before: Vec<_> = d.items.iter().map(|it| (it.id, d.pens[it.stroke.unwrap()].color)).collect();
+        assert_eq!(d.move_pen(0, 2), vec![2, 0, 1]);
+        let after: Vec<_> = d.items.iter().map(|it| (it.id, d.pens[it.stroke.unwrap()].color)).collect();
+        assert_eq!(before, after);
     }
 }

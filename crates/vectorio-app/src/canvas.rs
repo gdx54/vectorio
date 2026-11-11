@@ -64,6 +64,8 @@ pub enum Interaction {
     Rotate { id: u64, center: P, start_a: f64, orig: Placement },
     Draw(Vec<P>),
     Box(P, P),
+    TextBox(P, P),
+    ResizeText { id: u64, start: P, width: f64, height: f64, horizontal: bool, vertical: bool },
     /// Recuadro de selección (mm, desde dónde y hasta dónde).
     Marquee(P, P),
 }
@@ -104,6 +106,7 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
             paint_items(app, &painter, &xf, rect);
             if !modal {
                 tools(app, ui, &resp, &painter, &xf, &pal);
+                pen_drop(app, ui, &painter, &xf, rect);
             }
         }
         ViewMode::Plotter => {
@@ -210,6 +213,9 @@ fn add_line(shapes: &mut Vec<EShape>, pts: Vec<Pos2>, stroke: Stroke) {
     match pts.len() {
         0 => {}
         1 => shapes.push(EShape::circle_filled(pts[0], stroke.width / 2.0, stroke.color)),
+        // Un círculo diminuto puede quedar reducido a sus extremos coincidentes.
+        // Conservamos una marca de tinta en vez de enviar una línea de longitud cero.
+        2 if pts[0].distance_sq(pts[1]) < 1e-6 => shapes.push(EShape::circle_filled(pts[0], stroke.width / 2.0, stroke.color)),
         _ => shapes.push(EShape::line(pts, stroke)),
     }
 }
@@ -247,6 +253,39 @@ fn paint_items(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, clip: Rect) 
         }
     }
     painter.extend(shapes);
+}
+
+#[cfg(test)]
+mod rendering_tests {
+    use super::*;
+
+    #[test]
+    fn tiny_vectorized_dots_stay_visible_when_zoomed_out() {
+        // Puntillismo importado: un círculo de radio 0,15 mm, visto al 39 %.
+        let circle: Vec<P> = (0..=6).map(|i| p(0.15, 0.0).rotate(i as f64 / 6.0 * std::f64::consts::TAU)).collect();
+        let xf = Xf { origin: Pos2::new(100.0, 100.0), zoom: 1.47 };
+        let points = screen_line(&circle, &xf, &|q| q);
+        let mut shapes = Vec::new();
+        add_line(&mut shapes, points, Stroke::new(0.8f32, Color32::BLACK));
+        assert!(matches!(shapes.as_slice(), [EShape::Circle(circle)] if circle.radius > 0.0));
+    }
+}
+
+/// Una tinta arrastrada desde la paleta se puede soltar sobre un objeto del dibujo.
+fn pen_drop(app: &mut VectorioApp, ui: &egui::Ui, painter: &egui::Painter, xf: &Xf, rect: Rect) {
+    let Some(drag) = egui::DragAndDrop::payload::<inspector::PenDrag>(ui.ctx()).map(|d| *d) else { return };
+    // Solo cuando el puntero está sobre el lienzo y no sobre un panel flotante.
+    let Some(pos) = ui.ctx().pointer_latest_pos().filter(|p| rect.contains(*p) && ui.ctx().layer_id_at(*p) == Some(ui.layer_id())) else { return };
+    let Some(id) = hit_item(app, xf.mm(pos), 6.0 / xf.zoom as f64) else { return };
+    let alt = ui.input(|i| i.modifiers.alt);
+    let (Some(fill), Some(pen), Some(it)) = (inspector::pen_drop_fill(app, id, alt), app.doc.pens.get(drag.pen), app.doc.get(id)) else { return };
+    let bb = it.bbox();
+    painter.rect_stroke(Rect::from_two_pos(xf.s(bb.min), xf.s(bb.max)).expand(4.0), Rounding::same(4.0), Stroke::new(2.0f32, theme::pen_color(pen.color)));
+    inspector::set_drop_hint(ui.ctx(), inspector::drop_hint(app, id, fill));
+    if ui.input(|i| i.pointer.any_released()) {
+        app.doc.assign_pen(id, drag.pen, fill);
+        egui::DragAndDrop::clear_payload(ui.ctx());
+    }
 }
 
 fn hit_item(app: &VectorioApp, q: P, tol: f64) -> Option<u64> {
@@ -296,6 +335,13 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     let on_scale = sel_handles.map(|h| h.1);
                     let on_rot = sel_handles.map(|h| h.2);
                     match sel {
+                        Some((id, _, place, false)) if app.doc.get(id).is_some_and(|it| matches!(&it.geometry, Geometry::Text(spec) if spec.is_frame()))
+                            && sel_handles.is_some_and(|h| near(s, Some(h.0.right_center())) || near(s, Some(h.0.center_bottom())) || near(s, Some(h.1))) => {
+                            let Geometry::Text(spec) = &app.doc.get(id).unwrap().geometry else { unreachable!() };
+                            let h = sel_handles.unwrap();
+                            app.interaction = Interaction::ResizeText { id, start: place.inverse(q), width: spec.wrap_mm, height: spec.frame_height_mm,
+                                horizontal: !near(s, Some(h.0.center_bottom())), vertical: !near(s, Some(h.0.right_center())) };
+                        }
                         Some((id, bb, place, false)) if near(s, on_scale) => {
                             let c = bb.center();
                             app.interaction = Interaction::Scale { id, center: c, start_d: q.dist(c).max(1e-6), orig: place };
@@ -339,7 +385,10 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                 }
                 Tool::Draw => app.interaction = Interaction::Draw(vec![q]),
                 Tool::Shape => app.interaction = Interaction::Box(q, q),
-                Tool::Text => {}
+                Tool::Text => {
+                    let start = ui.input(|i| i.pointer.press_origin()).map(|s| xf.mm(s)).unwrap_or(q);
+                    app.interaction = Interaction::TextBox(start, q);
+                }
             }
         }
     }
@@ -376,6 +425,15 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     it.place.pos = c + (orig.pos - c) * k;
                 }
             }
+            Interaction::ResizeText { id, start, width, height, horizontal, vertical } => {
+                if let Some(it) = app.doc.get_mut(*id) {
+                    let delta = it.place.inverse(q) - *start;
+                    if let Geometry::Text(spec) = &mut it.geometry {
+                        if *horizontal { spec.wrap_mm = (*width + delta.x).clamp(15.0, 2000.0); }
+                        if *vertical { spec.frame_height_mm = (*height + delta.y).clamp(spec.size_mm * 1.4 + spec.padding() * 2.0, 2000.0); }
+                    }
+                }
+            }
             Interaction::Rotate { id, center, start_a, orig } => {
                 let mut da = (q.y - center.y).atan2(q.x - center.x) - *start_a;
                 if shift {
@@ -393,7 +451,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     pts.push(q);
                 }
             }
-            Interaction::Box(_, b) | Interaction::Marquee(_, b) => *b = q,
+            Interaction::Box(_, b) | Interaction::TextBox(_, b) | Interaction::Marquee(_, b) => *b = q,
             _ => {}
         }
     }
@@ -404,6 +462,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
         match std::mem::take(&mut app.interaction) {
             Interaction::Draw(pts) => finish_draw(app, pts),
             Interaction::Box(a, b) => finish_shape(app, a, b),
+            Interaction::TextBox(a, b) => finish_text(app, a, Some(b)),
             Interaction::Marquee(a, b) => {
                 let area = BBox { min: p(a.x.min(b.x), a.y.min(b.y)), max: p(a.x.max(b.x), a.y.max(b.y)) };
                 let mut ids = if add_mod { app.selection() } else { vec![] };
@@ -417,7 +476,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                 app.set_selection(ids);
             }
             Interaction::Pan => {}
-            other @ (Interaction::Move { .. } | Interaction::Scale { .. } | Interaction::Rotate { .. }) => {
+            other @ (Interaction::Move { .. } | Interaction::Scale { .. } | Interaction::Rotate { .. } | Interaction::ResizeText { .. }) => {
                 if !resp.drag_stopped() && ui.input(|i| i.pointer.any_down()) {
                     app.interaction = other;
                 }
@@ -441,16 +500,9 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     }
                 }
                 Tool::Text => {
-                    let mut item = Item::new(
-                        "Texto",
-                        Geometry::Text(TextSpec { text: "Escribe aquí".into(), seed: app.doc.next_id, ..Default::default() }),
-                        q,
-                    );
-                    item.stroke = Some(app.active_pen);
-                    item.fill.pen = app.active_pen;
-                    app.add_item(item);
-                    app.focus_text = true;
-                    app.tool = Tool::Select;
+                    if let Some(id) = hit_item(app, q, tol).filter(|id| app.doc.get(*id).is_some_and(|it| matches!(it.geometry, Geometry::Text(_)))) {
+                        app.set_selection(vec![id]); app.focus_text = true; app.tool = Tool::Select;
+                    } else { finish_text(app, q, None); }
                 }
                 Tool::Shape => finish_shape(app, q, q),
                 Tool::Draw => {}
@@ -505,6 +557,24 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     painter.rect_stroke(hr, Rounding::same(2.0), Stroke::new(1.5f32, acc));
                 }
             }
+            if let Geometry::Text(spec) = &it.geometry {
+                if spec.is_frame() {
+                    for handle in [r.right_center(), r.center_bottom()] {
+                        let rect = Rect::from_center_size(handle, Vec2::splat(8.0));
+                        painter.rect_filled(rect, 1.0, Color32::WHITE);
+                        painter.rect_stroke(rect, 1.0, Stroke::new(1.2f32, acc));
+                    }
+                    let pages = vectorio_core::font::compose(spec).page_count;
+                    if pages > 1 {
+                        painter.text(r.left_bottom() + Vec2::new(0.0, 16.0), egui::Align2::LEFT_TOP,
+                            format!("Página {} de {}", spec.page.min(pages - 1) + 1, pages), egui::FontId::proportional(12.0), acc);
+                    }
+                    if let Some(s) = resp.hover_pos() {
+                        if near(s, Some(r.right_center())) { ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal); }
+                        else if near(s, Some(r.center_bottom())) { ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical); }
+                    }
+                }
+            }
             if let Some(s) = resp.hover_pos() {
                 if s.distance(scale_h) < 9.0 {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
@@ -534,8 +604,28 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
             painter.rect_filled(r, Rounding::same(2.0), pal.accent.gamma_multiply(0.08));
             painter.rect_stroke(r, Rounding::same(2.0), Stroke::new(1.0f32, pal.accent.gamma_multiply(0.7)));
         }
+        Interaction::TextBox(a, b) => {
+            painter.rect_stroke(Rect::from_two_pos(xf.s(*a), xf.s(*b)), 1.0, Stroke::new(1.5f32, pal.accent));
+        }
         _ => {}
     }
+}
+
+fn finish_text(app: &mut VectorioApp, start: P, end: Option<P>) {
+    let paper = &app.doc.paper;
+    let (pos, width, height) = match end {
+        Some(end) => (p(start.x.min(end.x), start.y.min(end.y)), (end.x - start.x).abs().max(20.0), (end.y - start.y).abs().max(15.0)),
+        None => (start, (paper.width_mm - paper.margin_mm - start.x).clamp(50.0, 120.0), (paper.height_mm - paper.margin_mm - start.y).clamp(30.0, 90.0)),
+    };
+    let mut item = Item::new("Caja de texto", Geometry::Text(TextSpec {
+        text: String::new(), size_mm: 4.0, wrap_mm: width, frame_height_mm: height,
+        padding_mm: 2.0, hyphenate: true, seed: app.doc.next_id, ..Default::default()
+    }), pos);
+    item.stroke = Some(app.active_pen);
+    item.fill.pen = app.active_pen;
+    app.add_item(item);
+    app.focus_text = true;
+    app.tool = Tool::Select;
 }
 
 fn finish_draw(app: &mut VectorioApp, pts: Vec<P>) {
