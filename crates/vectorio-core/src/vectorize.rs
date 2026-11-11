@@ -73,6 +73,9 @@ pub struct VecParams {
     /// Ajustes de color aplicados a la foto antes de interpretarla.
     #[serde(default)]
     pub adjust: crate::adjust::ColorAdjust,
+    /// Colores de los rotuladores elegidos para la mezcla con «Mis rotuladores».
+    #[serde(default)]
+    pub mix_pens: Vec<[u8; 3]>,
 }
 
 fn default_palette() -> MixPalette {
@@ -96,6 +99,7 @@ impl Default for VecParams {
             engrave_amp: 0.9,
             mix_palette: MixPalette::Cmyk,
             adjust: Default::default(),
+            mix_pens: vec![],
         }
     }
 }
@@ -443,6 +447,13 @@ fn engrave_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
 fn mix_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     let blurred = if prm.blur > 0.05 { imageops::blur(rgb, prm.blur) } else { rgb.clone() };
     let mut pens: Vec<(Option<&'static str>, [u8; 3])> = prm.mix_palette.pens().into_iter().map(|(n, c)| (Some(n), c)).collect();
+    if prm.mix_palette == MixPalette::Mine {
+        pens = prm.mix_pens.iter().map(|c| (None, *c)).collect();
+        pens.dedup_by_key(|p| p.1);
+        if pens.is_empty() {
+            pens = MixPalette::Cmyk.pens().into_iter().map(|(n, c)| (Some(n), c)).collect();
+        }
+    }
     if pens.is_empty() {
         let pixels: Vec<[u8; 3]> = blurred.pixels().map(|p| p.0).collect();
         pens = kmeans(&pixels, prm.colors, 7).into_iter().map(to_u8).filter(|c| luma(*c) < 235.0).map(|c| (None, c)).collect();
@@ -485,6 +496,14 @@ mod tests {
         let r = vectorize(&test_image(), &VecParams { colors: 4, ..Default::default() });
         assert!(r.layers.len() >= 2);
         assert!(r.layers.iter().all(|l| l.closed));
+    }
+
+    #[test]
+    fn mix_with_my_pens_uses_exactly_those_colours() {
+        let mine = vec![[214, 48, 49], [9, 92, 196]];
+        let r = vectorize(&test_image(), &VecParams { mode: VecMode::Mix, mix_palette: MixPalette::Mine, mix_pens: mine.clone(), ..Default::default() });
+        assert!(!r.layers.is_empty());
+        assert!(r.layers.iter().all(|l| mine.contains(&l.color)), "{:?}", r.layers.iter().map(|l| l.color).collect::<Vec<_>>());
     }
 
     #[test]

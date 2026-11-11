@@ -189,17 +189,11 @@ impl VectorioApp {
         }
         match std::mem::take(&mut self.interaction) {
             Interaction::None | Interaction::Pan => {}
-            Interaction::Move { orig, .. } => {
+            Interaction::Move { orig, .. } | Interaction::Scale { orig, .. } | Interaction::Rotate { orig, .. } => {
                 for (id, place) in orig {
                     if let Some(it) = self.doc.get_mut(id) {
                         it.place = place;
                     }
-                }
-                return;
-            }
-            Interaction::Scale { id, orig, .. } | Interaction::Rotate { id, orig, .. } => {
-                if let Some(it) = self.doc.get_mut(id) {
-                    it.place = orig;
                 }
                 return;
             }

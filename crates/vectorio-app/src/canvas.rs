@@ -60,8 +60,9 @@ pub enum Interaction {
     Pan,
     /// Mueve todos los objetos seleccionados (sin bloquear) a la vez.
     Move { start: P, orig: Vec<(u64, Placement)> },
-    Scale { id: u64, center: P, start_d: f64, orig: Placement },
-    Rotate { id: u64, center: P, start_a: f64, orig: Placement },
+    /// Escala o gira uno o varios objetos alrededor del centro de la selección.
+    Scale { center: P, start_d: f64, orig: Vec<(u64, Placement)> },
+    Rotate { center: P, start_a: f64, orig: Vec<(u64, Placement)> },
     Draw(Vec<P>),
     Box(P, P),
     TextBox(P, P),
@@ -298,6 +299,36 @@ fn handles(bb: &BBox, xf: &Xf) -> (Rect, Pos2, Pos2) {
     (r, r.right_bottom(), Pos2::new(r.center().x, r.top() - 22.0))
 }
 
+/// Recuadro común de varios objetos y la colocación de los que se pueden mover.
+fn group_of(app: &VectorioApp, ids: &[u64]) -> Option<(BBox, Vec<(u64, Placement)>)> {
+    let mut all = BBox::empty();
+    let mut orig = Vec::new();
+    for it in ids.iter().filter_map(|id| app.doc.get(*id)) {
+        let bb = it.bbox();
+        if !bb.is_empty() {
+            all.union(&bb);
+        }
+        if !it.locked {
+            orig.push((it.id, it.place));
+        }
+    }
+    (!all.is_empty() && !orig.is_empty()).then_some((all, orig))
+}
+
+fn draw_handles(painter: &egui::Painter, r: Rect, scale_h: Pos2, rot_h: Pos2, acc: Color32) {
+    painter.line_segment([Pos2::new(r.center().x, r.top()), rot_h], Stroke::new(1.0f32, acc));
+    for (h, round) in [(scale_h, false), (rot_h, true)] {
+        if round {
+            painter.circle_filled(h, 5.0, Color32::WHITE);
+            painter.circle_stroke(h, 5.0, Stroke::new(1.5f32, acc));
+        } else {
+            let hr = Rect::from_center_size(h, Vec2::splat(9.0));
+            painter.rect_filled(hr, Rounding::same(2.0), Color32::WHITE);
+            painter.rect_stroke(hr, Rounding::same(2.0), Stroke::new(1.5f32, acc));
+        }
+    }
+}
+
 fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
     let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
     let tol = 6.0 / xf.zoom as f64;
@@ -317,12 +348,14 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
         Tool::Select => {}
     }
 
-    // Selección actual y sus asas (escalar y girar solo con un objeto).
+    // Selección actual y sus asas. Con varios objetos, las asas son las del recuadro
+    // común y escalan o giran todos juntos (sin mover los bloqueados).
     let selection = app.selection();
     let single = selection.len() <= 1;
     let sel = app.selected.filter(|_| single).and_then(|id| app.doc.get(id)).map(|it| (it.id, it.bbox(), it.place, it.locked));
+    let group = (!single).then(|| group_of(app, &selection)).flatten();
     let add_mod = ui.input(|i| i.modifiers.shift || i.modifiers.command);
-    let sel_handles = sel.as_ref().map(|(_, bb, _, _)| handles(bb, xf));
+    let sel_handles = sel.as_ref().map(|(_, bb, _, _)| handles(bb, xf)).or_else(|| group.as_ref().map(|(bb, _)| handles(bb, xf)));
     let near = |a: Pos2, b: Option<Pos2>| b.is_some_and(|b| a.distance(b) < 9.0);
 
     // Inicio de gestos con el botón principal.
@@ -344,11 +377,20 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                         }
                         Some((id, bb, place, false)) if near(s, on_scale) => {
                             let c = bb.center();
-                            app.interaction = Interaction::Scale { id, center: c, start_d: q.dist(c).max(1e-6), orig: place };
+                            app.interaction = Interaction::Scale { center: c, start_d: q.dist(c).max(1e-6), orig: vec![(id, place)] };
                         }
                         Some((id, bb, place, false)) if near(s, on_rot) => {
                             let c = bb.center();
-                            app.interaction = Interaction::Rotate { id, center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig: place };
+                            app.interaction = Interaction::Rotate { center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig: vec![(id, place)] };
+                        }
+                        None if group.is_some() && (near(s, on_scale) || near(s, on_rot)) => {
+                            let (bb, orig) = group.clone().unwrap();
+                            let c = bb.center();
+                            app.interaction = if near(s, on_scale) {
+                                Interaction::Scale { center: c, start_d: q.dist(c).max(1e-6), orig }
+                            } else {
+                                Interaction::Rotate { center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig }
+                            };
                         }
                         _ => {
                             let target = match sel {
@@ -417,12 +459,13 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     *o = orig;
                 }
             }
-            Interaction::Scale { id, center, start_d, orig } => {
+            Interaction::Scale { center, start_d, orig } => {
                 let k = (q.dist(*center) / *start_d).clamp(0.01, 100.0);
-                let (id, c, orig) = (*id, *center, *orig);
-                if let Some(it) = app.doc.get_mut(id) {
-                    it.place.scale = orig.scale * k;
-                    it.place.pos = c + (orig.pos - c) * k;
+                let c = *center;
+                for (id, place) in orig.clone() {
+                    if let Some(it) = app.doc.get_mut(id) {
+                        it.place = place.around(c, k, 0.0);
+                    }
                 }
             }
             Interaction::ResizeText { id, start, width, height, horizontal, vertical } => {
@@ -434,16 +477,17 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     }
                 }
             }
-            Interaction::Rotate { id, center, start_a, orig } => {
+            Interaction::Rotate { center, start_a, orig } => {
                 let mut da = (q.y - center.y).atan2(q.x - center.x) - *start_a;
                 if shift {
                     let step = 15f64.to_radians();
                     da = (da / step).round() * step;
                 }
-                let (id, c, orig) = (*id, *center, *orig);
-                if let Some(it) = app.doc.get_mut(id) {
-                    it.place.rotation_deg = (orig.rotation_deg + da.to_degrees()).rem_euclid(360.0);
-                    it.place.pos = c + (orig.pos - c).rotate(da);
+                let c = *center;
+                for (id, place) in orig.clone() {
+                    if let Some(it) = app.doc.get_mut(id) {
+                        it.place = place.around(c, 1.0, da.to_degrees());
+                    }
                 }
             }
             Interaction::Draw(pts) => {
@@ -538,7 +582,18 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
             all.union(&bb);
         }
         if !all.is_empty() {
-            painter.rect_stroke(Rect::from_min_max(xf.s(all.min), xf.s(all.max)).expand(6.0), Rounding::same(3.0), Stroke::new(1.2f32, pal.accent));
+            let (r, scale_h, rot_h) = handles(&all, xf);
+            painter.rect_stroke(r, Rounding::same(3.0), Stroke::new(1.2f32, pal.accent));
+            if group.is_some() {
+                draw_handles(painter, r, scale_h, rot_h, pal.accent);
+                if let Some(s) = resp.hover_pos() {
+                    if s.distance(scale_h) < 9.0 {
+                        ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
+                    } else if s.distance(rot_h) < 9.0 {
+                        ui.ctx().set_cursor_icon(CursorIcon::Alias);
+                    }
+                }
+            }
         }
     }
     if let Some(it) = app.selected_item().filter(|_| single) {
@@ -546,17 +601,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
         let acc = pal.accent;
         painter.rect_stroke(r, Rounding::same(3.0), Stroke::new(1.2f32, acc));
         if !it.locked {
-            painter.line_segment([Pos2::new(r.center().x, r.top()), rot_h], Stroke::new(1.0f32, acc));
-            for (h, round) in [(scale_h, false), (rot_h, true)] {
-                if round {
-                    painter.circle_filled(h, 5.0, Color32::WHITE);
-                    painter.circle_stroke(h, 5.0, Stroke::new(1.5f32, acc));
-                } else {
-                    let hr = Rect::from_center_size(h, Vec2::splat(9.0));
-                    painter.rect_filled(hr, Rounding::same(2.0), Color32::WHITE);
-                    painter.rect_stroke(hr, Rounding::same(2.0), Stroke::new(1.5f32, acc));
-                }
-            }
+            draw_handles(painter, r, scale_h, rot_h, acc);
             if let Geometry::Text(spec) = &it.geometry {
                 if spec.is_frame() {
                     for handle in [r.right_center(), r.center_bottom()] {

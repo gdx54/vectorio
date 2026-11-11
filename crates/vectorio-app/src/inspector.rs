@@ -4,7 +4,7 @@ use crate::app::{VectorioApp, PAPER_TINTS};
 use crate::theme;
 use egui::{RichText, Ui};
 use vectorio_core::geom::{chaikin, simplify};
-use vectorio_core::{Align, Document, Fill, FillStyle, FontStyle, Geometry, Paper, Pen, Shape, TraceParams, TraceStyle, Vibe};
+use vectorio_core::{Align, Document, DotShape, Fill, FillStyle, FontStyle, Geometry, Paper, Pen, Shape, TraceParams, TraceStyle, Vibe};
 use crate::styles;
 use vectorio_core::font;
 
@@ -489,12 +489,31 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
     let pal = theme::current(ui.ctx());
     theme::section(ui, "MEZCLA");
     let mut mode = None;
+    let fan_id = egui::Id::new("mix-fan");
+    let full_id = egui::Id::new("mix-full-look");
+    let mut fan: f64 = ui.data_mut(|d| *d.get_persisted_mut_or(fan_id, 180.0));
+    let mut full: bool = ui.data_mut(|d| *d.get_persisted_mut_or(full_id, false));
     ui.horizontal(|ui| {
-        if ui.button("Cruzar").on_hover_text("Cada tinta con su ángulo, repartidos en 180°: las líneas se cruzan como en una cuatricromía.").clicked() { mode = Some(Mix::Cross); }
+        if ui.button("Cruzar").on_hover_text("Cada tinta con su ángulo, repartidos en el abanico: las líneas se cruzan como en una cuatricromía.").clicked() { mode = Some(Mix::Cross); }
         if ui.button("Entrelazar").on_hover_text("Mismo estilo y ángulo para todas, cada tinta en su hueco: las líneas se alternan sin pisarse.").clicked() { mode = Some(Mix::Interleave); }
         if ui.button("Relevo").on_hover_text("Todas las tintas comparten las mismas líneas y se pasan el trazo: cada tramo lo pinta el color que hay debajo.").clicked() { mode = Some(Mix::Relay); }
     });
+    row(ui, "Abanico", |ui| {
+        ui.add(egui::Slider::new(&mut fan, 15.0..=180.0).suffix("°"))
+            .on_hover_text("Al cruzar: en cuántos grados se reparten los ángulos de las tintas. Con 180° quedan lo más separadas posible; con menos, se cruzan en rombos alargados.");
+    });
+    ui.checkbox(&mut full, "Entrelazar con el trazo completo")
+        .on_hover_text("Al entrelazar, todas las tintas copian también el largo, la vibración, la irregularidad y demás ajustes de la primera, no solo el estilo y el ángulo.");
+    ui.data_mut(|d| {
+        d.insert_persisted(fan_id, fan);
+        d.insert_persisted(full_id, full);
+    });
     if let Some(mode) = mode {
+        let mode = match mode {
+            Mix::Cross => Mix::CrossFan(fan),
+            Mix::Interleave if full => Mix::InterleaveFull,
+            m => m,
+        };
         mix_inks(&mut app.doc, members, mode);
     }
     let relay = members.iter().filter(|id| app.doc.get(**id).and_then(|it| it.traced()).is_some_and(|t| t.trace.relay)).count();
@@ -520,7 +539,9 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Mix {
     Cross,
+    CrossFan(f64),
     Interleave,
+    InterleaveFull,
     Relay,
 }
 
@@ -530,7 +551,14 @@ fn mix_inks(doc: &mut Document, ids: &[u64], mode: Mix) {
     let mut params: Vec<TraceParams> = live.iter().filter_map(|id| doc.get(*id)?.traced()).map(|t| t.trace.clone()).collect();
     match mode {
         Mix::Cross => vectorio_core::mix_cross(&mut params),
+        Mix::CrossFan(fan) => vectorio_core::mix_cross_fan(&mut params, fan),
         Mix::Interleave => vectorio_core::mix_interleave(&mut params),
+        Mix::InterleaveFull => {
+            vectorio_core::mix_interleave(&mut params);
+            if let Some(first) = params.first().cloned() {
+                for t in params.iter_mut().skip(1) { t.adopt(&first); }
+            }
+        }
         Mix::Relay => vectorio_core::mix_relay(&mut params),
     }
     for (id, trace) in live.iter().zip(params) {
@@ -620,7 +648,7 @@ fn fill_trace_controls(ui: &mut Ui, fill: &mut Fill) {
     });
 }
 
-fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, busy: bool) -> TraceParams {
+pub fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, busy: bool) -> TraceParams {
     let pal = theme::current(ui.ctx());
     let mut t = base.clone();
     let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
@@ -633,6 +661,7 @@ fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, b
         let hover = if t.style == TraceStyle::Flow { "Dirección de las líneas en las zonas lisas, lejos de los bordes del color." } else { "Dirección de las líneas." };
         row(ui, label, |ui| { ui.add(egui::Slider::new(&mut t.angle_deg, 0.0..=180.0).suffix("°")).on_hover_text(hover); });
     }
+    style_specific_controls(ui, &mut t, many);
     if t.relay && !t.style.uses_dashes() && t.style != TraceStyle::Dots {
         row(ui, "Largo", |ui| {
             ui.add(egui::Slider::new(&mut t.dash_mm, 0.5..=60.0).logarithmic(true).suffix(" mm"))
@@ -675,6 +704,7 @@ fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, b
                 .on_hover_text("La vibración crece en los oscuros y se calma en los claros.");
         }
     }
+    advanced_trace_controls(ui, title, &mut t);
     if busy {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -684,12 +714,121 @@ fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, b
     t
 }
 
-/// Selector de estilo de trazo en dos filas de tres.
+/// Controles propios de cada estilo: pasadas, centro, onda y forma de los puntos.
+fn style_specific_controls(ui: &mut Ui, t: &mut TraceParams, many: bool) {
+    let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
+    if t.style.uses_passes() {
+        row(ui, "Pasadas", |ui| {
+            ui.add(egui::Slider::new(&mut t.passes, 1..=4))
+                .on_hover_text("En los oscuros se añaden capas cruzadas, cada una girada 180° entre las pasadas. Con 1, una sola capa.");
+        });
+    }
+    if t.style == TraceStyle::Waves {
+        row(ui, "Onda", |ui| {
+            ui.add(egui::Slider::new(&mut t.wave_mm, 0.3..=20.0).logarithmic(true).suffix(" mm"))
+                .on_hover_text("Distancia entre dos crestas en los claros; en los oscuros las ondas se aprietan.");
+        });
+    }
+    if t.style.uses_center() {
+        row(ui, "Centro X", |ui| { ui.add(egui::Slider::new(&mut t.center[0], -0.5..=1.5).custom_formatter(percent)).on_hover_text("Posición horizontal del centro (0 % borde izquierdo, 100 % borde derecho)."); });
+        row(ui, "Centro Y", |ui| { ui.add(egui::Slider::new(&mut t.center[1], -0.5..=1.5).custom_formatter(percent)).on_hover_text("Posición vertical del centro (0 % arriba, 100 % abajo)."); });
+    }
+    if t.style == TraceStyle::Dots {
+        row(ui, "Forma", |ui| { crate::app::choice(ui, &mut t.dot_shape, &DotShape::ALL.map(|d| (d, d.label()))); });
+        row(ui, "Tamaño", |ui| {
+            ui.add(egui::Slider::new(&mut t.dot_mm, 0.0..=4.0).custom_formatter(|v, _| if v <= 0.0 { "Auto".into() } else { format!("{v:.1} mm") }))
+                .on_hover_text("Tamaño de cada marca. En Auto, los círculos son del grueso del rotulador y las cruces y rayas, de casi una separación. Un círculo grande se rellena.");
+        });
+        if t.dot_shape != DotShape::Circle {
+            let label = if many { "Girar" } else { "Ángulo" };
+            row(ui, label, |ui| { ui.add(egui::Slider::new(&mut t.angle_deg, 0.0..=180.0).suffix("°")).on_hover_text("Dirección de las rayas y las cruces."); });
+        }
+    }
+}
+
+/// Apartados plegables con el control fino del trazo: tono, largo de línea,
+/// irregularidad y deformación. Se abren solos si ya tienen algo cambiado.
+fn advanced_trace_controls(ui: &mut Ui, title: &str, t: &mut TraceParams) {
+    let d = TraceParams::default();
+    let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
+    let group = |ui: &mut Ui, name: &str, open: bool, add: &mut dyn FnMut(&mut Ui)| {
+        egui::CollapsingHeader::new(name).id_salt((title, name)).default_open(open).show(ui, |ui| add(ui));
+    };
+    group(ui, "Claros y oscuros", t.tone_floor != d.tone_floor || t.tone_curve != d.tone_curve, &mut |ui| {
+        row(ui, "Umbral", |ui| {
+            ui.add(egui::Slider::new(&mut t.tone_floor, 0.0..=0.9).custom_formatter(percent))
+                .on_hover_text("Por debajo de este tono no se dibuja nada: limpia los claros y deja solo lo importante.");
+        });
+        row(ui, "Curva", |ui| {
+            ui.add(egui::Slider::new(&mut t.tone_curve, -1.0..=1.0).custom_formatter(|v, _| format!("{v:+.2}")))
+                .on_hover_text("Hacia la derecha, los medios tonos llevan más tinta; hacia la izquierda, menos (más contraste).");
+        });
+    });
+    if t.style != TraceStyle::Dots {
+        group(ui, "Largo de línea", t.max_len_mm != d.max_len_mm, &mut |ui| {
+            row(ui, "Máximo", |ui| {
+                ui.add(egui::Slider::new(&mut t.max_len_mm, 0.0..=80.0).custom_formatter(|v, _| if v <= 0.0 { "Sin límite".into() } else { format!("{v:.1} mm") }))
+                    .on_hover_text("Ninguna línea mide más que esto: se parte en trozos y el rotulador se levanta entre ellos. «Variación» hace que los trozos no midan todos lo mismo.");
+            });
+            if t.max_len_mm > 0.0 {
+                row(ui, "Hueco", |ui| {
+                    ui.add(egui::Slider::new(&mut t.gap_mm, 0.0..=6.0).suffix(" mm")).on_hover_text("Espacio sin pintar entre los trozos de una línea.");
+                });
+                if !t.style.uses_dashes() {
+                    row(ui, "Variación", |ui| {
+                        ui.add(egui::Slider::new(&mut t.dash_vary, 0.0..=1.0).custom_formatter(percent)).on_hover_text("Que no todos los trozos midan lo mismo.");
+                    });
+                }
+            }
+        });
+    }
+    let angled = t.style.uses_angle_jitter() && !(t.style == TraceStyle::Dots && t.dot_shape == DotShape::Circle);
+    if t.style.uses_jitter() || angled {
+        group(ui, "Irregularidad", t.jitter != d.jitter || t.angle_jitter_deg != d.angle_jitter_deg, &mut |ui| {
+            if t.style.uses_jitter() {
+                let hover = match t.style {
+                    TraceStyle::Hatch | TraceStyle::Waves => "Cada línea se aparta de su sitio: la separación deja de ser regular. En Ondas, además, cada línea ondula a destiempo.",
+                    TraceStyle::Flow => "Cada línea guarda una distancia distinta con sus vecinas.",
+                    TraceStyle::Dots => "Los puntos se salen de la rejilla.",
+                    TraceStyle::Contour | TraceStyle::Circles => "Los anillos dejan de estar a la misma distancia.",
+                    TraceStyle::Radial => "Los rayos nacen a distancias distintas del centro.",
+                    TraceStyle::Hilbert => "Cada esquina del laberinto se mueve un poco, como dibujado a mano.",
+                    _ => "Rompe la regularidad del dibujo.",
+                };
+                row(ui, "Desorden", |ui| { ui.add(egui::Slider::new(&mut t.jitter, 0.0..=1.0).custom_formatter(percent)).on_hover_text(hover); });
+            }
+            if angled {
+                row(ui, "Giro", |ui| {
+                    ui.add(egui::Slider::new(&mut t.angle_jitter_deg, 0.0..=45.0).suffix("°"))
+                        .on_hover_text("Cuánto se tuerce cada línea o marca de su ángulo, al azar.");
+                });
+            }
+        });
+    }
+    group(ui, "Deformación", t.warp_mm != d.warp_mm, &mut |ui| {
+        row(ui, "Fuerza", |ui| {
+            ui.add(egui::Slider::new(&mut t.warp_mm, 0.0..=8.0).suffix(" mm"))
+                .on_hover_text("Ondula todo el trazo como una tela movida. Es igual para todas las tintas, así que las mezclas siguen encajando, y nunca se sale del color.");
+        });
+        if t.warp_mm > 0.0 {
+            row(ui, "Escala", |ui| {
+                ui.add(egui::Slider::new(&mut t.warp_scale_mm, 2.0..=80.0).logarithmic(true).suffix(" mm")).on_hover_text("Tamaño de las ondas de la deformación: pequeñas o amplias.");
+            });
+        }
+    });
+}
+
+/// Selector de estilo de trazo en filas de cuatro, cuatro y tres.
 pub fn style_choice(ui: &mut Ui, style: &mut TraceStyle) -> bool {
     let all = TraceStyle::ALL.map(|s| (s, s.label()));
-    let first = crate::app::choice(ui, style, &all[..3]);
-    ui.add_space(2.0);
-    crate::app::choice(ui, style, &all[3..]) || first
+    let mut changed = false;
+    for (i, chunk) in all.chunks(4).enumerate() {
+        if i > 0 {
+            ui.add_space(2.0);
+        }
+        changed |= crate::app::choice(ui, style, chunk);
+    }
+    changed
 }
 
 /// Aplica a cada tinta viva solo lo que ha cambiado; el ángulo se suma como giro.
@@ -708,7 +847,13 @@ fn apply_trace_params(t: &mut TraceParams, base: &TraceParams, new: &TraceParams
     macro_rules! copy_changed {
         ($($f:ident),*) => { $( if new.$f != base.$f { t.$f = new.$f; } )* };
     }
-    copy_changed!(style, spacing_mm, dash_mm, dash_vary, weight, vibe, vibe_mm, wave_mm, vibe_by_tone, phase);
+    copy_changed!(
+        style, spacing_mm, dash_mm, dash_vary, weight, vibe, vibe_mm, wave_mm, vibe_by_tone, phase, tone_floor, tone_curve, max_len_mm, gap_mm, jitter,
+        angle_jitter_deg, warp_mm, warp_scale_mm, passes, dot_mm, dot_shape
+    );
+    for k in 0..2 {
+        if new.center[k] != base.center[k] { t.center[k] = new.center[k]; }
+    }
     if new.angle_deg != base.angle_deg { t.angle_deg = (t.angle_deg + new.angle_deg - base.angle_deg).rem_euclid(180.0); }
 }
 
@@ -1188,6 +1333,54 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
 }
 
 /// Inspector con varios objetos: los cambios se aplican a todos a la vez.
+/// Tamaño, giro y centrado de varios objetos a la vez, alrededor del centro del
+/// recuadro común, sin descolocarlos entre sí. Los bloqueados no se mueven.
+fn group_layout_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
+    let mut all = vectorio_core::geom::BBox::empty();
+    for it in ids.iter().filter_map(|id| app.doc.get(*id)) {
+        let bb = it.bbox();
+        if !bb.is_empty() {
+            all.union(&bb);
+        }
+    }
+    if all.is_empty() {
+        return;
+    }
+    let (w, h, c) = (all.max.x - all.min.x, all.max.y - all.min.y, all.center());
+    let (mut new_w, mut new_h) = (w, h);
+    let mut turn = 0.0;
+    let mut center_on_paper = false;
+    theme::section(ui, "TAMAÑO Y GIRO");
+    ui.horizontal(|ui| {
+        ui.label("Ancho");
+        drag(ui, &mut new_w, 1.0..=5000.0, 0.5, " mm");
+        ui.label("Alto");
+        drag(ui, &mut new_h, 1.0..=5000.0, 0.5, " mm");
+    });
+    ui.horizontal(|ui| {
+        ui.label("Girar");
+        for (label, deg, tip) in [("↺ 90°", -90.0, "Girar a la izquierda"), ("↻ 90°", 90.0, "Girar a la derecha"), ("↻ 15°", 15.0, "Girar un poco")] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                turn = deg;
+            }
+        }
+    });
+    if ui.button("Centrar en el papel").clicked() {
+        center_on_paper = true;
+    }
+    ui.label(RichText::new("También con las asas del recuadro: la esquina escala y el círculo gira (⇧ de 15 en 15°).").small().color(theme::current(ui.ctx()).secondary));
+    let k = if new_w != w { new_w / w.max(1e-6) } else if new_h != h { new_h / h.max(1e-6) } else { 1.0 };
+    let shift = if center_on_paper { vectorio_core::p(app.doc.paper.width_mm / 2.0, app.doc.paper.height_mm / 2.0) - c } else { vectorio_core::p(0.0, 0.0) };
+    if k != 1.0 || turn != 0.0 || center_on_paper {
+        for id in ids {
+            if let Some(it) = app.doc.get_mut(*id).filter(|it| !it.locked) {
+                it.place = it.place.around(c, k, turn);
+                it.place.pos = it.place.pos + shift;
+            }
+        }
+    }
+}
+
 fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let ids = app.selection();
     let pens = app.doc.pens.clone();
@@ -1205,6 +1398,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
 
     ui.add_space(4.0);
     ui.separator();
+    group_layout_section(app, ui, &ids);
     if let Some(group) = group {
         photo_section(app, ui, group);
     }
@@ -1418,6 +1612,27 @@ mod tests {
         for word in ["ESTILOS", "Curvas de nivel", "Contornos", "Espiral", "Garabato"] {
             assert!(both.contains(word), "falta «{word}» con dos tintas elegidas:\n{both}");
         }
+    }
+
+    #[test]
+    fn each_style_shows_its_own_fine_controls() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let mut it = Item::new("Corazón", Geometry::Shape(vectorio_core::Shape::Heart { size: 40.0 }), p(0.0, 0.0));
+        it.fill.style = vectorio_core::FillStyle::Trace;
+        let id = app.doc.add(it);
+        app.selected = Some(id);
+        let t = panel_texts(&mut app, &ctx);
+        for word in ["Pasadas", "Claros y oscuros", "Largo de línea", "Irregularidad", "Deformación", "Ondas", "Laberinto"] {
+            assert!(t.contains(word), "falta «{word}» en el rayado:\n{t}");
+        }
+        assert!(!t.contains("Centro X") && !t.contains("Forma"));
+        app.doc.get_mut(id).unwrap().fill.trace.style = TraceStyle::Dots;
+        let t = panel_texts(&mut app, &ctx);
+        assert!(t.contains("Forma") && t.contains("Cruz") && !t.contains("Pasadas"), "{t}");
+        app.doc.get_mut(id).unwrap().fill.trace.style = TraceStyle::Radial;
+        let t = panel_texts(&mut app, &ctx);
+        assert!(t.contains("Centro X") && t.contains("Centro Y"), "{t}");
     }
 
     #[test]

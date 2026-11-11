@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use vectorio_core::{TraceParams, TraceStyle, Vibe};
+use vectorio_core::{DotShape, TraceParams, TraceStyle, Vibe};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SavedStyle {
@@ -23,7 +23,15 @@ pub fn presets() -> Vec<SavedStyle> {
         style("Ondas", TraceParams { spacing_mm: 1.2, dash_mm: 40.0, vibe: Vibe::Wave, vibe_mm: 0.5, wave_mm: 2.0, ..base.clone() }),
         style("Espiral", TraceParams { style: TraceStyle::Spiral, spacing_mm: 1.0, dash_mm: 6.0, ..base.clone() }),
         style("Garabato", TraceParams { style: TraceStyle::Scribble, spacing_mm: 0.9, ..base.clone() }),
-        style("Puntillismo", TraceParams { style: TraceStyle::Dots, spacing_mm: 1.2, weight: 0.6, ..base }),
+        style("Puntillismo", TraceParams { style: TraceStyle::Dots, spacing_mm: 1.2, weight: 0.6, ..base.clone() }),
+        style("Cruzado", TraceParams { spacing_mm: 1.0, dash_mm: 30.0, passes: 3, ..base.clone() }),
+        style("A mano", TraceParams { spacing_mm: 0.9, dash_mm: 14.0, dash_vary: 0.7, jitter: 0.6, angle_jitter_deg: 6.0, max_len_mm: 18.0, ..base.clone() }),
+        style("Seda", TraceParams { style: TraceStyle::Waves, spacing_mm: 1.0, wave_mm: 3.0, warp_mm: 2.5, warp_scale_mm: 25.0, ..base.clone() }),
+        style("Sol", TraceParams { style: TraceStyle::Radial, spacing_mm: 1.0, dash_mm: 10.0, dash_vary: 0.5, ..base.clone() }),
+        style("Diana", TraceParams { style: TraceStyle::Circles, spacing_mm: 0.9, dash_mm: 12.0, ..base.clone() }),
+        style("Teselas", TraceParams { style: TraceStyle::Truchet, spacing_mm: 0.9, ..base.clone() }),
+        style("Laberinto", TraceParams { style: TraceStyle::Hilbert, spacing_mm: 1.0, dash_mm: 20.0, ..base.clone() }),
+        style("Cruces", TraceParams { style: TraceStyle::Dots, spacing_mm: 1.4, dot_shape: DotShape::Cross, angle_deg: 45.0, angle_jitter_deg: 10.0, ..base }),
     ]
 }
 

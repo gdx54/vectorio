@@ -24,23 +24,26 @@ pub enum MixPalette {
     Ryb,
     /// Los colores principales de la propia foto.
     Photo,
+    /// Los rotuladores del documento que se elijan (`VecParams::mix_pens`).
+    Mine,
 }
 
 impl MixPalette {
-    pub const ALL: [MixPalette; 3] = [MixPalette::Cmyk, MixPalette::Ryb, MixPalette::Photo];
+    pub const ALL: [MixPalette; 4] = [MixPalette::Cmyk, MixPalette::Ryb, MixPalette::Photo, MixPalette::Mine];
     pub fn label(self) -> &'static str {
         match self {
             MixPalette::Cmyk => "Cian · magenta · amarillo · negro",
             MixPalette::Ryb => "Rojo · amarillo · azul · negro",
             MixPalette::Photo => "Colores de la foto",
+            MixPalette::Mine => "Mis rotuladores",
         }
     }
-    /// Rotuladores fijos de la paleta (vacío en `Photo`).
+    /// Rotuladores fijos de la paleta (vacío en `Photo` y `Mine`).
     pub fn pens(self) -> Vec<(&'static str, [u8; 3])> {
         match self {
             MixPalette::Cmyk => vec![("Amarillo", [250, 214, 30]), ("Magenta", [226, 0, 122]), ("Cian", [0, 160, 226]), ("Negro", [30, 30, 34])],
             MixPalette::Ryb => vec![("Amarillo", [247, 200, 30]), ("Rojo", [214, 48, 49]), ("Azul", [9, 92, 196]), ("Negro", [30, 30, 34])],
-            MixPalette::Photo => vec![],
+            MixPalette::Photo | MixPalette::Mine => vec![],
         }
     }
 }
@@ -56,11 +59,15 @@ pub struct ScreenParams {
     /// Ángulo del primer rotulador; los demás se reparten en 180°.
     pub angle_deg: f64,
     pub pen_width_mm: f64,
+    /// Resto del trazo (largo, irregularidad, deformación…). Estilo, separación y ángulo
+    /// son los de arriba.
+    #[serde(default)]
+    pub trace: TraceParams,
 }
 
 impl Default for ScreenParams {
     fn default() -> Self {
-        ScreenParams { screen: Screen::Hatch, spacing_mm: 1.0, angle_deg: 15.0, pen_width_mm: 0.6 }
+        ScreenParams { screen: Screen::Hatch, spacing_mm: 1.0, angle_deg: 15.0, pen_width_mm: 0.6, trace: TraceParams::default() }
     }
 }
 
@@ -142,7 +149,7 @@ pub fn screen_angle(prm: &ScreenParams, index: usize, count: usize) -> f64 {
 
 /// Ajustes de trama del rotulador `index` de `count` para el motor de tramas.
 pub fn trace_params(prm: &ScreenParams, index: usize, count: usize) -> TraceParams {
-    TraceParams { style: prm.screen, spacing_mm: prm.spacing_mm, angle_deg: screen_angle(prm, index, count).rem_euclid(360.0), ..Default::default() }
+    TraceParams { style: prm.screen, spacing_mm: prm.spacing_mm, angle_deg: screen_angle(prm, index, count).rem_euclid(360.0), relay: false, phase: 0.0, ..prm.trace.clone() }
 }
 
 /// Trama de un mapa de cobertura, en mm con origen en la esquina superior izquierda de

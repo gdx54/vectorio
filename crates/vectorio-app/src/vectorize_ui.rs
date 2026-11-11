@@ -11,7 +11,7 @@ use vectorio_core::mix::{self, MixPalette, Screen, ScreenParams};
 use vectorio_core::vectorize::{self, VecMode, VecParams, VecResult};
 use vectorio_core::photo::EncodedImage;
 use vectorio_core::trace::TraceKey;
-use vectorio_core::{fill, p, ColorAdjust, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, Traced};
+use vectorio_core::{fill, p, ColorAdjust, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, TraceParams, Traced};
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"];
 
@@ -41,7 +41,7 @@ impl Default for Look {
             angle: 45.0,
             vary_angle: false,
             outline: false,
-            screen: ScreenParams { screen: Screen::Hatch, spacing_mm: 0.9, angle_deg: 15.0, pen_width_mm: 0.6 },
+            screen: ScreenParams { screen: Screen::Hatch, spacing_mm: 0.9, angle_deg: 15.0, pen_width_mm: 0.6, ..Default::default() },
         }
     }
 }
@@ -674,6 +674,9 @@ impl VectorizeUi {
                 if prm.mix_palette == MixPalette::Photo {
                     field(ui, "Colores", |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=8)));
                 }
+                if prm.mix_palette == MixPalette::Mine {
+                    my_pens(ui, prm, doc);
+                }
             }
             VecMode::Lines | VecMode::Silhouette => {
                 let mut auto = prm.threshold < 0;
@@ -729,9 +732,17 @@ impl VectorizeUi {
                 }
             }
             VecMode::Mix => {
-                theme::section(ui, "TRAMA INICIAL");
-                crate::inspector::style_choice(ui, &mut look.screen.screen);
-                field(ui, "Separación", |ui| ui.add(egui::Slider::new(&mut look.screen.spacing_mm, 0.4..=4.0).logarithmic(true).suffix(" mm")));
+                // Los mismos controles que el panel derecho; el ángulo es el de la primera
+                // tinta y las demás se reparten en 180°.
+                let sc = &mut look.screen;
+                let base = TraceParams { style: sc.screen, spacing_mm: sc.spacing_mm, angle_deg: sc.angle_deg, ..sc.trace.clone() };
+                let new = crate::inspector::trace_controls_in(ui, "TRAMA INICIAL", &base, false, false);
+                if new != base {
+                    sc.screen = new.style;
+                    sc.spacing_mm = new.spacing_mm;
+                    sc.angle_deg = new.angle_deg;
+                    sc.trace = new;
+                }
                 field(ui, "Grosor punta", |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")).on_hover_text("Grosor de los rotuladores nuevos"));
                 ui.label(RichText::new("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.").small().color(pal.secondary));
             }
@@ -869,6 +880,42 @@ const SAME_INK: f64 = 6.0;
 
 fn color_distance(a: [u8; 3], b: [u8; 3]) -> f64 {
     a.iter().zip(b).map(|(&x, y)| (x as f64 - y as f64).powi(2)).sum::<f64>().sqrt()
+}
+
+/// Elección de los rotuladores del documento que forman la mezcla («Mis rotuladores»).
+/// Al principio están todos menos los casi blancos.
+fn my_pens(ui: &mut egui::Ui, prm: &mut VecParams, doc: &Document) {
+    let pal = theme::current(ui.ctx());
+    let light = |c: [u8; 3]| 0.2126 * c[0] as f32 + 0.7152 * c[1] as f32 + 0.0722 * c[2] as f32 > 235.0;
+    if prm.mix_pens.is_empty() {
+        prm.mix_pens = doc.pens.iter().map(|p| p.color).filter(|c| !light(*c)).collect();
+    }
+    ui.label(RichText::new("Toca un rotulador para quitarlo o ponerlo en la mezcla.").small().color(pal.secondary));
+    ui.horizontal_wrapped(|ui| {
+        for pen in &doc.pens {
+            let on = prm.mix_pens.contains(&pen.color);
+            let [r, g, b] = pen.color;
+            let size = egui::vec2(26.0, 26.0);
+            let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+            let painter = ui.painter();
+            painter.circle_filled(rect.center(), 10.0, egui::Color32::from_rgb(r, g, b));
+            if on {
+                painter.circle_stroke(rect.center(), 12.0, egui::Stroke::new(2.0_f32, pal.accent));
+            } else {
+                painter.circle_filled(rect.center(), 10.0, egui::Color32::from_white_alpha(150));
+            }
+            let resp = resp.on_hover_text(if on { format!("{} · en la mezcla", pen.name) } else { format!("{} · fuera de la mezcla", pen.name) });
+            if resp.clicked() {
+                if on {
+                    if prm.mix_pens.len() > 1 {
+                        prm.mix_pens.retain(|c| *c != pen.color);
+                    }
+                } else {
+                    prm.mix_pens.push(pen.color);
+                }
+            }
+        }
+    });
 }
 
 fn choice_color(doc: &Document, c: &PenChoice) -> [u8; 3] {

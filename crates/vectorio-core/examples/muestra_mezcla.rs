@@ -8,7 +8,7 @@ fn main() {
     let dots = args.get(3).is_some();
     let res = vectorize::vectorize(&img, &VecParams { mode: VecMode::Mix, max_px: 600, ..Default::default() });
     let k = 200.0 / res.width;
-    let prm = ScreenParams { screen: if dots { Screen::Dots } else { Screen::Hatch }, spacing_mm: if dots { 0.9 } else { 0.8 }, angle_deg: 15.0, pen_width_mm: 0.5 };
+    let prm = ScreenParams { screen: if dots { Screen::Dots } else { Screen::Hatch }, spacing_mm: if dots { 0.9 } else { 0.8 }, angle_deg: 15.0, pen_width_mm: 0.5, ..Default::default() };
     let mut svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="{0}mm" height="{1}mm" viewBox="0 0 {0} {1}"><rect width="100%" height="100%" fill="white"/>"#, res.width * k, res.height * k);
     let n = res.layers.len();
     for (i, l) in res.layers.iter().enumerate() {

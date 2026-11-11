@@ -29,4 +29,4 @@ pub use geom::{p, BBox, Placement, Polyline, P};
 pub use photo::Photo;
 pub use shapes::Shape;
 pub use shared::Shared;
-pub use trace::{mix_cross, mix_interleave, mix_relay, Coverage, Relay, TraceKey, TraceParams, TraceStyle, Traced, Vibe};
+pub use trace::{mix_cross, mix_cross_fan, mix_interleave, mix_relay, Coverage, DotShape, Relay, TraceKey, TraceParams, TraceStyle, Traced, Vibe};

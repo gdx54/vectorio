@@ -125,6 +125,38 @@ impl Placement {
     pub fn apply_all(&self, lines: &[Polyline]) -> Vec<Polyline> {
         lines.iter().map(|l| l.iter().map(|q| self.apply(*q)).collect()).collect()
     }
+    /// La misma colocación tras escalar `k` veces y girar `deg` grados alrededor de
+    /// `center`: varios objetos transformados así conservan su disposición.
+    pub fn around(&self, center: P, k: f64, deg: f64) -> Placement {
+        Placement {
+            pos: center + ((self.pos - center) * k).rotate(deg.to_radians()),
+            scale: self.scale * k,
+            rotation_deg: (self.rotation_deg + deg).rem_euclid(360.0),
+        }
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn transforming_around_a_center_keeps_the_layout() {
+        let a = Placement { pos: crate::p(10.0, 0.0), scale: 1.0, rotation_deg: 0.0 };
+        let b = Placement { pos: crate::p(30.0, 5.0), scale: 2.0, rotation_deg: 30.0 };
+        let c = crate::p(20.0, 0.0);
+        let (q1, q2) = (crate::p(3.0, 1.0), crate::p(-2.0, 4.0));
+        let before = a.apply(q1).dist(b.apply(q2));
+        let (a2, b2) = (a.around(c, 1.5, 70.0), b.around(c, 1.5, 70.0));
+        // Distancias multiplicadas por la escala y el centro, quieto.
+        assert!((a2.apply(q1).dist(b2.apply(q2)) - before * 1.5).abs() < 1e-9);
+        let fixed = Placement { pos: c, ..Default::default() };
+        assert!(fixed.around(c, 3.0, 45.0).pos.dist(c) < 1e-9);
+        // Un punto del mundo sigue la misma transformación sea cual sea el objeto.
+        let w = a.apply(q1);
+        let expected = c + ((w - c) * 1.5).rotate(70f64.to_radians());
+        assert!(a2.apply(q1).dist(expected) < 1e-9);
+    }
 }
 
 pub fn length(l: &[P]) -> f64 {

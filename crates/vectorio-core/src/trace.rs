@@ -25,10 +25,33 @@ pub enum TraceStyle {
     Spiral,
     /// Garabato: un trazo continuo que se enreda más donde hay más color.
     Scribble,
+    /// Ondas: líneas paralelas que ondulan más (y más apretado) donde hay más color.
+    Waves,
+    /// Círculos: anillos concéntricos alrededor de un centro.
+    Circles,
+    /// Rayos: líneas desde un centro; hacia fuera nacen rayos nuevos para mantener la
+    /// separación.
+    Radial,
+    /// Teselas de Truchet: losetas con arcos en esquinas opuestas, giradas al azar.
+    Truchet,
+    /// Laberinto: una curva de Hilbert que recorre el mapa sin cruzarse.
+    Hilbert,
 }
 
 impl TraceStyle {
-    pub const ALL: [TraceStyle; 6] = [TraceStyle::Hatch, TraceStyle::Flow, TraceStyle::Dots, TraceStyle::Contour, TraceStyle::Spiral, TraceStyle::Scribble];
+    pub const ALL: [TraceStyle; 11] = [
+        TraceStyle::Hatch,
+        TraceStyle::Waves,
+        TraceStyle::Flow,
+        TraceStyle::Contour,
+        TraceStyle::Dots,
+        TraceStyle::Scribble,
+        TraceStyle::Spiral,
+        TraceStyle::Circles,
+        TraceStyle::Radial,
+        TraceStyle::Truchet,
+        TraceStyle::Hilbert,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             TraceStyle::Hatch => "Rayado",
@@ -37,6 +60,11 @@ impl TraceStyle {
             TraceStyle::Contour => "Contornos",
             TraceStyle::Spiral => "Espiral",
             TraceStyle::Scribble => "Garabato",
+            TraceStyle::Waves => "Ondas",
+            TraceStyle::Circles => "Círculos",
+            TraceStyle::Radial => "Rayos",
+            TraceStyle::Truchet => "Teselas",
+            TraceStyle::Hilbert => "Laberinto",
         }
     }
     pub fn help(self) -> &'static str {
@@ -47,19 +75,63 @@ impl TraceStyle {
             TraceStyle::Contour => "Curvas de nivel que rodean cada mancha de color hacia dentro.",
             TraceStyle::Spiral => "Una sola espiral que se ondula más donde hay más color. Con varias tintas, cada centro se desplaza y aparece moiré.",
             TraceStyle::Scribble => "Un trazo continuo que se enreda más donde hay más color.",
+            TraceStyle::Waves => "Líneas paralelas que ondulan más fuerte y más apretado donde hay más color.",
+            TraceStyle::Circles => "Anillos alrededor de un centro, troceados según el tono. Con varias tintas aparece moiré.",
+            TraceStyle::Radial => "Rayos desde un centro; hacia fuera nacen rayos nuevos para que la separación no crezca.",
+            TraceStyle::Truchet => "Losetas de arcos giradas al azar que forman caminos entrelazados; más arcos donde hay más color.",
+            TraceStyle::Hilbert => "Una curva de Hilbert que recorre todo el color sin cruzarse, troceada según el tono.",
         }
     }
     /// ¿Tiene sentido el ángulo en este estilo? (En Flujo manda en las zonas lisas.)
     pub fn uses_angle(self) -> bool {
-        matches!(self, TraceStyle::Hatch | TraceStyle::Flow)
+        matches!(self, TraceStyle::Hatch | TraceStyle::Flow | TraceStyle::Waves | TraceStyle::Radial)
     }
     /// ¿Se trocea en tramos según el tono (largo y variación tienen sentido)?
     pub fn uses_dashes(self) -> bool {
-        matches!(self, TraceStyle::Hatch | TraceStyle::Flow | TraceStyle::Contour | TraceStyle::Spiral)
+        matches!(
+            self,
+            TraceStyle::Hatch | TraceStyle::Flow | TraceStyle::Contour | TraceStyle::Spiral | TraceStyle::Circles | TraceStyle::Radial | TraceStyle::Hilbert
+        )
     }
-    /// ¿Admite vibración? (Los puntos no son líneas y la espiral ya se ondula sola.)
+    /// ¿Admite vibración? (Los puntos no son líneas; la espiral y las ondas ya ondulan.)
     pub fn uses_vibe(self) -> bool {
-        !matches!(self, TraceStyle::Dots | TraceStyle::Spiral)
+        !matches!(self, TraceStyle::Dots | TraceStyle::Spiral | TraceStyle::Waves)
+    }
+    /// ¿Se dibuja alrededor de un centro que se puede mover?
+    pub fn uses_center(self) -> bool {
+        matches!(self, TraceStyle::Spiral | TraceStyle::Circles | TraceStyle::Radial)
+    }
+    /// ¿Admite pasadas cruzadas (más capas en los oscuros, cada una con otro ángulo)?
+    pub fn uses_passes(self) -> bool {
+        matches!(self, TraceStyle::Hatch | TraceStyle::Waves)
+    }
+    /// ¿Admite desorden (separación o posición irregular)?
+    pub fn uses_jitter(self) -> bool {
+        !matches!(self, TraceStyle::Spiral | TraceStyle::Scribble | TraceStyle::Truchet)
+    }
+    /// ¿Admite que cada línea (o marca) se tuerza un poco de su ángulo?
+    pub fn uses_angle_jitter(self) -> bool {
+        matches!(self, TraceStyle::Hatch | TraceStyle::Waves | TraceStyle::Radial | TraceStyle::Dots)
+    }
+}
+
+/// Forma de cada marca en Puntos.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DotShape {
+    #[default]
+    Circle,
+    Cross,
+    Dash,
+}
+
+impl DotShape {
+    pub const ALL: [DotShape; 3] = [DotShape::Circle, DotShape::Cross, DotShape::Dash];
+    pub fn label(self) -> &'static str {
+        match self {
+            DotShape::Circle => "Círculo",
+            DotShape::Cross => "Cruz",
+            DotShape::Dash => "Raya",
+        }
     }
 }
 
@@ -117,6 +189,29 @@ pub struct TraceParams {
     /// Relevo: las tintas de la foto que lo tienen comparten las mismas líneas y se
     /// pasan el trazo según el color que hay debajo.
     pub relay: bool,
+    /// Tono por debajo del cual no se dibuja nada (0–0,9): limpia los claros.
+    pub tone_floor: f64,
+    /// Curva de tonos (−1…1): positivo da más tinta a los medios, negativo menos.
+    pub tone_curve: f64,
+    /// Largo máximo de una línea antes de levantar el rotulador, mm (0: sin límite).
+    pub max_len_mm: f64,
+    /// Hueco entre los trozos de una línea partida por el largo máximo, mm.
+    pub gap_mm: f64,
+    /// Desorden (0–1): separación, posición o arranque irregular según el estilo.
+    pub jitter: f64,
+    /// Cuánto se tuerce cada línea o marca de su ángulo, grados (al azar, ±).
+    pub angle_jitter_deg: f64,
+    /// Deformación suave de todo el trazo, como una tela ondulada, mm (0: nada).
+    pub warp_mm: f64,
+    /// Tamaño de las ondas de la deformación, mm.
+    pub warp_scale_mm: f64,
+    /// Pasadas cruzadas (1–4): en los oscuros se añaden capas con otros ángulos.
+    pub passes: u8,
+    /// Centro de Espiral, Círculos y Rayos, en fracciones del mapa (0–1).
+    pub center: [f64; 2],
+    /// Tamaño de cada marca en Puntos, mm (0: el del rotulador).
+    pub dot_mm: f64,
+    pub dot_shape: DotShape,
 }
 
 impl Default for TraceParams {
@@ -134,6 +229,18 @@ impl Default for TraceParams {
             vibe_by_tone: true,
             phase: 0.0,
             relay: false,
+            tone_floor: 0.0,
+            tone_curve: 0.0,
+            max_len_mm: 0.0,
+            gap_mm: 0.8,
+            jitter: 0.0,
+            angle_jitter_deg: 0.0,
+            warp_mm: 0.0,
+            warp_scale_mm: 15.0,
+            passes: 1,
+            center: [0.5, 0.5],
+            dot_mm: 0.0,
+            dot_shape: DotShape::Circle,
         }
     }
 }
@@ -148,10 +255,16 @@ impl TraceParams {
 
 /// Mezcla cruzada: cada tinta con su ángulo, repartidos en 180°, como en una cuatricromía.
 pub fn mix_cross(inks: &mut [TraceParams]) {
+    mix_cross_fan(inks, 180.0);
+}
+
+/// Mezcla cruzada con un abanico de `fan_deg` grados: con menos de 180° los ángulos
+/// quedan más juntos y las tintas se cruzan en rombos alargados.
+pub fn mix_cross_fan(inks: &mut [TraceParams], fan_deg: f64) {
     let n = inks.len().max(1) as f64;
     let a0 = inks.first().map(|t| t.angle_deg).unwrap_or(0.0);
     for (i, t) in inks.iter_mut().enumerate() {
-        t.angle_deg = (a0 + 180.0 * i as f64 / n).rem_euclid(180.0);
+        t.angle_deg = (a0 + fan_deg * i as f64 / n).rem_euclid(180.0);
         t.phase = 0.0;
         t.relay = false;
     }
@@ -313,7 +426,7 @@ impl Traced {
 /// Trama de un mapa de cobertura, en mm con origen en la esquina superior izquierda del
 /// mapa. `mm_per_px` es el tamaño en el papel de cada píxel; `seed` intercala tintas.
 pub fn render(cov: &Grid<f32>, mm_per_px: f64, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
-    let field = Field::new(cov, mm_per_px);
+    let field = Field::new(cov, mm_per_px).toned(prm);
     let lines = base_lines(&field, prm, pen_width_mm, seed);
     if prm.weight <= 0.0 || prm.style == TraceStyle::Dots {
         return lines;
@@ -321,22 +434,162 @@ pub fn render(cov: &Grid<f32>, mm_per_px: f64, prm: &TraceParams, pen_width_mm: 
     lines.into_par_iter().map(|l| thicken(&l, &field, prm.weight, pen_width_mm)).collect()
 }
 
-/// Líneas de un estilo con su vibración, todavía sin engordar. Los puntos ya salen
-/// completos, con sus anillos.
+/// Líneas de un estilo con su vibración, deformación y largo máximo, todavía sin
+/// engordar. Los puntos ya salen completos, con sus anillos.
 fn base_lines(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
-    let lines = match prm.style {
+    let warp = prm.warp_mm > 0.0;
+    if prm.style == TraceStyle::Dots {
+        let d = dots(field, prm, pen_width_mm, seed);
+        if !warp {
+            return d;
+        }
+        // Cada punto se mueve entero, sin deformarse.
+        return d
+            .into_par_iter()
+            .map(|dot| {
+                let c = dot.iter().fold(p(0.0, 0.0), |a, q| a + *q) * (1.0 / dot.len().max(1) as f64);
+                let off = warp_at(c, prm);
+                if field.at(c + off) < 0.03 { dot } else { dot.into_iter().map(|q| q + off).collect() }
+            })
+            .collect();
+    }
+    // Pasadas: la pasada k se queda con su banda de tono y gira 180°/P.
+    let passes = if prm.style.uses_passes() { prm.passes.clamp(1, 4) as usize } else { 1 };
+    let mut lines = if passes <= 1 {
+        style_lines(field, prm, pen_width_mm, seed)
+    } else {
+        (0..passes)
+            .flat_map(|k| {
+                let band = field.band(passes as f64, k as f64);
+                let pk = TraceParams { angle_deg: prm.angle_deg + 180.0 * k as f64 / passes as f64, ..prm.clone() };
+                style_lines(&band, &pk, pen_width_mm, seed + k * 101)
+            })
+            .collect()
+    };
+    if prm.style.uses_vibe() && prm.vibe != Vibe::None && prm.vibe_mm > 0.0 {
+        lines = lines.into_par_iter().enumerate().map(|(i, l)| vibrate(&l, field, prm, seed * 7919 + i)).collect();
+    }
+    if warp {
+        lines = lines.into_par_iter().map(|l| warp_line(&l, field, prm)).collect();
+    }
+    if prm.max_len_mm > 0.0 {
+        let vary = prm.dash_vary.clamp(0.0, 1.0);
+        lines = lines
+            .into_par_iter()
+            .enumerate()
+            .flat_map_iter(|(i, l)| split_long(&l, prm.max_len_mm.max(0.3), prm.gap_mm.max(0.0), vary, seed * 7919 + i))
+            .collect();
+    }
+    lines
+}
+
+fn style_lines(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    match prm.style {
         TraceStyle::Hatch => hatch(field, prm, pen_width_mm, seed),
         TraceStyle::Flow => flow(field, prm, pen_width_mm, seed),
-        TraceStyle::Dots => return dots(field, prm, pen_width_mm, seed),
+        TraceStyle::Dots => dots(field, prm, pen_width_mm, seed),
         TraceStyle::Contour => contour(field, prm, pen_width_mm, seed),
         TraceStyle::Spiral => spiral(field, prm, pen_width_mm, seed),
         TraceStyle::Scribble => scribble(field, prm, pen_width_mm, seed),
-    };
-    let vibe = prm.style.uses_vibe() && prm.vibe != Vibe::None && prm.vibe_mm > 0.0;
-    if !vibe {
-        return lines;
+        TraceStyle::Waves => waves(field, prm, pen_width_mm, seed),
+        TraceStyle::Circles => circles(field, prm, pen_width_mm, seed),
+        TraceStyle::Radial => radial(field, prm, pen_width_mm, seed),
+        TraceStyle::Truchet => truchet(field, prm, pen_width_mm, seed),
+        TraceStyle::Hilbert => hilbert(field, prm, pen_width_mm, seed),
     }
-    lines.into_par_iter().enumerate().map(|(i, l)| vibrate(&l, field, prm, seed * 7919 + i)).collect()
+}
+
+/// Valor pseudoaleatorio estable en 0–1.
+fn hash(v: f64) -> f64 {
+    frac((v * 12.9898).sin() * 43_758.545)
+}
+
+/// Ruido de valor suave en −1…1.
+fn noise(x: f64, y: f64, seed: f64) -> f64 {
+    let (xi, yi) = (x.floor(), y.floor());
+    let h = |a: f64, b: f64| 2.0 * frac(((a * 127.1 + b * 311.7 + seed * 74.7).sin()) * 43_758.545) - 1.0;
+    let ease = |t: f64| t * t * (3.0 - 2.0 * t);
+    let (u, v) = (ease(x - xi), ease(y - yi));
+    let a = h(xi, yi) * (1.0 - u) + h(xi + 1.0, yi) * u;
+    let b = h(xi, yi + 1.0) * (1.0 - u) + h(xi + 1.0, yi + 1.0) * u;
+    a * (1.0 - v) + b * v
+}
+
+/// Desplazamiento de la deformación en un punto. Es el mismo para todas las tintas,
+/// así que las mezclas siguen encajando.
+fn warp_at(q: P, prm: &TraceParams) -> P {
+    let sc = prm.warp_scale_mm.max(1.0);
+    let (x, y) = (q.x / sc, q.y / sc);
+    // Dos octavas: ondas grandes con algo de detalle.
+    let nx = noise(x, y, 1.0) + 0.35 * noise(x * 2.3, y * 2.3, 3.0);
+    let ny = noise(x + 31.4, y + 17.2, 2.0) + 0.35 * noise(x * 2.3 + 9.1, y * 2.3 + 4.7, 4.0);
+    p(nx, ny) * (prm.warp_mm / 1.35)
+}
+
+/// Deforma una línea; donde se saldría del color, la deformación se reduce.
+fn warp_line(l: &[P], field: &Field, prm: &TraceParams) -> Polyline {
+    if l.len() < 2 {
+        return l.to_vec();
+    }
+    let ds = (prm.warp_scale_mm / 12.0).clamp(0.1, 0.6);
+    let moved: Vec<P> = densify(l, ds)
+        .into_iter()
+        .map(|(q, _)| {
+            let off = warp_at(q, prm);
+            let mut m = q + off;
+            for shrink in [0.5, 0.0] {
+                if field.at(m) >= 0.03 {
+                    break;
+                }
+                m = q + off * shrink;
+            }
+            m
+        })
+        .collect();
+    crate::geom::simplify(&moved, 0.02)
+}
+
+/// Parte una línea en trozos de `max` mm (más o menos, según `vary`) con huecos de
+/// `gap` mm: el rotulador se levanta de vez en cuando.
+fn split_long(l: &[P], max: f64, gap: f64, vary: f64, key: usize) -> Vec<Polyline> {
+    if l.len() < 2 || crate::geom::length(l) <= max {
+        return vec![l.to_vec()];
+    }
+    let kf = key as f64;
+    let piece = |n: usize| max * (1.0 + 0.8 * vary * (2.0 * hash(kf * 7.7 + n as f64 * 1.618) - 1.0));
+    let mut out = Vec::new();
+    let mut cur = vec![l[0]];
+    let (mut drawing, mut n, mut arc) = (true, 0usize, 0.0);
+    // Cada línea empieza en un punto distinto del ciclo para que los cortes no se alineen.
+    let mut target = piece(0) * (0.35 + 0.65 * hash(kf * 3.1 + 0.5));
+    for w in l.windows(2) {
+        let len = w[0].dist(w[1]);
+        let (a0, a1) = (arc, arc + len);
+        while target < a1 && len > 0.0 {
+            let q = w[0].lerp(w[1], ((target - a0) / len).clamp(0.0, 1.0));
+            if drawing {
+                cur.push(q);
+                if cur.len() >= 2 && crate::geom::length(&cur) >= 0.2 {
+                    out.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+                target += gap;
+            } else {
+                cur = vec![q];
+                n += 1;
+                target += piece(n);
+            }
+            drawing = !drawing;
+        }
+        if drawing {
+            cur.push(w[1]);
+        }
+        arc = a1;
+    }
+    if drawing && cur.len() >= 2 && crate::geom::length(&cur) >= 0.2 {
+        out.push(cur);
+    }
+    out
 }
 
 /// Umbral de la secuencia R2 para el tramo `m` de la línea `k`.
@@ -376,7 +629,7 @@ fn render_relay(relay: &Relay, own: &TraceParams, pen_width_mm: f64) -> Vec<Poly
         let blank: f32 = relay.inks.iter().map(|c| 1.0 - c.map.data[i].clamp(0.0, 1.0)).product();
         *v = 1.0 - blank;
     }
-    let field = Field::new(&combined, k);
+    let field = Field::new(&combined, k).toned(&relay.look);
     let fields: Vec<Field> = relay.inks.iter().map(|c| Field::new(&c.map, k)).collect();
     let shares = |q: P| -> Vec<f64> { fields.iter().map(|f| f.at(q).max(0.0)).collect() };
     let look = &relay.look;
@@ -496,23 +749,54 @@ fn relay_pieces(l: &[P], k: usize, fields: &[Field], step: f64, cell: f64, min_l
         .collect()
 }
 
-/// Mapa de cobertura leído en mm; fuera del mapa no hay color.
+/// Mapa de cobertura leído en mm; fuera del mapa no hay color. Puede llevar una curva
+/// de tonos (umbral y gamma) y una banda (para las pasadas cruzadas).
+#[derive(Clone, Copy)]
 struct Field<'a> {
     cov: &'a Grid<f32>,
     k: f64,
     w: f64,
     h: f64,
+    floor: f64,
+    gamma: f64,
+    scale: f64,
+    shift: f64,
 }
 
 impl<'a> Field<'a> {
     fn new(cov: &'a Grid<f32>, k: f64) -> Self {
-        Field { cov, k, w: cov.w as f64 * k, h: cov.h as f64 * k }
+        Field { cov, k, w: cov.w as f64 * k, h: cov.h as f64 * k, floor: 0.0, gamma: 1.0, scale: 1.0, shift: 0.0 }
+    }
+    /// Con la curva de tonos de unos ajustes.
+    fn toned(mut self, prm: &TraceParams) -> Self {
+        self.floor = prm.tone_floor.clamp(0.0, 0.9);
+        self.gamma = 2f64.powf(-prm.tone_curve.clamp(-1.0, 1.0) * 1.5);
+        self
+    }
+    /// La banda `k` de `n`: tono·n − k, recortado a 0–1.
+    fn band(mut self, n: f64, k: f64) -> Self {
+        self.scale = n;
+        self.shift = k;
+        self
     }
     fn inside(&self, q: P) -> bool {
         q.x >= 0.0 && q.y >= 0.0 && q.x <= self.w && q.y <= self.h
     }
     fn at(&self, q: P) -> f64 {
-        if self.inside(q) { sample(self.cov, q.x / self.k, q.y / self.k) } else { 0.0 }
+        if !self.inside(q) {
+            return 0.0;
+        }
+        let mut d = sample(self.cov, q.x / self.k, q.y / self.k);
+        if self.floor > 0.0 || self.gamma != 1.0 {
+            d = ((d - self.floor) / (1.0 - self.floor)).clamp(0.0, 1.0);
+            if self.gamma != 1.0 {
+                d = d.powf(self.gamma);
+            }
+        }
+        if self.scale != 1.0 || self.shift != 0.0 {
+            d = (d * self.scale - self.shift).clamp(0.0, 1.0);
+        }
+        d
     }
 }
 
@@ -582,7 +866,9 @@ fn dashes(path: &[P], field: &Field, prm: &TraceParams, line: i64, seed: usize, 
     out
 }
 
-fn hatch(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+/// Caminos rectos y paralelos (Rayado y Ondas), cada uno con su número de línea. El
+/// desorden mueve cada línea de su sitio y el giro la tuerce un poco.
+fn parallel_paths(field: &Field, prm: &TraceParams, step: f64) -> Vec<(i64, Vec<P>)> {
     let s = prm.spacing_mm.max(0.2);
     let a = prm.angle_deg.to_radians();
     let (u, n) = (p(a.cos(), a.sin()), p(-a.sin(), a.cos()));
@@ -590,16 +876,36 @@ fn hatch(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Ve
     let proj = |d: P| corners.iter().map(|c| c.x * d.x + c.y * d.y).fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
     let (n0, n1) = proj(n);
     let (u0, u1) = proj(u);
-    let step = line_step(field, s);
-    let min_len = (pen_width_mm * 1.2).max(0.4);
-    let first = (n0 / s).floor() as i64;
-    let last = (n1 / s).ceil() as i64;
-    let lines: Vec<Vec<Polyline>> = (first..=last)
-        .into_par_iter()
+    let jit = prm.jitter.clamp(0.0, 1.0);
+    let aj = prm.angle_jitter_deg.abs().to_radians();
+    let diag = field.w.hypot(field.h);
+    let first = (n0 / s).floor() as i64 - if jit > 0.0 { 1 } else { 0 };
+    let last = (n1 / s).ceil() as i64 + if jit > 0.0 { 1 } else { 0 };
+    (first..=last)
         .map(|j| {
-            let o = (j as f64 + prm.phase) * s;
-            let count = ((u1 + step - u0) / step).ceil() as usize + 1;
-            let path: Vec<P> = (0..count).map(|i| n * o + u * (u0 + i as f64 * step)).collect();
+            let jf = j as f64;
+            let shake = if jit > 0.0 { jit * 0.45 * (2.0 * hash(jf + 0.37) - 1.0) } else { 0.0 };
+            let o = (jf + prm.phase + shake) * s;
+            let path: Vec<P> = if aj == 0.0 {
+                let count = ((u1 + step - u0) / step).ceil() as usize + 1;
+                (0..count).map(|i| n * o + u * (u0 + i as f64 * step)).collect()
+            } else {
+                let ur = u.rotate(aj * (2.0 * hash(jf * 1.731 + 5.1) - 1.0));
+                let c0 = n * o + u * ((u0 + u1) / 2.0);
+                let count = (diag / step).ceil() as usize + 1;
+                (0..=count).map(|i| c0 + ur * (-diag / 2.0 + i as f64 * step)).collect()
+            };
+            (j, path)
+        })
+        .collect()
+}
+
+fn hatch(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let step = line_step(field, prm.spacing_mm.max(0.2));
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let lines: Vec<Vec<Polyline>> = parallel_paths(field, prm, step)
+        .into_par_iter()
+        .map(|(j, path)| {
             let mut out = dashes(&path, field, prm, j, seed, min_len, false);
             if j % 2 != 0 {
                 out.reverse();
@@ -611,6 +917,209 @@ fn hatch(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Ve
         })
         .collect();
     lines.into_iter().flatten().collect()
+}
+
+/// Ondas: líneas paralelas que ondulan con más amplitud y más frecuencia donde hay más
+/// color. El desorden desfasa cada línea.
+fn waves(field: &Field, prm: &TraceParams, pen_width_mm: f64, _seed: usize) -> Vec<Polyline> {
+    let s = prm.spacing_mm.max(0.2);
+    let wave = prm.wave_mm.max(0.3);
+    let step = line_step(field, s).min(wave / 8.0);
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let jit = prm.jitter.clamp(0.0, 1.0);
+    let lines: Vec<Vec<Polyline>> = parallel_paths(field, prm, step)
+        .into_par_iter()
+        .map(|(j, path)| {
+            if path.len() < 2 {
+                return vec![];
+            }
+            let d = path[1] - path[0];
+            let nrm = p(-d.y, d.x) * (1.0 / d.len().max(1e-12));
+            let mut phi = jit * hash(j as f64 * 0.913 + 2.0) * std::f64::consts::TAU;
+            let pts: Vec<P> = path
+                .iter()
+                .map(|&q| {
+                    let t = field.at(q).clamp(0.0, 1.0);
+                    phi += step / wave * std::f64::consts::TAU * (0.5 + 1.5 * t);
+                    q + nrm * (phi.sin() * s * 0.48 * t.sqrt())
+                })
+                .collect();
+            let mut out = inside_parts(&pts, field, min_len);
+            if j % 2 != 0 {
+                out.reverse();
+                for l in &mut out {
+                    l.reverse();
+                }
+            }
+            out
+        })
+        .collect();
+    lines.into_iter().flatten().collect()
+}
+
+/// Centro de Espiral, Círculos y Rayos (desplazado por tinta para que aparezca moiré).
+fn center_point(field: &Field, prm: &TraceParams, seed: usize, s: f64) -> P {
+    let off = if seed == 0 { p(0.0, 0.0) } else { p((seed as f64 * 2.4).cos(), (seed as f64 * 2.4).sin()) * (s * 2.5) };
+    p(field.w * prm.center[0], field.h * prm.center[1]) + off
+}
+
+/// Distancia desde `c` hasta la esquina más lejana del mapa.
+fn reach_from(field: &Field, c: P) -> f64 {
+    [p(0.0, 0.0), p(field.w, 0.0), p(0.0, field.h), p(field.w, field.h)].iter().map(|q| q.dist(c)).fold(0.0, f64::max)
+}
+
+/// Círculos: anillos concéntricos troceados con los umbrales del rayado.
+fn circles(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let s = prm.spacing_mm.max(0.25);
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let c = center_point(field, prm, seed, s);
+    let rmax = reach_from(field, c) + s;
+    let levels = (rmax / s).ceil() as usize + 1;
+    let step = line_step(field, s);
+    let jit = prm.jitter.clamp(0.0, 1.0);
+    let rings: Vec<Vec<Polyline>> = (0..levels)
+        .into_par_iter()
+        .map(|i| {
+            let fi = i as f64;
+            let r = (fi + 0.5 + prm.phase.rem_euclid(1.0) + jit * 0.45 * (2.0 * hash(fi + 0.71) - 1.0)) * s;
+            if r <= 0.0 {
+                return vec![];
+            }
+            let n = ((std::f64::consts::TAU * r / step).ceil() as usize).max(12);
+            let start = hash(fi * 3.3 + 1.0) * std::f64::consts::TAU;
+            let ring: Vec<P> = (0..=n).map(|t| c + p(r, 0.0).rotate(start + t as f64 / n as f64 * std::f64::consts::TAU)).collect();
+            dashes(&ring, field, prm, i as i64, seed, min_len, true)
+        })
+        .collect();
+    rings.into_iter().flatten().collect()
+}
+
+/// Rayos desde un centro. Hay 2^k rayos en total; los de nivel bajo salen desde el
+/// centro y los demás nacen donde la separación entre sus vecinos llega a la de la tinta.
+fn radial(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let s = prm.spacing_mm.max(0.3);
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let c = center_point(field, prm, seed, s);
+    let rmax = reach_from(field, c) + s;
+    let step = line_step(field, s);
+    let levels = ((std::f64::consts::TAU * rmax / s).max(4.0).log2().ceil() as u32).min(16);
+    let total = 1usize << levels;
+    let a0 = prm.angle_deg.to_radians() + prm.phase * std::f64::consts::TAU / total as f64;
+    let aj = prm.angle_jitter_deg.abs().to_radians();
+    let jit = prm.jitter.clamp(0.0, 1.0);
+    let rays: Vec<Vec<Polyline>> = (0..total)
+        .into_par_iter()
+        .map(|m| {
+            let mf = m as f64;
+            let level = if m == 0 { 0 } else { levels - m.trailing_zeros() };
+            let rays_at = (1usize << level) as f64;
+            let mut r0 = (s * rays_at * 0.5 / std::f64::consts::TAU).max(s * 0.5);
+            if jit > 0.0 && level > 2 {
+                r0 *= 1.0 + jit * 1.5 * hash(mf * 0.618 + 3.0);
+            }
+            if r0 >= rmax {
+                return vec![];
+            }
+            let mut ang = a0 + mf / total as f64 * std::f64::consts::TAU;
+            if aj > 0.0 {
+                ang += aj * (2.0 * hash(mf * 0.917 + 2.0) - 1.0) * (1.0 / rays_at.sqrt()).max(0.05);
+            }
+            let dir = p(ang.cos(), ang.sin());
+            let count = ((rmax - r0) / step).ceil() as usize;
+            let path: Vec<P> = (0..=count).map(|i| c + dir * (r0 + i as f64 * step)).collect();
+            dashes(&path, field, prm, m as i64, seed, min_len, false)
+        })
+        .collect();
+    rays.into_iter().flatten().collect()
+}
+
+/// Teselas de Truchet (losetas de Smith): celdas de dos separaciones con un cuarto de
+/// círculo alrededor de dos esquinas opuestas (la pareja se elige al azar). Cada arco une
+/// los puntos medios de dos lados, así que los de celdas vecinas se continúan en caminos;
+/// cada arco tiene su umbral y donde hay más color se ven más caminos.
+fn truchet(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let s = prm.spacing_mm.max(0.3);
+    let c = s * 2.0;
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let shift = p(prm.phase, prm.phase) * c;
+    let (cols, rows) = ((field.w / c).ceil() as usize + 2, (field.h / c).ceil() as usize + 2);
+    let step = line_step(field, s);
+    let sf = seed as f64;
+    let out: Vec<Vec<Polyline>> = (0..rows)
+        .into_par_iter()
+        .map(|row| {
+            let mut v = Vec::new();
+            for col in 0..cols {
+                let o = p(col as f64 * c, row as f64 * c) - shift;
+                let flip = hash(col as f64 * 0.731 + row as f64 * 1.917 + sf * 0.37) < 0.5;
+                // (esquina, ángulo inicial): los arcos van hacia dentro de la celda.
+                let corners = if flip {
+                    [(o, 0.0), (o + p(c, c), std::f64::consts::PI)]
+                } else {
+                    [(o + p(c, 0.0), std::f64::consts::FRAC_PI_2), (o + p(0.0, c), 1.5 * std::f64::consts::PI)]
+                };
+                for (ci, (corner, a0)) in corners.iter().enumerate() {
+                    let r = s;
+                    let mid = *corner + p(r, 0.0).rotate(a0 + std::f64::consts::FRAC_PI_4);
+                    let t = 0.03 + 0.94 * frac(col as f64 * 0.754_877_666 + row as f64 * 0.569_840_291 + ci as f64 * 0.381_966 + sf * 0.31);
+                    if field.at(mid) <= t {
+                        continue;
+                    }
+                    let n = ((std::f64::consts::FRAC_PI_2 * r / step).ceil() as usize).max(4);
+                    let arc: Vec<P> = (0..=n).map(|i| *corner + p(r, 0.0).rotate(a0 + std::f64::consts::FRAC_PI_2 * i as f64 / n as f64)).collect();
+                    v.extend(inside_parts(&arc, field, min_len));
+                }
+            }
+            if row % 2 == 1 {
+                v.reverse();
+            }
+            v
+        })
+        .collect();
+    out.into_iter().flatten().collect()
+}
+
+/// Posición de la casilla `d` en una curva de Hilbert de `n`×`n` (n potencia de 2).
+fn hilbert_xy(n: usize, d: usize) -> (usize, usize) {
+    let (mut x, mut y, mut t, mut s) = (0usize, 0usize, d, 1usize);
+    while s < n {
+        let rx = 1 & (t / 2);
+        let ry = 1 & (t ^ rx);
+        if ry == 0 {
+            if rx == 1 {
+                x = s - 1 - x;
+                y = s - 1 - y;
+            }
+            std::mem::swap(&mut x, &mut y);
+        }
+        x += s * rx;
+        y += s * ry;
+        t /= 4;
+        s *= 2;
+    }
+    (x, y)
+}
+
+/// Laberinto: una curva de Hilbert con casillas del tamaño de la separación, troceada
+/// con los umbrales del rayado. El desorden mueve cada esquina.
+fn hilbert(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let s = prm.spacing_mm.max(0.3);
+    let min_len = (pen_width_mm * 1.2).max(0.4);
+    let side = field.w.max(field.h);
+    let order = ((side / s).max(2.0).log2().ceil() as u32).clamp(1, 9);
+    let n = 1usize << order;
+    let cell = s.max(side / n as f64);
+    let jit = prm.jitter.clamp(0.0, 1.0) * 0.35 * cell;
+    let shift = p(prm.phase, prm.phase) * cell;
+    let pts: Vec<P> = (0..n * n)
+        .map(|i| {
+            let (x, y) = hilbert_xy(n, i);
+            let q = p((x as f64 + 0.5) * cell, (y as f64 + 0.5) * cell) + shift;
+            if jit > 0.0 { q + p(2.0 * hash(i as f64 * 1.3) - 1.0, 2.0 * hash(i as f64 * 2.7 + 1.0) - 1.0) * jit } else { q }
+        })
+        .collect();
+    let dense: Vec<P> = densify(&pts, line_step(field, s)).into_iter().map(|(q, _)| q).collect();
+    dashes(&dense, field, prm, seed as i64, seed, min_len, true)
 }
 
 /// Desenfoque de caja separable, repetido para parecerse a uno gaussiano.
@@ -754,8 +1263,11 @@ fn flow(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec
     let mut occ = Occupancy::new(field, s);
     let mut paths: Vec<Vec<P>> = Vec::new();
 
+    let jit = prm.jitter.clamp(0.0, 1.0);
     let try_seed = |occ: &mut Occupancy, start: P, paths: &mut Vec<Vec<P>>| -> bool {
         let id = occ.alive.len() as u32;
+        // Con desorden, cada línea guarda una distancia distinta con las demás.
+        let test = if jit > 0.0 { test * (1.0 + jit * 1.1 * (hash(id as f64 * 0.731 + 0.3) - 0.5)) } else { test };
         if field.at(start) < STOP || occ.near(start, s * 0.8, u32::MAX, 0, 0) {
             return false;
         }
@@ -859,7 +1371,9 @@ fn contour(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> 
     let rings: Vec<Vec<Polyline>> = (0..levels)
         .into_par_iter()
         .map(|i| {
-            let level = ((i as f64 + 0.5 + prm.phase.rem_euclid(1.0)) * s / k) as f32;
+            let shake = if prm.jitter > 0.0 { prm.jitter.clamp(0.0, 1.0) * 0.45 * (2.0 * hash(i as f64 + 0.71) - 1.0) } else { 0.0 };
+            let level = ((i as f64 + 0.5 + prm.phase.rem_euclid(1.0) + shake) * s / k) as f32;
+            let level = if shake != 0.0 { level.max(0.5) } else { level };
             let mut out = Vec::new();
             for (r, ring) in crate::raster::contours(&dist, level).into_iter().enumerate() {
                 if ring.len() < 3 {
@@ -882,9 +1396,8 @@ fn contour(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> 
 fn spiral(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
     let s = prm.spacing_mm.max(0.3);
     let min_len = (pen_width_mm * 1.2).max(0.4);
-    let off = if seed == 0 { p(0.0, 0.0) } else { p((seed as f64 * 2.4).cos(), (seed as f64 * 2.4).sin()) * (s * 2.5) };
-    let c = p(field.w / 2.0, field.h / 2.0) + off;
-    let rmax = [p(0.0, 0.0), p(field.w, 0.0), p(0.0, field.h), p(field.w, field.h)].iter().map(|q| q.dist(c)).fold(0.0, f64::max) + s;
+    let c = center_point(field, prm, seed, s);
+    let rmax = reach_from(field, c) + s;
     let wave = (pen_width_mm * 2.2).max(0.5);
     let amp = s * 0.45;
     let step = (wave / 6.0).min(line_step(field, s));
@@ -1114,9 +1627,11 @@ fn dots(field: &Field, prm: &TraceParams, pen_width_mm: f64, index: usize) -> Ve
     let (wm, hm) = (field.w, field.h);
     let s = prm.spacing_mm.max(0.3);
     let row_h = s * 0.866;
-    let r = (pen_width_mm * 0.25).max(0.1);
     let gap = pen_width_mm.max(0.1) * 0.85;
+    let r = if prm.dot_mm > 0.0 { (prm.dot_mm / 2.0).max(0.05) } else { (pen_width_mm * 0.25).max(0.1) };
     let weight = prm.weight.clamp(0.0, 1.0);
+    let spread = 0.18 + 0.8 * prm.jitter.clamp(0.0, 1.0);
+    let aj = prm.angle_jitter_deg.abs().to_radians();
     let rows = (hm / row_h).ceil() as usize + 1;
     // Cada rotulador desplaza su rejilla para que los puntos de colores se intercalen.
     let shift = p(frac(index as f64 * 0.618_034 + prm.phase) * s, frac(index as f64 * 0.414_214 + prm.phase) * row_h);
@@ -1131,24 +1646,22 @@ fn dots(field: &Field, prm: &TraceParams, pen_width_mm: f64, index: usize) -> Ve
             while x < wm {
                 // Umbral R2 (secuencia de baja discrepancia en 2D).
                 let t = frac(i as f64 * 0.754_877_666 + row as f64 * 0.569_840_291 + index as f64 * 0.31);
-                let jx = (frac(t * 7.31) - 0.5) * s * 0.18;
-                let jy = (frac(t * 3.17) - 0.5) * s * 0.18;
+                let jx = (frac(t * 7.31) - 0.5) * s * spread;
+                let jy = (frac(t * 3.17) - 0.5) * s * spread;
                 let q = p(x + jx, y + jy);
                 let d = field.at(q);
                 if field.inside(q) && d > 0.02 + t * 0.96 {
-                    // Con grosor, los puntos de los oscuros crecen en anillos.
-                    let rings = 1 + (weight * 3.0 * d).round() as usize;
-                    let mut dot = Vec::new();
-                    for ring in 0..rings {
-                        let rr = r + ring as f64 * gap;
-                        // Un anillo que pisaría fuera del color no se dibuja.
-                        if ring > 0 && [p(rr, 0.0), p(-rr, 0.0), p(0.0, rr), p(0.0, -rr)].iter().any(|o| field.at(q + *o) < 0.03) {
-                            break;
+                    let mark = match prm.dot_shape {
+                        DotShape::Circle => circle_dot(field, q, r, gap, weight, d, prm.dot_mm > 0.0),
+                        shape => {
+                            let size = if prm.dot_mm > 0.0 { prm.dot_mm } else { s * 0.7 } * (1.0 + weight * d);
+                            let ang = prm.angle_deg.to_radians() + if aj > 0.0 { aj * (2.0 * hash(t * 91.7 + row as f64 * 0.37) - 1.0) } else { 0.0 };
+                            stroke_dot(field, q, size, ang, shape)
                         }
-                        let n = ((std::f64::consts::TAU * rr / 0.2).ceil() as usize).max(6);
-                        dot.extend((0..=n).map(|a| q + p(rr, 0.0).rotate(a as f64 / n as f64 * std::f64::consts::TAU)));
+                    };
+                    if mark.len() >= 2 {
+                        v.push(mark);
                     }
-                    v.push(dot);
                 }
                 x += s;
                 i += 1;
@@ -1160,6 +1673,49 @@ fn dots(field: &Field, prm: &TraceParams, pen_width_mm: f64, index: usize) -> Ve
         })
         .collect();
     out.into_iter().flatten().collect()
+}
+
+/// Punto redondo de radio `r`. Con un tamaño elegido (`filled`) se rellena con anillos
+/// hacia dentro; con grosor, en los oscuros crece en anillos hacia fuera.
+fn circle_dot(field: &Field, q: P, r: f64, gap: f64, weight: f64, d: f64, filled: bool) -> Polyline {
+    let mut radii = Vec::new();
+    if filled {
+        let mut rr = r - gap;
+        while rr > gap * 0.3 {
+            radii.push(rr);
+            rr -= gap;
+        }
+        radii.reverse();
+    }
+    radii.push(r);
+    let rings = (weight * 3.0 * d).round() as usize;
+    for ring in 1..=rings {
+        let rr = r + ring as f64 * gap;
+        // Un anillo que pisaría fuera del color no se dibuja.
+        if [p(rr, 0.0), p(-rr, 0.0), p(0.0, rr), p(0.0, -rr)].iter().any(|o| field.at(q + *o) < 0.03) {
+            break;
+        }
+        radii.push(rr);
+    }
+    let mut dot = Vec::new();
+    for rr in radii {
+        let n = ((std::f64::consts::TAU * rr / 0.2).ceil() as usize).max(6);
+        dot.extend((0..=n).map(|a| q + p(rr, 0.0).rotate(a as f64 / n as f64 * std::f64::consts::TAU)));
+    }
+    dot
+}
+
+/// Cruz o raya de `size` mm en el ángulo `ang`; se encoge si se sale del color.
+fn stroke_dot(field: &Field, q: P, size: f64, ang: f64, shape: DotShape) -> Polyline {
+    for k in [1.0, 0.5] {
+        let u = p(ang.cos(), ang.sin()) * (size * k / 2.0);
+        let v = p(-u.y, u.x);
+        let ends: &[P] = if shape == DotShape::Cross { &[q - u, q + u, q + v, q - v] } else { &[q - u, q + u] };
+        if ends.iter().all(|e| field.at(*e) >= 0.03) {
+            return if shape == DotShape::Cross { vec![q - u, q + u, q, q + v, q - v] } else { vec![q - u, q + u] };
+        }
+    }
+    vec![]
 }
 
 #[cfg(test)]
@@ -1244,6 +1800,87 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_new_controls_keep_every_style_inside_its_color() {
+        let cov = half_map();
+        for style in TraceStyle::ALL {
+            for shape in DotShape::ALL {
+                let prm = TraceParams {
+                    style,
+                    jitter: 1.0,
+                    angle_jitter_deg: 25.0,
+                    warp_mm: 2.0,
+                    warp_scale_mm: 6.0,
+                    max_len_mm: 3.0,
+                    passes: 3,
+                    tone_curve: 0.5,
+                    center: [0.2, 0.8],
+                    dot_shape: shape,
+                    dot_mm: 0.8,
+                    weight: 0.5,
+                    ..Default::default()
+                };
+                let lines = draw(&cov, &prm);
+                assert!(!lines.is_empty(), "{style:?} {shape:?}");
+                for q in lines.iter().flatten() {
+                    assert!(q.x >= -10.8 && q.x <= 1.2 && q.y.abs() <= 5.8, "{style:?} {shape:?} {q:?}");
+                }
+                if style != TraceStyle::Dots {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tone_length_passes_and_disorder_change_the_drawing() {
+        // Mitad izquierda clara (0,25), mitad derecha oscura (0,9).
+        let mut map = Grid::<f32>::new(40, 20);
+        for y in 0..20 {
+            for x in 0..40 {
+                map.set(x, y, if x < 20 { 0.25 } else { 0.9 });
+            }
+        }
+        let cov = Coverage { map, mm_per_px: 0.5 };
+        let ink = |prm: &TraceParams, left: bool| draw(&cov, prm).iter().flat_map(|l| l.windows(2)).filter(|w| (w[0].x < 0.0) == left).map(|w| w[0].dist(w[1])).sum::<f64>();
+        let plain = TraceParams { angle_deg: 0.0, ..Default::default() };
+        // El umbral limpia los claros; la curva positiva añade tinta en ellos.
+        assert!(ink(&TraceParams { tone_floor: 0.4, ..plain.clone() }, true) < 0.01);
+        assert!(ink(&TraceParams { tone_curve: 0.8, ..plain.clone() }, true) > ink(&plain, true) * 1.4);
+        // Las pasadas solo añaden capas en los oscuros.
+        let crossed = TraceParams { passes: 2, ..plain.clone() };
+        assert!(ink(&crossed, false) > ink(&plain, false) * 1.5);
+        // El largo máximo corta las líneas largas.
+        let long = TraceParams { dash_mm: 40.0, max_len_mm: 4.0, gap_mm: 1.0, ..plain.clone() };
+        assert!(draw(&cov, &long).iter().all(|l| crate::geom::length(l) <= 4.0 * 1.01 + 1e-6));
+        // El desorden mueve las líneas del rayado de su sitio.
+        let gaps = |prm: &TraceParams| {
+            let ys: Vec<i64> = draw(&cov, prm).iter().map(|l| (l[0].y * 1000.0).round() as i64).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+            ys.windows(2).map(|w| w[1] - w[0]).collect::<std::collections::BTreeSet<_>>().len()
+        };
+        assert!(gaps(&TraceParams { jitter: 1.0, dash_mm: 40.0, ..plain.clone() }) > gaps(&TraceParams { dash_mm: 40.0, ..plain.clone() }) + 3);
+    }
+
+    #[test]
+    fn hilbert_visits_every_cell_once() {
+        let n = 8;
+        let cells: std::collections::HashSet<_> = (0..n * n).map(|d| hilbert_xy(n, d)).collect();
+        assert_eq!(cells.len(), n * n);
+        for d in 1..n * n {
+            let (a, b) = (hilbert_xy(n, d - 1), hilbert_xy(n, d));
+            assert_eq!(a.0.abs_diff(b.0) + a.1.abs_diff(b.1), 1);
+        }
+    }
+
+    #[test]
+    fn cross_mix_can_fan_the_angles_closer() {
+        let mut inks = vec![TraceParams { angle_deg: 10.0, ..Default::default() }; 3];
+        mix_cross_fan(&mut inks, 90.0);
+        assert_eq!(inks.iter().map(|t| t.angle_deg.round()).collect::<Vec<_>>(), vec![10.0, 40.0, 70.0]);
+        mix_cross(&mut inks);
+        assert_eq!(inks.iter().map(|t| t.angle_deg.round()).collect::<Vec<_>>(), vec![10.0, 70.0, 130.0]);
     }
 
     #[test]
