@@ -388,6 +388,57 @@ impl Document {
         new_of
     }
 
+    /// Con qué ajustes debe estar calculada cada tinta viva. Las tintas de una foto con
+    /// relevo y mapas del mismo tamaño comparten las líneas de la primera de ellas, con
+    /// el grosor del rotulador más ancho.
+    pub fn trace_keys(&self) -> std::collections::HashMap<u64, crate::trace::TraceKey> {
+        let width = |it: &Item| self.pens.get(it.fill.pen).map_or(0.6, |p| p.width_mm);
+        let mut keys = std::collections::HashMap::new();
+        let mut groups: Vec<(u64, Vec<&Item>)> = Vec::new();
+        for it in &self.items {
+            let Some(t) = it.traced() else { continue };
+            keys.insert(it.id, t.key(width(it)));
+            if let Some(g) = it.group.filter(|_| t.trace.relay) {
+                match groups.iter_mut().find(|(id, _)| *id == g) {
+                    Some((_, members)) => members.push(it),
+                    None => groups.push((g, vec![it])),
+                }
+            }
+        }
+        for (_, members) in groups {
+            let lead = members[0].traced().unwrap();
+            let fits = |it: &&Item| it.traced().is_some_and(|t| {
+                (t.coverage.map.w, t.coverage.map.h, t.coverage.mm_per_px) == (lead.coverage.map.w, lead.coverage.map.h, lead.coverage.mm_per_px)
+            });
+            let members: Vec<&Item> = members.into_iter().filter(fits).collect();
+            if members.len() < 2 {
+                continue;
+            }
+            let inks: Vec<_> = members.iter().map(|it| it.traced().unwrap().coverage.clone()).collect();
+            let common = members.iter().map(|it| width(it)).fold(0.0, f64::max);
+            for (index, it) in members.iter().enumerate() {
+                if let Some(key) = keys.get_mut(&it.id) {
+                    key.relay = Some(crate::trace::Relay { inks: inks.clone(), index, look: lead.trace.clone(), pen_width_mm: common, seed: lead.seed });
+                }
+            }
+        }
+        keys
+    }
+
+    /// Estos objetos y sus compañeros de relevo: al retocar el trazo de una tinta en
+    /// relevo, cambian todas para que sigan compartiendo las líneas.
+    pub fn with_relay_partners(&self, ids: &[u64]) -> Vec<u64> {
+        let groups: Vec<u64> = ids.iter()
+            .filter_map(|id| self.get(*id))
+            .filter(|it| it.traced().is_some_and(|t| t.trace.relay))
+            .filter_map(|it| it.group)
+            .collect();
+        self.items.iter()
+            .filter(|it| ids.contains(&it.id) || (it.group.is_some_and(|g| groups.contains(&g)) && it.traced().is_some_and(|t| t.trace.relay)))
+            .map(|it| it.id)
+            .collect()
+    }
+
     /// Orden de pasadas: reordena las plumillas de estos objetos para que el plotter
     /// pase primero las claras (o las oscuras). Ocupan los mismos huecos de la lista de
     /// tintas, así que las demás no se mueven; los objetos se dibujan en el mismo orden.
@@ -611,6 +662,25 @@ mod tests {
         let mut it = Item::new(name, Geometry::Path { lines: vec![], closed: false }, crate::p(0.0, 0.0));
         it.group = Some(0);
         it
+    }
+
+    #[test]
+    fn relay_inks_share_the_first_ink_look_and_edit_together() {
+        use crate::raster::Grid;
+        use crate::trace::{Coverage, TraceParams, Traced};
+        let mut doc = Document::default();
+        let live = |relay: bool, angle: f64| {
+            let cov = Coverage { map: Grid::new(4, 4), mm_per_px: 1.0 };
+            let mut it = Item::new("t", Geometry::Traced(Traced::new(cov, TraceParams { relay, angle_deg: angle, ..Default::default() }, 0)), crate::p(0.0, 0.0));
+            it.group = Some(0);
+            it
+        };
+        let ids = doc.add_photo_items(vec![live(true, 10.0), live(false, 50.0), live(true, 90.0)], Some(photo_stub("Foto")), None);
+        let keys = doc.trace_keys();
+        let relay = |id: u64| keys[&id].relay.as_ref().map(|r| (r.index, r.inks.len(), r.look.angle_deg));
+        assert_eq!((relay(ids[0]), relay(ids[1]), relay(ids[2])), (Some((0, 2, 10.0)), None, Some((1, 2, 10.0))));
+        assert_eq!(doc.with_relay_partners(&[ids[2]]), [ids[0], ids[2]]);
+        assert_eq!(doc.with_relay_partners(&[ids[1]]), [ids[1]]);
     }
 
     #[test]

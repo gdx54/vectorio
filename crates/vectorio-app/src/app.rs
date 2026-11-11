@@ -354,24 +354,30 @@ impl VectorioApp {
             Err(mpsc::TryRecvError::Empty) => true,
             Err(mpsc::TryRecvError::Disconnected) => false,
         });
-        for (id, key, lines) in done {
+        if !done.is_empty() {
             // También en la versión confirmada: el resultado no es un paso de deshacer.
             for doc in [&mut self.doc, &mut self.committed] {
-                let width = doc.get(id).and_then(|it| doc.pens.get(it.fill.pen)).map(|p| p.width_mm);
-                if let Some(t) = doc.get_mut(id).and_then(|it| it.traced_mut()).filter(|t| t.key(width.unwrap_or(0.6)) == key) {
-                    t.lines = lines.clone();
-                    t.made = Some(key.clone());
+                let keys = doc.trace_keys();
+                for (id, key, lines) in &done {
+                    if keys.get(id) != Some(key) {
+                        continue;
+                    }
+                    if let Some(t) = doc.get_mut(*id).and_then(|it| it.traced_mut()) {
+                        t.lines = lines.clone();
+                        t.made = Some(key.clone());
+                    }
                 }
             }
         }
+        // Las tintas en relevo dependen de sus compañeras: si cambia una, se recalculan todas.
+        let keys = self.doc.trace_keys();
         for it in &self.doc.items {
-            let Some(t) = it.traced() else { continue };
-            let width = self.doc.pens.get(it.fill.pen).map_or(0.6, |p| p.width_mm);
-            if t.is_current(width) || self.trace_jobs.contains_key(&it.id) {
+            let (Some(t), Some(key)) = (it.traced(), keys.get(&it.id)) else { continue };
+            if t.made.as_ref() == Some(key) || self.trace_jobs.contains_key(&it.id) {
                 continue;
             }
             let (tx, rx) = mpsc::channel();
-            let (key, coverage, seed, ctx) = (t.key(width), t.coverage.clone(), t.seed, ctx.clone());
+            let (key, coverage, seed, ctx) = (key.clone(), t.coverage.clone(), t.seed, ctx.clone());
             let job = key.clone();
             std::thread::spawn(move || {
                 let _ = tx.send(Traced::generate(&coverage, &job, seed));

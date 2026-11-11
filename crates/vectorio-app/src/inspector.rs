@@ -490,11 +490,16 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
     theme::section(ui, "MEZCLA");
     let mut mode = None;
     ui.horizontal(|ui| {
-        if ui.button("Cruzar").on_hover_text("Cada tinta con su ángulo, repartidos en 180°: las líneas se cruzan como en una cuatricromía.").clicked() { mode = Some(false); }
-        if ui.button("Entrelazar").on_hover_text("Mismo estilo y ángulo para todas, cada tinta en su hueco: las líneas se alternan sin pisarse.").clicked() { mode = Some(true); }
+        if ui.button("Cruzar").on_hover_text("Cada tinta con su ángulo, repartidos en 180°: las líneas se cruzan como en una cuatricromía.").clicked() { mode = Some(Mix::Cross); }
+        if ui.button("Entrelazar").on_hover_text("Mismo estilo y ángulo para todas, cada tinta en su hueco: las líneas se alternan sin pisarse.").clicked() { mode = Some(Mix::Interleave); }
+        if ui.button("Relevo").on_hover_text("Todas las tintas comparten las mismas líneas y se pasan el trazo: cada tramo lo pinta el color que hay debajo.").clicked() { mode = Some(Mix::Relay); }
     });
-    if let Some(interleave) = mode {
-        mix_inks(&mut app.doc, members, interleave);
+    if let Some(mode) = mode {
+        mix_inks(&mut app.doc, members, mode);
+    }
+    let relay = members.iter().filter(|id| app.doc.get(**id).and_then(|it| it.traced()).is_some_and(|t| t.trace.relay)).count();
+    if relay >= 2 {
+        ui.label(RichText::new(format!("En relevo: {relay} tintas comparten las líneas. «Largo» marca cada cuánto puede cambiar de rotulador.")).small().color(pal.secondary));
     }
     let mut order = None;
     ui.horizontal(|ui| {
@@ -512,11 +517,22 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
     ui.label(RichText::new(format!("Orden: {}", names.join(" → "))).small().color(pal.secondary));
 }
 
-/// Cruza o entrelaza las tintas vivas desbloqueadas, en el orden de las capas.
-fn mix_inks(doc: &mut Document, ids: &[u64], interleave: bool) {
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mix {
+    Cross,
+    Interleave,
+    Relay,
+}
+
+/// Cruza, entrelaza o pone en relevo las tintas vivas desbloqueadas, en el orden de las capas.
+fn mix_inks(doc: &mut Document, ids: &[u64], mode: Mix) {
     let live: Vec<u64> = ids.iter().copied().filter(|id| doc.get(*id).is_some_and(|it| !it.locked && it.traced().is_some())).collect();
     let mut params: Vec<TraceParams> = live.iter().filter_map(|id| doc.get(*id)?.traced()).map(|t| t.trace.clone()).collect();
-    if interleave { vectorio_core::mix_interleave(&mut params) } else { vectorio_core::mix_cross(&mut params) }
+    match mode {
+        Mix::Cross => vectorio_core::mix_cross(&mut params),
+        Mix::Interleave => vectorio_core::mix_interleave(&mut params),
+        Mix::Relay => vectorio_core::mix_relay(&mut params),
+    }
     for (id, trace) in live.iter().zip(params) {
         if let Some(t) = doc.get_mut(*id).and_then(|it| it.traced_mut()) { t.trace = trace; }
     }
@@ -562,7 +578,7 @@ fn styles_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
         ui.label(RichText::new("Cada tinta conserva su ángulo y su hueco en la mezcla.").small().color(pal.secondary));
     }
     if let Some(look) = apply {
-        for id in &live {
+        for id in &app.doc.with_relay_partners(&live) {
             if let Some(t) = app.doc.get_mut(*id).and_then(|it| it.traced_mut()) { t.trace.adopt(&look); }
         }
     }
@@ -597,6 +613,12 @@ fn trace_controls(ui: &mut Ui, base: &TraceParams, many: bool, busy: bool) -> Tr
         let hover = if t.style == TraceStyle::Flow { "Dirección de las líneas en las zonas lisas, lejos de los bordes del color." } else { "Dirección de las líneas." };
         row(ui, label, |ui| { ui.add(egui::Slider::new(&mut t.angle_deg, 0.0..=180.0).suffix("°")).on_hover_text(hover); });
     }
+    if t.relay && !t.style.uses_dashes() && t.style != TraceStyle::Dots {
+        row(ui, "Largo", |ui| {
+            ui.add(egui::Slider::new(&mut t.dash_mm, 0.5..=60.0).logarithmic(true).suffix(" mm"))
+                .on_hover_text("Cada cuánto puede pasar la línea de un rotulador a otro.");
+        });
+    }
     if t.style.uses_dashes() {
         row(ui, "Largo", |ui| {
             ui.add(egui::Slider::new(&mut t.dash_mm, 0.5..=60.0).logarithmic(true).suffix(" mm"))
@@ -613,6 +635,9 @@ fn trace_controls(ui: &mut Ui, base: &TraceParams, many: bool, busy: bool) -> Tr
     });
     if many {
         ui.label(RichText::new("Se aplica a todas las tintas seleccionadas. Girar mantiene la diferencia de ángulo entre ellas.").small().color(pal.secondary));
+    }
+    if t.relay {
+        ui.label(RichText::new("En relevo: los cambios se aplican a todas las tintas que comparten las líneas.").small().color(pal.secondary));
     }
     if t.style.uses_vibe() {
         theme::section(ui, "VIBRACIÓN");
@@ -775,6 +800,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let mut delete = false;
     let mut edit_color = None;
     let busy = app.tracing();
+    let mut relay_edit: Option<(TraceParams, TraceParams)> = None;
     let group = {
         let it = app.doc.get_mut(id).unwrap();
         ui.add(egui::TextEdit::singleline(&mut it.name).font(egui::TextStyle::Heading).frame(false).desired_width(f32::INFINITY));
@@ -889,7 +915,9 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
         }
         Geometry::Traced(t) => {
             let new = trace_controls(ui, &t.trace, false, busy);
-            if new != t.trace && !it.locked { t.trace = new; }
+            if new != t.trace && !it.locked {
+                if t.trace.relay { relay_edit = Some((t.trace.clone(), new)); } else { t.trace = new; }
+            }
             ui.label(RichText::new(format!("{} trazos", t.lines.len())).small().color(theme::current(ui.ctx()).secondary));
         }
         Geometry::Path { lines, closed } => {
@@ -1009,6 +1037,10 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
         app.delete_selected();
     }
     if let Some(fill) = edit_color { app.edit_item_color(id, fill); }
+    if let Some((base, new)) = relay_edit {
+        let targets = app.doc.with_relay_partners(&[id]);
+        apply_trace(&mut app.doc, &targets, &base, &new);
+    }
 }
 
 fn pen_settings(app: &mut VectorioApp, ui: &mut Ui) {
@@ -1152,7 +1184,8 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     styles_section(app, ui, &traced);
     if let Some(base) = traced.first().and_then(|id| app.doc.get(*id)).and_then(|it| it.traced()).map(|t| t.trace.clone()) {
         let new = trace_controls(ui, &base, traced.len() > 1, app.tracing());
-        apply_trace(&mut app.doc, &traced, &base, &new);
+        let targets = app.doc.with_relay_partners(&traced);
+        apply_trace(&mut app.doc, &targets, &base, &new);
     }
     if let Some(first) = first {
     theme::section(ui, "CONTORNO");
@@ -1338,7 +1371,7 @@ mod tests {
         let ids = app.doc.add_photo_items(items, Some(photo), None);
         app.selected = Some(ids[0]);
         let one = panel_texts(&mut app, &ctx);
-        for word in ["FOTO", "MEZCLA", "Cruzar", "Entrelazar", "Claras primero", "ESTILOS", "Grabado", "Guardar"] {
+        for word in ["FOTO", "MEZCLA", "Cruzar", "Entrelazar", "Relevo", "Claras primero", "ESTILOS", "Grabado", "Guardar"] {
             assert!(one.contains(word), "falta «{word}» con una tinta elegida:\n{one}");
         }
         app.toggle_selected(ids[1]);

@@ -740,7 +740,7 @@ impl VectorizeUi {
                     let lines = plot?.layers[i].iter().map(|l| l.iter().map(|q| *q - half).collect()).collect();
                     let trace = mix::trace_params(&key.look.screen, i, res.layers.len());
                     let mut ink = Traced::new(Coverage { map: (**cov).clone(), mm_per_px: s }, trace.clone(), i);
-                    ink.set_lines(TraceKey { trace, pen_width_mm: key.widths.get(i).copied().unwrap_or(0.8) }, lines);
+                    ink.set_lines(TraceKey { trace, pen_width_mm: key.widths.get(i).copied().unwrap_or(0.8), relay: None }, lines);
                     Item::new(label, Geometry::Traced(ink), center)
                 }
                 None => Item::new(label, Geometry::Path { lines: layer.lines.iter().map(to_local).collect(), closed: layer.closed }, center),

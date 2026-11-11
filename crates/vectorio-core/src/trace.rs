@@ -114,6 +114,9 @@ pub struct TraceParams {
     /// Desfase de la trama en fracciones de la separación (0–1). Al entrelazar tintas,
     /// cada una ocupa su hueco entre las líneas de las demás.
     pub phase: f64,
+    /// Relevo: las tintas de la foto que lo tienen comparten las mismas líneas y se
+    /// pasan el trazo según el color que hay debajo.
+    pub relay: bool,
 }
 
 impl Default for TraceParams {
@@ -130,6 +133,7 @@ impl Default for TraceParams {
             wave_mm: 2.5,
             vibe_by_tone: true,
             phase: 0.0,
+            relay: false,
         }
     }
 }
@@ -138,7 +142,7 @@ impl TraceParams {
     /// Adopta el aspecto de otro ajuste (un estilo guardado) sin perder el ángulo ni el
     /// desfase propios de esta tinta, que son los que la combinan con las demás.
     pub fn adopt(&mut self, look: &TraceParams) {
-        *self = TraceParams { angle_deg: self.angle_deg, phase: self.phase, ..look.clone() };
+        *self = TraceParams { angle_deg: self.angle_deg, phase: self.phase, relay: self.relay, ..look.clone() };
     }
 }
 
@@ -149,6 +153,7 @@ pub fn mix_cross(inks: &mut [TraceParams]) {
     for (i, t) in inks.iter_mut().enumerate() {
         t.angle_deg = (a0 + 180.0 * i as f64 / n).rem_euclid(180.0);
         t.phase = 0.0;
+        t.relay = false;
     }
 }
 
@@ -161,6 +166,16 @@ pub fn mix_interleave(inks: &mut [TraceParams]) {
         t.style = first.style;
         t.angle_deg = first.angle_deg;
         t.phase = i as f64 / n;
+        t.relay = false;
+    }
+}
+
+/// Relevo: todas las tintas con el mismo trazo que la primera. Comparten las líneas y
+/// cada tramo lo pinta una u otra según el color que hay debajo.
+pub fn mix_relay(inks: &mut [TraceParams]) {
+    let Some(first) = inks.first().cloned() else { return };
+    for t in inks.iter_mut() {
+        *t = TraceParams { phase: 0.0, relay: true, ..first.clone() };
     }
 }
 
@@ -224,6 +239,26 @@ impl TryFrom<CoverageFile> for Coverage {
 pub struct TraceKey {
     pub trace: TraceParams,
     pub pen_width_mm: f64,
+    /// Tintas con las que comparte las líneas. No se guarda: al abrir el archivo, las
+    /// tintas en relevo se recalculan.
+    #[serde(skip)]
+    pub relay: Option<Relay>,
+}
+
+/// Relevo entre tintas de una misma foto. Todas calculan las mismas líneas sobre el
+/// color combinado y cada una se queda con los tramos que le tocan, así que una línea
+/// pasa de un rotulador a otro sin huecos ni solapes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Relay {
+    /// Mapas de todas las tintas del relevo, en el orden del documento.
+    pub inks: Vec<Shared<Coverage>>,
+    /// Posición de esta tinta en `inks`.
+    pub index: usize,
+    /// Trazo de las líneas compartidas (el de la primera tinta).
+    pub look: TraceParams,
+    /// Grosor común con el que se calculan las líneas compartidas, mm.
+    pub pen_width_mm: f64,
+    pub seed: usize,
 }
 
 /// Una tinta trazada a partir de su mapa de cobertura.
@@ -246,7 +281,7 @@ impl Traced {
     }
 
     pub fn key(&self, pen_width_mm: f64) -> TraceKey {
-        TraceKey { trace: self.trace.clone(), pen_width_mm }
+        TraceKey { trace: self.trace.clone(), pen_width_mm, relay: None }
     }
 
     /// ¿Corresponden los trazos guardados a los ajustes y al grosor actuales?
@@ -258,7 +293,11 @@ impl Traced {
     pub fn generate(coverage: &Coverage, key: &TraceKey, seed: usize) -> Vec<Polyline> {
         let (w, h) = coverage.size_mm();
         let half = p(w / 2.0, h / 2.0);
-        render(&coverage.map, coverage.mm_per_px, &key.trace, key.pen_width_mm, seed)
+        let lines = match &key.relay {
+            Some(relay) => render_relay(relay, &key.trace, key.pen_width_mm),
+            None => render(&coverage.map, coverage.mm_per_px, &key.trace, key.pen_width_mm, seed),
+        };
+        lines
             .into_iter()
             .map(|l| l.into_iter().map(|q| q - half).collect())
             .collect()
@@ -275,24 +314,184 @@ impl Traced {
 /// mapa. `mm_per_px` es el tamaño en el papel de cada píxel; `seed` intercala tintas.
 pub fn render(cov: &Grid<f32>, mm_per_px: f64, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
     let field = Field::new(cov, mm_per_px);
-    let lines = match prm.style {
-        TraceStyle::Hatch => hatch(&field, prm, pen_width_mm, seed),
-        TraceStyle::Flow => flow(&field, prm, pen_width_mm, seed),
-        TraceStyle::Dots => return dots(&field, prm, pen_width_mm, seed),
-        TraceStyle::Contour => contour(&field, prm, pen_width_mm, seed),
-        TraceStyle::Spiral => spiral(&field, prm, pen_width_mm, seed),
-        TraceStyle::Scribble => scribble(&field, prm, pen_width_mm, seed),
-    };
-    let vibe = prm.style.uses_vibe() && prm.vibe != Vibe::None && prm.vibe_mm > 0.0;
-    if !vibe && prm.weight <= 0.0 {
+    let lines = base_lines(&field, prm, pen_width_mm, seed);
+    if prm.weight <= 0.0 || prm.style == TraceStyle::Dots {
         return lines;
     }
+    lines.into_par_iter().map(|l| thicken(&l, &field, prm.weight, pen_width_mm)).collect()
+}
+
+/// Líneas de un estilo con su vibración, todavía sin engordar. Los puntos ya salen
+/// completos, con sus anillos.
+fn base_lines(field: &Field, prm: &TraceParams, pen_width_mm: f64, seed: usize) -> Vec<Polyline> {
+    let lines = match prm.style {
+        TraceStyle::Hatch => hatch(field, prm, pen_width_mm, seed),
+        TraceStyle::Flow => flow(field, prm, pen_width_mm, seed),
+        TraceStyle::Dots => return dots(field, prm, pen_width_mm, seed),
+        TraceStyle::Contour => contour(field, prm, pen_width_mm, seed),
+        TraceStyle::Spiral => spiral(field, prm, pen_width_mm, seed),
+        TraceStyle::Scribble => scribble(field, prm, pen_width_mm, seed),
+    };
+    let vibe = prm.style.uses_vibe() && prm.vibe != Vibe::None && prm.vibe_mm > 0.0;
+    if !vibe {
+        return lines;
+    }
+    lines.into_par_iter().enumerate().map(|(i, l)| vibrate(&l, field, prm, seed * 7919 + i)).collect()
+}
+
+/// Umbral de la secuencia R2 para el tramo `m` de la línea `k`.
+fn relay_threshold(k: usize, m: i64) -> f64 {
+    frac(0.5 + k as f64 * 0.754_877_666 + m as f64 * 0.569_840_291)
+}
+
+/// Qué tinta pinta en un punto: el umbral `t` cae en el reparto de su color.
+fn relay_pick(c: &[f64], t: f64) -> Option<usize> {
+    let total: f64 = c.iter().sum();
+    if total < 1e-6 {
+        return None;
+    }
+    let mut acc = 0.0;
+    for (i, v) in c.iter().enumerate() {
+        acc += v / total;
+        if t < acc {
+            return Some(i);
+        }
+    }
+    Some(c.len() - 1)
+}
+
+/// Trazos de una tinta en relevo: las líneas compartidas, calculadas sobre el color
+/// combinado de todas, y de ellas los tramos que le tocan a esta tinta. `own` son los
+/// ajustes propios (solo cuenta su grosor) y `pen_width_mm` el de su rotulador.
+fn render_relay(relay: &Relay, own: &TraceParams, pen_width_mm: f64) -> Vec<Polyline> {
+    let me = relay.index;
+    let Some(first) = relay.inks.get(me) else { return vec![] };
+    let (w, h, k) = (first.map.w, first.map.h, first.mm_per_px);
+    if relay.inks.iter().any(|c| (c.map.w, c.map.h) != (w, h)) {
+        return vec![];
+    }
+    // Color combinado: lo que queda sin cubrir es el producto de lo que deja cada tinta.
+    let mut combined = Grid::new(w, h);
+    for (i, v) in combined.data.iter_mut().enumerate() {
+        let blank: f32 = relay.inks.iter().map(|c| 1.0 - c.map.data[i].clamp(0.0, 1.0)).product();
+        *v = 1.0 - blank;
+    }
+    let field = Field::new(&combined, k);
+    let fields: Vec<Field> = relay.inks.iter().map(|c| Field::new(&c.map, k)).collect();
+    let shares = |q: P| -> Vec<f64> { fields.iter().map(|f| f.at(q).max(0.0)).collect() };
+    let look = &relay.look;
+    let common = relay.pen_width_mm;
+    if look.style == TraceStyle::Dots {
+        // Cada punto entero para una tinta, según el color de su centro.
+        return dots(&field, look, common, relay.seed)
+            .into_iter()
+            .enumerate()
+            .filter(|(i, d)| {
+                let c = d.iter().fold(p(0.0, 0.0), |a, q| a + *q) * (1.0 / d.len().max(1) as f64);
+                relay_pick(&shares(c), relay_threshold(*i, 0)) == Some(me)
+            })
+            .map(|(_, d)| d)
+            .collect();
+    }
+    let lines = base_lines(&field, &TraceParams { weight: 0.0, ..look.clone() }, common, relay.seed);
+    let step = line_step(&field, look.spacing_mm.max(0.2));
+    let min_len = (common * 1.2).max(0.4);
+    let cell = look.dash_mm.max(0.5);
+    let own_field = &fields[me];
     lines
-        .into_par_iter()
+        .par_iter()
         .enumerate()
-        .map(|(i, l)| {
-            let l = if vibe { vibrate(&l, &field, prm, seed * 7919 + i) } else { l };
-            if prm.weight > 0.0 { thicken(&l, &field, prm.weight, pen_width_mm) } else { l }
+        .flat_map_iter(|(i, l)| {
+            relay_pieces(l, i, &fields, step, cell, min_len, me).into_iter().map(|piece| {
+                if own.weight > 0.0 { thicken(&piece, own_field, own.weight, pen_width_mm) } else { piece }
+            })
+        })
+        .collect()
+}
+
+/// Reparte la línea `k` entre las tintas y devuelve los tramos de `me`. La línea se
+/// divide en celdas de `cell` mm, cada una con su umbral; en cada punto pinta la tinta
+/// en cuyo reparto de color cae el umbral. Los tramos más cortos que `min_len` se unen
+/// al vecino, y dos tramos seguidos se tocan en el mismo punto.
+fn relay_pieces(l: &[P], k: usize, fields: &[Field], step: f64, cell: f64, min_len: f64, me: usize) -> Vec<Polyline> {
+    if l.len() < 2 {
+        return vec![];
+    }
+    let pts = densify(l, step);
+    let shift = frac(k as f64 * 0.381_966) * cell;
+    let mut owners: Vec<usize> = Vec::with_capacity(pts.len());
+    let (mut cur, mut last_m) = (None::<usize>, i64::MIN);
+    for &(q, arc) in &pts {
+        let m = ((arc + shift) / cell).floor() as i64;
+        let t = relay_threshold(k, m);
+        let c: Vec<f64> = fields.iter().map(|f| f.at(q).max(0.0)).collect();
+        let new = relay_pick(&c, t);
+        // Dentro de una celda, histéresis para que el borde de un color no parta la línea
+        // en trocitos; al cambiar de celda manda el umbral nuevo.
+        let keep = match (cur, new) {
+            (Some(o), Some(n)) if o != n && m == last_m && c[o] > 0.03 => {
+                let total: f64 = c.iter().sum();
+                let lo = c[..o].iter().sum::<f64>() / total;
+                let hi = lo + c[o] / total;
+                t >= lo - 0.05 && t < hi + 0.05
+            }
+            (Some(_), None) => true,
+            _ => false,
+        };
+        if !keep {
+            cur = new.or(cur);
+        }
+        last_m = m;
+        owners.push(cur.unwrap_or(0));
+    }
+    // Tramos seguidos de la misma tinta: (tinta, primer punto, último punto).
+    let mut runs: Vec<(usize, usize, usize)> = Vec::new();
+    for (i, &o) in owners.iter().enumerate() {
+        match runs.last_mut() {
+            Some(r) if r.0 == o => r.2 = i,
+            _ => runs.push((o, i, i)),
+        }
+    }
+    // Longitud de un tramo, hasta el punto medio con sus vecinos.
+    let run_len = |r: &(usize, usize, usize)| {
+        let a = if r.1 > 0 { (pts[r.1 - 1].1 + pts[r.1].1) / 2.0 } else { 0.0 };
+        let b = if r.2 + 1 < pts.len() { (pts[r.2].1 + pts[r.2 + 1].1) / 2.0 } else { pts[r.2].1 };
+        b - a
+    };
+    while runs.len() > 1 {
+        let Some((i, _)) = runs.iter().enumerate().map(|(i, r)| (i, run_len(r))).filter(|(_, len)| *len < min_len).min_by(|a, b| a.1.total_cmp(&b.1)) else { break };
+        // Se une al vecino más largo.
+        let j = match (i.checked_sub(1), (i + 1 < runs.len()).then_some(i + 1)) {
+            (Some(a), Some(b)) => if run_len(&runs[a]) >= run_len(&runs[b]) { a } else { b },
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => break,
+        };
+        let (lo, hi) = (i.min(j), i.max(j));
+        runs[lo] = (runs[j].0, runs[lo].1, runs[hi].2);
+        runs.remove(hi);
+        // Si quedan dos tramos seguidos de la misma tinta, se juntan.
+        let mut merged: Vec<(usize, usize, usize)> = Vec::with_capacity(runs.len());
+        for r in runs.drain(..) {
+            match merged.last_mut() {
+                Some(m) if m.0 == r.0 => m.2 = r.2,
+                _ => merged.push(r),
+            }
+        }
+        runs = merged;
+    }
+    runs.iter()
+        .filter(|r| r.0 == me)
+        .filter_map(|r| {
+            let mut piece = Vec::with_capacity(r.2 - r.1 + 3);
+            if r.1 > 0 {
+                piece.push(pts[r.1 - 1].0.lerp(pts[r.1].0, 0.5));
+            }
+            piece.extend(pts[r.1..=r.2].iter().map(|(q, _)| *q));
+            if r.2 + 1 < pts.len() {
+                piece.push(pts[r.2].0.lerp(pts[r.2 + 1].0, 0.5));
+            }
+            (piece.len() >= 2).then(|| crate::geom::simplify(&piece, 0.02))
         })
         .collect()
 }
@@ -813,6 +1012,23 @@ fn normal_at(l: &[P], i: usize) -> P {
     if len < 1e-12 { p(0.0, 0.0) } else { p(-d.y / len, d.x / len) }
 }
 
+/// La polilínea con todos sus vértices y puntos intermedios para que ningún tramo mida
+/// más de `ds` mm, con la distancia de cada punto desde el principio.
+fn densify(l: &[P], ds: f64) -> Vec<(P, f64)> {
+    let mut out = vec![(l[0], 0.0)];
+    let mut arc = 0.0;
+    for w in l.windows(2) {
+        let len = w[0].dist(w[1]);
+        let n = (len / ds).ceil().max(1.0) as usize;
+        for i in 1..=n {
+            let t = i as f64 / n as f64;
+            out.push((w[0].lerp(w[1], t), arc + len * t));
+        }
+        arc += len;
+    }
+    out
+}
+
 /// Puntos de una polilínea cada `ds` mm, con su distancia desde el principio.
 fn resample(l: &[P], ds: f64) -> Vec<(P, f64)> {
     let mut out = vec![(l[0], 0.0)];
@@ -1004,7 +1220,7 @@ mod tests {
     }
 
     fn draw(cov: &Coverage, prm: &TraceParams) -> Vec<Polyline> {
-        Traced::generate(cov, &TraceKey { trace: prm.clone(), pen_width_mm: 0.5 }, 0)
+        Traced::generate(cov, &TraceKey { trace: prm.clone(), pen_width_mm: 0.5, relay: None }, 0)
     }
 
     #[test]
@@ -1113,5 +1329,71 @@ mod tests {
         let mut own = TraceParams { angle_deg: 33.0, phase: 0.5, ..Default::default() };
         own.adopt(&TraceParams { style: TraceStyle::Flow, angle_deg: 90.0, weight: 0.4, ..Default::default() });
         assert_eq!((own.style, own.angle_deg, own.phase, own.weight), (TraceStyle::Flow, 33.0, 0.5, 0.4));
+        mix_relay(&mut inks);
+        assert!(inks.iter().all(|t| t.relay && t.phase == 0.0 && t.angle_deg == 20.0));
+        mix_interleave(&mut inks);
+        assert!(inks.iter().all(|t| !t.relay), "otra mezcla quita el relevo");
+    }
+
+    /// Dos tintas: A a la izquierda, B a la derecha y una franja central con las dos.
+    fn relay_maps() -> [Coverage; 2] {
+        let (mut a, mut b) = (Grid::<f32>::new(60, 20), Grid::<f32>::new(60, 20));
+        for y in 0..20 {
+            for x in 0..60 {
+                let (va, vb) = match x { 0..20 => (0.9, 0.0), 20..40 => (0.5, 0.5), _ => (0.0, 0.9) };
+                a.set(x, y, va);
+                b.set(x, y, vb);
+            }
+        }
+        [Coverage { map: a, mm_per_px: 0.5 }, Coverage { map: b, mm_per_px: 0.5 }]
+    }
+
+    #[test]
+    fn relay_hands_each_line_from_one_pen_to_the_next_without_gaps_or_overlaps() {
+        let maps = relay_maps();
+        let inks: Vec<Shared<Coverage>> = maps.iter().cloned().map(Shared::new).collect();
+        for style in [TraceStyle::Hatch, TraceStyle::Flow, TraceStyle::Contour, TraceStyle::Scribble] {
+            let look = TraceParams { style, angle_deg: 0.0, dash_mm: 2.0, relay: true, ..Default::default() };
+            let parts: Vec<Vec<Polyline>> = (0..2).map(|index| {
+                let relay = Relay { inks: inks.clone(), index, look: look.clone(), pen_width_mm: 0.5, seed: 0 };
+                Traced::generate(&maps[index], &TraceKey { trace: look.clone(), pen_width_mm: 0.5, relay: Some(relay) }, index)
+            }).collect();
+            // Las mismas líneas que una sola tinta con el color combinado.
+            let mut combined = Grid::<f32>::new(60, 20);
+            for (i, v) in combined.data.iter_mut().enumerate() {
+                *v = 1.0 - (1.0 - maps[0].map.data[i]) * (1.0 - maps[1].map.data[i]);
+            }
+            let whole: f64 = render(&combined, 0.5, &look, 0.5, 0).iter().map(|l| crate::geom::length(l)).sum();
+            let shared: f64 = parts.iter().flatten().map(|l| crate::geom::length(l)).sum();
+            assert!((shared - whole).abs() < whole * 0.01, "{style:?}: {shared:.1} mm repartidos de {whole:.1} mm");
+            // Cada tinta pinta donde tiene color; como mucho se pasa un tramo mínimo (0,6 mm)
+            // al unir trocitos a su vecino. El centro del mapa está en el origen.
+            let xs = |l: &[Polyline]| l.iter().flatten().map(|q| q.x + 15.0).fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+            assert!(xs(&parts[0]).1 < 20.25 + 0.61, "{style:?}: A se sale por la derecha {:?}", xs(&parts[0]));
+            assert!(xs(&parts[1]).0 > 9.75 - 0.61, "{style:?}: B se sale por la izquierda {:?}", xs(&parts[1]));
+            // En la franja central se pasan el trazo: un tramo de A acaba donde empieza uno de B.
+            let ends = |l: &[Polyline]| l.iter().flat_map(|l| [l[0], *l.last().unwrap()]).collect::<Vec<_>>();
+            let (ea, eb) = (ends(&parts[0]), ends(&parts[1]));
+            let relays = ea.iter().filter(|q| eb.iter().any(|r| q.dist(*r) < 1e-9)).count();
+            assert!(relays >= 3, "{style:?}: solo {relays} relevos");
+        }
+    }
+
+    #[test]
+    fn relay_dots_go_whole_to_one_ink() {
+        let maps = relay_maps();
+        let inks: Vec<Shared<Coverage>> = maps.iter().cloned().map(Shared::new).collect();
+        let look = TraceParams { style: TraceStyle::Dots, relay: true, ..Default::default() };
+        let parts: Vec<Vec<Polyline>> = (0..2).map(|index| {
+            let relay = Relay { inks: inks.clone(), index, look: look.clone(), pen_width_mm: 0.5, seed: 0 };
+            render_relay(&relay, &look, 0.5)
+        }).collect();
+        let mut combined = Grid::<f32>::new(60, 20);
+        for (i, v) in combined.data.iter_mut().enumerate() {
+            *v = 1.0 - (1.0 - maps[0].map.data[i]) * (1.0 - maps[1].map.data[i]);
+        }
+        let all = render(&combined, 0.5, &look, 0.5, 0);
+        assert_eq!(parts[0].len() + parts[1].len(), all.len());
+        assert!(!parts[0].is_empty() && !parts[1].is_empty());
     }
 }
