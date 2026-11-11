@@ -49,7 +49,7 @@ impl Default for Look {
 impl Look {
     fn fill_for(&self, i: usize) -> Fill {
         let angle = if self.vary_angle { (self.angle + 37.0 * i as f64).rem_euclid(180.0) } else { self.angle };
-        Fill { style: self.fill, pen: 0, spacing_mm: self.spacing, angle_deg: angle, inset_mm: 0.0 }
+        Fill { style: self.fill, pen: 0, spacing_mm: self.spacing, angle_deg: angle, inset_mm: 0.0, ..Default::default() }
     }
 }
 
@@ -615,7 +615,8 @@ impl VectorizeUi {
                         .width(ui.available_width())
                         .selected_text(look.fill.label())
                         .show_ui(ui, |ui| {
-                            for s in FillStyle::ALL {
+                            // Los efectos de trazo se eligen luego en cada objeto, con todos sus ajustes.
+                            for s in FillStyle::ALL.into_iter().filter(|s| *s != FillStyle::Trace) {
                                 ui.selectable_value(&mut look.fill, s, s.label());
                             }
                         })

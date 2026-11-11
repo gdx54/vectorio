@@ -22,10 +22,12 @@ pub enum FillStyle {
     Dots,
     /// Paralelas onduladas.
     Wave,
+    /// El motor de trazos de las fotos: flujo, espiral, garabato, vibración…
+    Trace,
 }
 
 impl FillStyle {
-    pub const ALL: [FillStyle; 8] = [
+    pub const ALL: [FillStyle; 9] = [
         FillStyle::None,
         FillStyle::Hatch,
         FillStyle::Cross,
@@ -34,6 +36,7 @@ impl FillStyle {
         FillStyle::Concentric,
         FillStyle::Dots,
         FillStyle::Wave,
+        FillStyle::Trace,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -45,6 +48,7 @@ impl FillStyle {
             FillStyle::Concentric => "Concéntrico",
             FillStyle::Dots => "Puntillismo",
             FillStyle::Wave => "Ondas",
+            FillStyle::Trace => "Efectos de trazo",
         }
     }
 }
@@ -58,11 +62,29 @@ pub struct Fill {
     pub angle_deg: f64,
     /// Margen interior respecto al contorno.
     pub inset_mm: f64,
+    /// Con `FillStyle::Trace`: estilo, largo, grosor y vibración. La separación y el
+    /// ángulo son los del relleno.
+    #[serde(default)]
+    pub trace: crate::trace::TraceParams,
+    /// Con `FillStyle::Trace`: cuánto color pone el relleno (0–1).
+    #[serde(default = "full_tone")]
+    pub tone: f64,
+}
+
+fn full_tone() -> f64 {
+    1.0
 }
 
 impl Default for Fill {
     fn default() -> Self {
-        Fill { style: FillStyle::None, pen: 0, spacing_mm: 1.5, angle_deg: 45.0, inset_mm: 0.0 }
+        Fill { style: FillStyle::None, pen: 0, spacing_mm: 1.5, angle_deg: 45.0, inset_mm: 0.0, trace: Default::default(), tone: 1.0 }
+    }
+}
+
+impl Fill {
+    /// Ajustes del motor de trazos para este relleno.
+    pub fn trace_params(&self) -> crate::trace::TraceParams {
+        crate::trace::TraceParams { spacing_mm: self.spacing_mm, angle_deg: self.angle_deg, relay: false, ..self.trace.clone() }
     }
 }
 
@@ -89,7 +111,39 @@ pub fn generate(rings: &[Polyline], fill: &Fill, pen_width: f64, seed: u64) -> V
         FillStyle::Concentric => concentric(&rings, spacing, inset),
         FillStyle::Dots => dots(&rings, spacing, inset, pen_width, seed),
         FillStyle::Wave => wave(&rings, fill.angle_deg, spacing, inset),
+        FillStyle::Trace => trace_fill(&rings, fill, inset, pen_width, seed),
     }
+}
+
+/// Relleno con el motor de trazos: la forma se convierte en un mapa de cobertura con el
+/// tono elegido y se traza como una tinta de foto.
+fn trace_fill(rings: &[Polyline], fill: &Fill, inset: f64, pen_width: f64, seed: u64) -> Vec<Polyline> {
+    let prm = fill.trace_params();
+    let b = BBox::of(rings.iter());
+    if b.width() <= 0.0 || b.height() <= 0.0 {
+        return vec![];
+    }
+    // Píxeles finos frente a la separación, sin pasar de 1600 por lado.
+    let px = (prm.spacing_mm * 0.25).clamp(0.06, 0.5).max(b.width().max(b.height()) / 1600.0);
+    let frame = raster::Frame::around(&b, px);
+    let mask = raster::rasterize(rings, &frame);
+    let tone = fill.tone.clamp(0.0, 1.0) as f32;
+    let mut cov = raster::Grid::<f32>::new(frame.w, frame.h);
+    if inset > 0.0 {
+        let dist = raster::distance_inside(&mask);
+        let min = (inset / px) as f32;
+        for (c, d) in cov.data.iter_mut().zip(&dist.data) {
+            if *d >= min.max(0.5) { *c = tone; }
+        }
+    } else {
+        for (c, m) in cov.data.iter_mut().zip(&mask.data) {
+            if *m { *c = tone; }
+        }
+    }
+    crate::trace::render(&cov, px, &prm, pen_width, seed as usize)
+        .into_iter()
+        .map(|l| l.into_iter().map(|q| frame.origin + q).collect())
+        .collect()
 }
 
 fn rotate_all(rings: &[Polyline], rad: f64) -> Vec<Polyline> {
@@ -329,5 +383,41 @@ mod tests {
         let f = Fill { style: FillStyle::Concentric, spacing_mm: 1.0, ..Default::default() };
         let l = generate(&square(10.0), &f, 0.5, 1);
         assert!(l.len() >= 4);
+    }
+
+    #[test]
+    fn trace_fill_stays_inside_the_shape_with_every_style_and_follows_the_tone() {
+        use crate::trace::{TraceStyle, Vibe};
+        // Cuadrado de 20 mm desplazado, con un agujero de 6 mm en el centro.
+        let mut rings: Vec<Polyline> = vec![vec![p(30.0, 40.0), p(50.0, 40.0), p(50.0, 60.0), p(30.0, 60.0)]];
+        rings.push(vec![p(37.0, 47.0), p(43.0, 47.0), p(43.0, 53.0), p(37.0, 53.0)]);
+        let length = |l: &[Polyline]| l.iter().map(|l| crate::geom::length(l)).sum::<f64>();
+        for style in TraceStyle::ALL {
+            for vibe in [Vibe::None, Vibe::Tremor] {
+                let f = Fill { style: FillStyle::Trace, spacing_mm: 1.0, trace: crate::trace::TraceParams { style, vibe, ..Default::default() }, ..Default::default() };
+                let lines = generate(&rings, &f, 0.4, 3);
+                assert!(!lines.is_empty(), "{style:?} {vibe:?} sin trazos");
+                let tol = 0.45;
+                for q in lines.iter().flatten() {
+                    assert!(q.x > 30.0 - tol && q.x < 50.0 + tol && q.y > 40.0 - tol && q.y < 60.0 + tol, "{style:?} {vibe:?} fuera: {q:?}");
+                    let hole = q.x > 37.0 + tol && q.x < 43.0 - tol && q.y > 47.0 + tol && q.y < 53.0 - tol;
+                    assert!(!hole, "{style:?} {vibe:?} pisa el agujero: {q:?}");
+                }
+                if style == TraceStyle::Hatch && vibe == Vibe::None {
+                    let light = generate(&rings, &Fill { tone: 0.3, ..f.clone() }, 0.4, 3);
+                    assert!(length(&light) < length(&lines) * 0.6, "el tono bajo pone menos tinta");
+                    let inset = generate(&rings, &Fill { inset_mm: 2.0, ..f.clone() }, 0.4, 3);
+                    assert!(inset.iter().flatten().all(|q| q.x > 31.7 && q.x < 48.3), "respeta el margen");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn old_fills_open_with_full_tone_and_default_effects() {
+        let old = r#"{"style":"Hatch","pen":1,"spacing_mm":1.6,"angle_deg":30.0,"inset_mm":0.0}"#;
+        let f: Fill = serde_json::from_str(old).unwrap();
+        assert_eq!((f.tone, f.trace.clone()), (1.0, crate::trace::TraceParams::default()));
+        assert_eq!(f.trace_params().angle_deg, 30.0);
     }
 }

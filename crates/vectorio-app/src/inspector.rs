@@ -601,10 +601,30 @@ fn styles_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
 
 /// Apartado TRAZO de las tintas vivas. Devuelve los ajustes editados.
 fn trace_controls(ui: &mut Ui, base: &TraceParams, many: bool, busy: bool) -> TraceParams {
+    trace_controls_in(ui, "TRAZO", base, many, busy)
+}
+
+/// Efectos de trazo de un relleno: el motor de las fotos sobre la forma, con su tono.
+/// La separación y el ángulo son los del relleno.
+fn fill_trace_controls(ui: &mut Ui, fill: &mut Fill) {
+    let base = fill.trace_params();
+    let new = trace_controls_in(ui, "EFECTOS DEL RELLENO", &base, false, false);
+    if new != base {
+        fill.spacing_mm = new.spacing_mm;
+        fill.angle_deg = new.angle_deg;
+        fill.trace = new;
+    }
+    row(ui, "Tono", |ui| {
+        ui.add(egui::Slider::new(&mut fill.tone, 0.05..=1.0).custom_formatter(|v, _| format!("{:.0} %", v * 100.0)))
+            .on_hover_text("Cuánto color pone el relleno: en los tonos bajos las líneas se cortan en trazos sueltos.");
+    });
+}
+
+fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, busy: bool) -> TraceParams {
     let pal = theme::current(ui.ctx());
     let mut t = base.clone();
     let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
-    theme::section(ui, "TRAZO");
+    theme::section(ui, title);
     style_choice(ui, &mut t.style);
     ui.label(RichText::new(t.style.help()).small().color(pal.secondary));
     row(ui, "Separación", |ui| { ui.add(egui::Slider::new(&mut t.spacing_mm, 0.3..=6.0).logarithmic(true).suffix(" mm")); });
@@ -679,12 +699,17 @@ fn apply_trace(doc: &mut Document, ids: &[u64], base: &TraceParams, new: &TraceP
     }
     for id in ids {
         let Some(t) = doc.get_mut(*id).filter(|it| !it.locked).and_then(|it| it.traced_mut()) else { continue };
-        macro_rules! copy_changed {
-            ($($f:ident),*) => { $( if new.$f != base.$f { t.trace.$f = new.$f; } )* };
-        }
-        copy_changed!(style, spacing_mm, dash_mm, dash_vary, weight, vibe, vibe_mm, wave_mm, vibe_by_tone, phase);
-        if new.angle_deg != base.angle_deg { t.trace.angle_deg = (t.trace.angle_deg + new.angle_deg - base.angle_deg).rem_euclid(180.0); }
+        apply_trace_params(&mut t.trace, base, new);
     }
+}
+
+/// Copia a `t` lo que cambió de `base` a `new`; el ángulo se suma como giro.
+fn apply_trace_params(t: &mut TraceParams, base: &TraceParams, new: &TraceParams) {
+    macro_rules! copy_changed {
+        ($($f:ident),*) => { $( if new.$f != base.$f { t.$f = new.$f; } )* };
+    }
+    copy_changed!(style, spacing_mm, dash_mm, dash_vary, weight, vibe, vibe_mm, wave_mm, vibe_by_tone, phase);
+    if new.angle_deg != base.angle_deg { t.angle_deg = (t.angle_deg + new.angle_deg - base.angle_deg).rem_euclid(180.0); }
 }
 
 fn object_row(app: &mut VectorioApp, ui: &mut Ui, id: u64, drop: &mut Option<(Vec<u64>, (u64, bool))>) {
@@ -975,7 +1000,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
         });
         if fill.style != FillStyle::None {
             ui.add_enabled_ui(!it.locked, |ui| ink_property(ui, "fill-pen", &pens, &mut fill.pen, true, &mut edit_color));
-            if fill.style != FillStyle::Solid {
+            if !matches!(fill.style, FillStyle::Solid | FillStyle::Trace) {
                 row(ui, "Separación", |ui| {
                     ui.add(egui::Slider::new(&mut fill.spacing_mm, 0.3..=10.0).suffix(" mm").logarithmic(true));
                 });
@@ -988,6 +1013,9 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
             row(ui, "Margen", |ui| {
                 ui.add(egui::Slider::new(&mut fill.inset_mm, 0.0..=5.0).suffix(" mm"));
             });
+            if fill.style == FillStyle::Trace {
+                fill_trace_controls(ui, fill);
+            }
         }
     });
     if !fillable {
@@ -1242,7 +1270,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
             });
         });
         if f.style != FillStyle::None {
-            if f.style != FillStyle::Solid {
+            if !matches!(f.style, FillStyle::Solid | FillStyle::Trace) {
                 row(ui, "Separación", |ui| {
                     ui.add(egui::Slider::new(&mut f.spacing_mm, 0.3..=10.0).suffix(" mm").logarithmic(true));
                 });
@@ -1255,6 +1283,9 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
             row(ui, "Margen", |ui| {
                 ui.add(egui::Slider::new(&mut f.inset_mm, 0.0..=5.0).suffix(" mm"));
             });
+            if f.style == FillStyle::Trace {
+                fill_trace_controls(ui, &mut f);
+            }
         }
         ui.label(RichText::new("Cada objeto conserva su rotulador de relleno.").small().color(pal.secondary));
         if f != base {
@@ -1272,6 +1303,13 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
                     }
                     if f.inset_mm != base.inset_mm {
                         it.fill.inset_mm = f.inset_mm;
+                    }
+                    if f.tone != base.tone {
+                        it.fill.tone = f.tone;
+                    }
+                    if f.trace != base.trace {
+                        // Como con las tintas: solo cambia lo que se ha tocado.
+                        apply_trace_params(&mut it.fill.trace, &base.trace, &f.trace);
                     }
                     it.fill.pen = pen;
                 }
@@ -1380,5 +1418,20 @@ mod tests {
         for word in ["ESTILOS", "Curvas de nivel", "Contornos", "Espiral", "Garabato"] {
             assert!(both.contains(word), "falta «{word}» con dos tintas elegidas:\n{both}");
         }
+    }
+
+    #[test]
+    fn a_trace_filled_shape_shows_its_effect_controls() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let mut it = Item::new("Corazón", Geometry::Shape(vectorio_core::Shape::Heart { size: 40.0 }), p(0.0, 0.0));
+        it.fill.style = vectorio_core::FillStyle::Trace;
+        let id = app.doc.add(it);
+        app.selected = Some(id);
+        let t = panel_texts(&mut app, &ctx);
+        for word in ["RELLENO", "EFECTOS DEL RELLENO", "Tono"] {
+            assert!(t.contains(word), "falta «{word}» con relleno de trazo:\n{t}");
+        }
+        assert_eq!(t.matches("Separación").count(), 1, "Separación debe salir una sola vez, dentro de los efectos:\n{t}");
     }
 }
