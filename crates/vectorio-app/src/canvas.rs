@@ -16,11 +16,15 @@ pub struct View {
     pub fitted: bool,
     /// Rectángulo del lienzo en el último fotograma.
     pub rect: Rect,
+    /// Tamaño del lienzo, zoom y desplazamiento del último ajuste automático. Mientras
+    /// la vista no se toque, un cambio de tamaño vuelve a ajustar: el primer fotograma
+    /// llega con un lienzo enorme antes de que macOS dé el tamaño real de la ventana.
+    fit_state: Option<(Vec2, f32, Vec2)>,
 }
 
 impl Default for View {
     fn default() -> Self {
-        View { zoom: 2.0, offset: Vec2::ZERO, fitted: false, rect: Rect::NOTHING }
+        View { zoom: 2.0, offset: Vec2::ZERO, fitted: false, rect: Rect::NOTHING, fit_state: None }
     }
 }
 
@@ -90,7 +94,8 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = resp.rect;
     app.view.rect = rect;
-    if !app.view.fitted {
+    let untouched = app.view.fit_state.is_some_and(|(size, zoom, offset)| size != rect.size() && zoom == app.view.zoom && offset == app.view.offset);
+    if !app.view.fitted || untouched {
         fit(app, rect);
     }
     // Con la ventana Foto → dibujo abierta el lienzo solo se pinta.
@@ -121,13 +126,14 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
 fn fit(app: &mut VectorioApp, rect: Rect) {
     let left = theme::INSET + inspector::LEFT_W + 28.0 + 16.0;
     let right = theme::INSET + inspector::RIGHT_W + 28.0 + 44.0;
-    let usable = Rect::from_min_max(Pos2::new(rect.left() + left, rect.top() + 24.0), Pos2::new(rect.right() - right, rect.bottom() - 70.0));
+    let usable = Rect::from_min_max(Pos2::new(rect.left() + left, rect.top() + theme::TOOLBAR_H + 24.0), Pos2::new(rect.right() - right, rect.bottom() - 70.0));
     let (pw, ph) = (app.doc.paper.width_mm as f32, app.doc.paper.height_mm as f32);
     let zoom = (usable.width().max(100.0) / pw).min(usable.height().max(100.0) / ph);
     app.view.zoom = zoom.max(0.2);
     let size = Vec2::new(pw, ph) * app.view.zoom;
     app.view.offset = usable.center() - rect.min - size / 2.0;
     app.view.fitted = true;
+    app.view.fit_state = Some((rect.size(), app.view.zoom, app.view.offset));
 }
 
 fn navigate(app: &mut VectorioApp, ui: &egui::Ui, resp: &egui::Response) {
@@ -168,8 +174,9 @@ fn paint_paper(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, pal: &Palett
     let r = Rect::from_min_max(xf.s(P::default()), xf.s(p(paper.width_mm, paper.height_mm)));
     let shadow = egui::epaint::Shadow { offset: Vec2::new(0.0, 6.0), blur: 24.0, spread: 0.0, color: Color32::from_black_alpha(60) };
     painter.add(shadow.as_shape(r, Rounding::same(2.0)));
+    theme::set_backdrop(painter.ctx(), Some((r, tint(app))));
     painter.rect_filled(r, Rounding::same(2.0), tint(app));
-    painter.rect_stroke(r, Rounding::same(2.0), Stroke::new(0.5f32, pal.glass_stroke));
+    painter.rect_stroke(r, Rounding::same(2.0), Stroke::new(0.5f32, pal.outline));
     let m = paper.margin_mm;
     if m > 0.0 {
         let mr = Rect::from_min_max(xf.s(p(m, m)), xf.s(p(paper.width_mm - m, paper.height_mm - m)));

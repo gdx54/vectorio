@@ -47,11 +47,9 @@ impl Default for NewDocument {
 }
 
 impl NewDocument {
-    /// Documento nuevo; las tintas de serie salen con el nombre en el idioma activo.
+    /// Documento nuevo. Las tintas de serie llevan su nombre en español y se muestran traducidas.
     pub fn document(&self) -> Document {
-        let mut doc = Document { paper: self.paper.clone(), plot: self.plot.clone(), output: self.output.clone(), ..Default::default() };
-        for pen in &mut doc.pens { pen.name = crate::i18n::tr_key(&pen.name); }
-        doc
+        Document { paper: self.paper.clone(), plot: self.plot.clone(), output: self.output.clone(), ..Default::default() }
     }
     pub fn from_document(doc: &Document) -> Self {
         Self { paper: doc.paper.clone(), plot: doc.plot.clone(), output: doc.output.clone() }
@@ -182,8 +180,6 @@ mod tests {
 
     #[test]
     fn new_documents_start_from_the_chosen_defaults() {
-        let _lock = crate::i18n::locale_lock();
-        rust_i18n::set_locale("es");
         let mut nd = NewDocument::default();
         assert_eq!(nd.document(), Document::default());
         nd.paper = vectorio_core::Paper::presets().remove(3);

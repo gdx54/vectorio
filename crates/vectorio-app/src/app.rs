@@ -324,7 +324,7 @@ impl VectorioApp {
             self.color_original = Some(self.doc.clone());
             self.color_edit = Some(i);
             self.color_picker = crate::colorpanel::ColorEditor::new(pen.color);
-            self.color_picker.subtitle = tr!("%{name} · tinta compartida", name = pen.name);
+            self.color_picker.subtitle = tr!("%{name} · tinta compartida", name = crate::i18n::pen_name(pen));
         }
     }
 
@@ -643,8 +643,11 @@ impl VectorioApp {
     // ── Interfaz ────────────────────────────────────────────────────────────────
 
     fn toolbar(&mut self, ctx: &egui::Context, pal: &Palette) {
-        let frame = egui::Frame::none().fill(pal.bar).stroke(Stroke::new(1.0f32, pal.separator));
-        egui::TopBottomPanel::top("toolbar").exact_height(theme::TOOLBAR_H).frame(frame).show(ctx, |ui| {
+        // La barra flota sobre el lienzo, que ocupa toda la ventana: no hay franja ni línea.
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(ctx.screen_rect().width(), theme::TOOLBAR_H));
+        egui::Area::new(egui::Id::new("toolbar")).fixed_pos(Pos2::ZERO).order(egui::Order::Middle).constrain(false).show(ctx, |ui| {
+            theme::toolbar_scrim(ui.painter(), bar, pal);
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(bar), |ui| {
             // Arrastrar la barra vacía mueve la ventana; doble clic la amplía.
             let bg = ui.interact(ui.max_rect(), egui::Id::new("toolbar-drag"), Sense::click_and_drag());
             if bg.drag_started() {
@@ -655,7 +658,8 @@ impl VectorioApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
             ui.horizontal_centered(|ui| {
-                ui.add_space(theme::TRAFFIC_LIGHTS_W);
+                // Los semáforos son nativos y no siguen el tamaño de la interfaz.
+                ui.add_space(theme::TRAFFIC_LIGHTS_W / ui.ctx().zoom_factor());
                 let title = self
                     .file
                     .as_ref()
@@ -671,7 +675,7 @@ impl VectorioApp {
                 ui.add_space(18.0);
 
                 if self.mode == ViewMode::Design {
-                segmented(ui, pal, |ui| {
+                capsule(ui, pal, |ui| {
                     for (tool, icon, tip) in [
                         (Tool::Select, Icon::Select, tm!("Seleccionar y mover (V)")),
                         (Tool::Draw, Icon::Draw, tm!("Mano alzada (P)")),
@@ -685,7 +689,7 @@ impl VectorioApp {
                 });
                 if self.tool == Tool::Shape {
                     let presets = Shape::presets();
-                    egui::ComboBox::from_id_salt("shape-kind")
+                    egui::ComboBox::from_id_salt("shape-kind").icon(crate::theme::combo_icon)
                         .selected_text(crate::i18n::ts(presets[self.shape_kind].label()))
                         .width(130.0)
                         .show_ui(ui, |ui| {
@@ -695,7 +699,7 @@ impl VectorioApp {
                         });
                 }
                 ui.add_space(6.0);
-                segmented(ui, pal, |ui| {
+                capsule(ui, pal, |ui| {
                     if icon_button(ui, pal, Icon::Image, false).on_hover_text(tr!("Foto → dibujo (I)")).clicked() {
                         self.vec_ui.open_dialog(ctx);
                     }
@@ -739,7 +743,7 @@ impl VectorioApp {
                         }
                     });
                     ui.add_space(8.0);
-                    segmented(ui, pal, |ui| {
+                    capsule(ui, pal, |ui| {
                         for (mode, label) in [(ViewMode::Output, tr!("Salida")), (ViewMode::Design, tr!("Diseño"))] {
                             let sel = self.mode == mode;
                             if text_segment(ui, pal, &label, sel).clicked() {
@@ -751,7 +755,7 @@ impl VectorioApp {
                         }
                     });
                     ui.add_space(8.0);
-                    segmented(ui, pal, |ui| {
+                    capsule(ui, pal, |ui| {
                         let redo = icon_button_state(ui, pal, Icon::Redo, false, self.can_redo());
                         if redo.on_hover_text(tr!("Rehacer (⇧⌘Z)")).clicked() && self.can_redo() {
                             self.redo();
@@ -762,6 +766,7 @@ impl VectorioApp {
                         }
                     });
                 });
+            });
             });
         });
     }
@@ -798,7 +803,7 @@ impl VectorioApp {
             .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -theme::INSET))
             .order(egui::Order::Middle)
             .show(ctx, |ui| {
-                theme::glass_panel_with(ui, pal, 22.0, egui::Margin::symmetric(16.0, 8.0), |ui| {
+                theme::glass_panel_with(ui, pal, theme::PANEL_RADIUS, egui::Margin::symmetric(16.0, 8.0), theme::Material::Capsule, |ui| {
                     ui.set_max_width(screen.width() - 2.0 * (inspector::RIGHT_W + 60.0));
                     ui.horizontal(|ui| {
                         let st = &self.rendered.stats;
@@ -826,7 +831,7 @@ impl VectorioApp {
         let screen = ctx.screen_rect();
         let veil = egui::Area::new(egui::Id::new("help-veil")).fixed_pos(screen.min).order(egui::Order::Middle).show(ctx, |ui| {
             let resp = ui.allocate_rect(screen, Sense::click());
-            ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(if ui.visuals().dark_mode { 110 } else { 60 }));
+            ui.painter().rect_filled(screen, 0.0, theme::veil(ui.visuals().dark_mode));
             resp.clicked()
         });
         ctx.move_to_top(veil.response.layer_id);
@@ -834,7 +839,7 @@ impl VectorioApp {
             self.show_help = false;
         }
         egui::Area::new(egui::Id::new("help-sheet")).anchor(egui::Align2::CENTER_CENTER, Vec2::new(0.0, theme::TOOLBAR_H / 2.0)).order(egui::Order::Foreground).show(ctx, |ui| {
-            theme::glass_frame(pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(22.0)).show(ui, |ui| {
+            theme::glass_sheet(ui, pal, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(tr!("Atajos de teclado")).size(15.0).strong().color(pal.text));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -863,7 +868,7 @@ impl VectorioApp {
                 .order(egui::Order::Foreground)
                 .interactable(false)
                 .show(ctx, |ui| {
-                    theme::glass_frame(pal).rounding(Rounding::same(20.0)).inner_margin(egui::Margin::symmetric(18.0, 9.0)).show(ui, |ui| {
+                    theme::glass_panel_with(ui, pal, theme::PANEL_RADIUS, egui::Margin::symmetric(18.0, 9.0), theme::Material::Capsule, |ui| {
                         ui.label(msg);
                     });
                 });
@@ -894,7 +899,10 @@ impl eframe::App for VectorioApp {
         if self.mode == ViewMode::Output {
             crate::output::show(self, ctx);
         } else {
-            egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
+            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+                theme::paint_canvas(ui.painter(), ui.max_rect(), &pal);
+                canvas::show(self, ui)
+            });
             self.floating_panels(ctx, &pal);
             self.status_bar(ctx, &pal);
         }
@@ -917,6 +925,7 @@ impl eframe::App for VectorioApp {
         self.save_prefs(ctx);
         self.show_color_panel(ctx);
         self.toast(ctx, &pal);
+        theme::restyle_controls(ctx);
         self.update_traces(ctx);
         self.track_changes(ctx);
     }
@@ -936,11 +945,23 @@ pub enum Icon {
     Redo,
 }
 
-/// Grupo de botones sobre una cápsula, como los controles segmentados de macOS.
+/// Radio del pomo de los segmentos de una sola fila (28 px de alto): una cápsula.
+const KNOB_RADIUS: f32 = 14.0;
+
+/// Grupo de botones de la barra: una cápsula de vidrio propia (28 + 2·3 = 34 px de alto).
+pub fn capsule<R>(ui: &mut egui::Ui, pal: &Palette, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    theme::glass_panel_with(ui, pal, KNOB_RADIUS + 3.0, egui::Margin::same(3.0), theme::Material::Capsule, |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.horizontal(add).inner
+    })
+    .inner
+}
+
+/// Control segmentado dentro de un panel u hoja: cápsula hundida sin sombra.
 pub fn segmented<R>(ui: &mut egui::Ui, pal: &Palette, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::none()
         .fill(pal.control)
-        .rounding(Rounding::same(theme::CONTROL_RADIUS + 2.0))
+        .rounding(Rounding::same(KNOB_RADIUS + 2.0))
         .inner_margin(egui::Margin::same(2.0))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
@@ -953,7 +974,7 @@ pub fn text_segment(ui: &mut egui::Ui, pal: &Palette, label: &str, selected: boo
     let galley = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(12.5), pal.text);
     let size = Vec2::new(galley.size().x + 22.0, 28.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    paint_segment_bg(ui, pal, rect, selected, resp.hovered());
+    paint_segment_bg(ui, pal, rect, selected, resp.hovered(), KNOB_RADIUS, true);
     let color = if selected { pal.text } else { pal.secondary };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(12.5), color);
     resp
@@ -976,7 +997,7 @@ pub fn choice<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[
                 for (v, label) in options {
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 24.0), Sense::click());
                     let selected = *value == *v;
-                    paint_segment_bg(ui, &pal, rect, selected, resp.hovered());
+                    paint_segment_bg(ui, &pal, rect, selected, resp.hovered(), theme::CONTROL_RADIUS, false);
                     let color = if selected { pal.text } else { pal.secondary };
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, *label, egui::FontId::proportional(12.0), color);
                     if resp.clicked() && !selected {
@@ -989,12 +1010,24 @@ pub fn choice<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[
     changed
 }
 
-fn paint_segment_bg(ui: &egui::Ui, pal: &Palette, rect: Rect, selected: bool, hovered: bool) {
-    let r = Rounding::same(theme::CONTROL_RADIUS);
+/// Pomo del segmento seleccionado. Al cambiar de segmento se desliza hasta el nuevo
+/// (el estado vive en el `Ui` del grupo, que es estable entre fotogramas).
+fn paint_segment_bg(ui: &egui::Ui, pal: &Palette, rect: Rect, selected: bool, hovered: bool, radius: f32, animate: bool) {
+    let r = Rounding::same(radius);
     if selected {
-        let fill = if ui.visuals().dark_mode { Color32::from_rgba_unmultiplied(255, 255, 255, 36) } else { Color32::WHITE };
-        ui.painter().rect_filled(rect.translate(Vec2::new(0.0, 0.5)), r, Color32::from_black_alpha(18));
-        ui.painter().rect_filled(rect, r, fill);
+        let knob = if animate {
+            // Posición relativa al grupo: si la hoja o la ventana se desplazan, el pomo no «viaja».
+            let id = ui.id().with("knob");
+            let left = ui.min_rect().left();
+            let x = left + ui.ctx().animate_value_with_time(id.with("x"), rect.min.x - left, 0.16);
+            let w = ui.ctx().animate_value_with_time(id.with("w"), rect.width(), 0.16);
+            Rect::from_min_size(Pos2::new(x, rect.min.y), Vec2::new(w, rect.height()))
+        } else {
+            rect
+        };
+        ui.painter().rect_filled(knob.translate(Vec2::new(0.0, 0.5)), r, Color32::from_black_alpha(18));
+        ui.painter().rect_filled(knob, r, pal.knob);
+        ui.painter().rect_stroke(knob, r, Stroke::new(0.75f32, pal.rim_hi));
     } else if hovered {
         ui.painter().rect_filled(rect, r, pal.control_hover);
     }
@@ -1006,7 +1039,7 @@ pub fn icon_button(ui: &mut egui::Ui, pal: &Palette, icon: Icon, selected: bool)
 
 pub fn icon_button_state(ui: &mut egui::Ui, pal: &Palette, icon: Icon, selected: bool, enabled: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(34.0, 28.0), Sense::click());
-    paint_segment_bg(ui, pal, rect, selected, resp.hovered() && enabled);
+    paint_segment_bg(ui, pal, rect, selected, resp.hovered() && enabled, KNOB_RADIUS, true);
     let color = if !enabled {
         pal.secondary.gamma_multiply(0.45)
     } else if selected {

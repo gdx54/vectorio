@@ -3,7 +3,7 @@
 use crate::app::{choice, segmented, text_segment, PAPER_TINTS};
 use crate::prefs::{Language, NewDocument, Preferences, SCALE_RANGE};
 use crate::theme::{self, Appearance, Palette};
-use egui::{Color32, RichText, Sense, Vec2};
+use egui::{RichText, Sense, Vec2};
 use vectorio_core::{Document, Paper};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -41,7 +41,7 @@ impl PrefsUi {
         let screen = ctx.screen_rect();
         let veil = egui::Area::new(egui::Id::new("prefs-veil")).fixed_pos(screen.min).order(egui::Order::Middle).show(ctx, |ui| {
             let resp = ui.allocate_rect(screen, Sense::click());
-            ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(if ui.visuals().dark_mode { 110 } else { 60 }));
+            ui.painter().rect_filled(screen, 0.0, theme::veil(ui.visuals().dark_mode));
             resp.clicked()
         });
         ctx.move_to_top(veil.response.layer_id);
@@ -52,7 +52,7 @@ impl PrefsUi {
         let mut close = false;
         egui::Area::new(egui::Id::new("prefs-sheet")).anchor(egui::Align2::CENTER_CENTER, Vec2::new(0.0, theme::TOOLBAR_H / 2.0))
             .order(egui::Order::Foreground).show(ctx, |ui| {
-                theme::glass_frame(pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(22.0)).show(ui, |ui| {
+                theme::glass_sheet(ui, pal, |ui| {
                     ui.set_width(500.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(tr!("Ajustes")).size(15.0).strong().color(pal.text));
@@ -101,7 +101,7 @@ fn general(ui: &mut egui::Ui, pal: &Palette, prefs: &mut Preferences, scale: &mu
     theme::section(ui, &tr!("TAMAÑO DE LA INTERFAZ"));
     ui.add(egui::Slider::new(scale, SCALE_RANGE).custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
         .custom_parser(|s| s.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0)));
-    ui.label(RichText::new(tr!("Se aplica al soltar el deslizador.")).small().color(pal.secondary));
+    ui.label(RichText::new(tr!("Se aplica al soltar el deslizador.")).small().color(pal.tertiary));
     ui.add_space(10.0);
     theme::section(ui, &tr!("AYUDA"));
     ui.checkbox(&mut prefs.show_tips, tr!("Mostrar ideas para empezar en el panel de documento"));
@@ -111,7 +111,7 @@ fn new_document(ui: &mut egui::Ui, pal: &Palette, prefs: &mut Preferences, curre
     let nd = &mut prefs.new_document;
     theme::section(ui, &tr!("PAPEL"));
     row(ui, &tr!("Tamaño"), |ui| {
-        egui::ComboBox::from_id_salt("prefs-paper").selected_text(crate::i18n::tr_key(&nd.paper.name)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("prefs-paper").icon(crate::theme::combo_icon).selected_text(crate::i18n::tr_key(&nd.paper.name)).show_ui(ui, |ui| {
             for preset in Paper::presets() {
                 let selected = preset.name == nd.paper.name;
                 if ui.selectable_label(selected, crate::i18n::tr_key(&preset.name)).clicked() && !selected {
@@ -147,7 +147,7 @@ fn new_document(ui: &mut egui::Ui, pal: &Palette, prefs: &mut Preferences, curre
         }
         if ui.button(tr!("Restablecer")).clicked() { *nd = NewDocument::default(); }
     });
-    ui.label(RichText::new(tr!("Solo afecta a los documentos nuevos; cada proyecto guarda los suyos.")).small().color(pal.secondary));
+    ui.label(RichText::new(tr!("Solo afecta a los documentos nuevos; cada proyecto guarda los suyos.")).small().color(pal.tertiary));
 }
 
 fn output(ui: &mut egui::Ui, pal: &Palette, prefs: &mut Preferences) {
@@ -160,7 +160,7 @@ fn output(ui: &mut egui::Ui, pal: &Palette, prefs: &mut Preferences) {
     row(ui, &tr!("Pasadas húmedas"), |ui| { ui.add(egui::DragValue::new(&mut out.max_wet_passes).range(1..=10)); });
     drag(ui, &tr!("Empape"), &mut out.soak_mm, 0.0..=2.0, 0.01, " mm");
     drag(ui, &tr!("Cambio de tinta"), &mut out.pen_change_seconds, 0.0..=300.0, 1.0, " s");
-    ui.label(RichText::new(tr!("Solo afectan a documentos nuevos; cada proyecto guarda los suyos.")).small().color(pal.secondary));
+    ui.label(RichText::new(tr!("Solo afectan a documentos nuevos; cada proyecto guarda los suyos.")).small().color(pal.tertiary));
 }
 
 #[cfg(test)]

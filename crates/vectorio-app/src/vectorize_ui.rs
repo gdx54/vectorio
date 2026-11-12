@@ -310,12 +310,11 @@ impl VectorizeUi {
 
         let size = Vec2::new((screen.width() - 80.0).clamp(760.0f32.min(screen.width() - 16.0), 1240.0), (screen.height() - theme::TOOLBAR_H - 60.0).clamp(420.0, 680.0));
         let pos = Pos2::new(screen.center().x - size.x / 2.0, (theme::TOOLBAR_H + (screen.height() - theme::TOOLBAR_H - size.y) / 2.0).max(theme::TOOLBAR_H));
-        let frame = theme::glass_frame(&pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(0.0));
         egui::Area::new(egui::Id::new("vectorize-sheet"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                frame.show(ui, |ui| {
+                theme::glass_panel_with(ui, &pal, theme::SHEET_RADIUS, egui::Margin::ZERO, theme::Material::Sheet, |ui| {
                     ui.set_width(size.x);
                     ui.set_max_width(size.x);
                     ui.set_height(size.y);
@@ -514,13 +513,13 @@ impl VectorizeUi {
         }
         if self.plot_job.is_some() && self.job.is_none() {
             let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.circle_filled(c, 14.0, pal.bar);
+            painter.add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
             let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
             overlay.add(egui::Spinner::new());
         }
         if self.job.is_some() {
             let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.circle_filled(c, 14.0, pal.bar);
+            painter.add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
             let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
             overlay.add(egui::Spinner::new());
         }
@@ -595,7 +594,7 @@ impl VectorizeUi {
     fn color_panel(&mut self, ui: &mut egui::Ui) {
         let pal = theme::current(ui.ctx());
         theme::section(ui, ts!("COLOR DE LA FOTO"));
-        ui.label(RichText::new(ts!("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.")).small().color(pal.tertiary));
         // Histograma de luz: de sombras (izquierda) a luces (derecha).
         let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 54.0), Sense::hover());
         let painter = ui.painter_at(r);
@@ -637,13 +636,13 @@ impl VectorizeUi {
         if ui.add_enabled(!a.is_identity(), egui::Button::new(ts!("Restablecer"))).clicked() {
             *a = ColorAdjust::default();
         }
-        ui.label(RichText::new(ts!("Doble clic en un control lo devuelve a su valor inicial.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Doble clic en un control lo devuelve a su valor inicial.")).small().color(pal.tertiary));
     }
 
     fn controls(&mut self, ui: &mut egui::Ui, doc: &Document) {
         let pal = theme::current(ui.ctx());
         theme::section(ui, ts!("ESTILO"));
-        egui::ComboBox::from_id_salt("vec-mode")
+        egui::ComboBox::from_id_salt("vec-mode").icon(crate::theme::combo_icon)
             .width(ui.available_width())
             .selected_text(crate::i18n::ts(self.params.mode.label()))
             .show_ui(ui, |ui| {
@@ -651,7 +650,7 @@ impl VectorizeUi {
                     ui.selectable_value(&mut self.params.mode, m, crate::i18n::ts(m.label()));
                 }
             });
-        ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.secondary));
+        ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.tertiary));
         let prm = &mut self.params;
         match prm.mode {
             VecMode::Colors => {
@@ -661,7 +660,7 @@ impl VectorizeUi {
             }
             VecMode::Mix => {
                 field(ui, ts!("Rotuladores"), |ui| {
-                    egui::ComboBox::from_id_salt("vec-palette")
+                    egui::ComboBox::from_id_salt("vec-palette").icon(crate::theme::combo_icon)
                         .width(ui.available_width())
                         .selected_text(crate::i18n::ts(prm.mix_palette.label()))
                         .show_ui(ui, |ui| {
@@ -709,7 +708,7 @@ impl VectorizeUi {
             VecMode::Colors | VecMode::Silhouette => {
                 theme::section(ui, ts!("RELLENO DE LAS FORMAS"));
                 field(ui, ts!("Relleno"), |ui| {
-                    egui::ComboBox::from_id_salt("vec-fill")
+                    egui::ComboBox::from_id_salt("vec-fill").icon(crate::theme::combo_icon)
                         .width(ui.available_width())
                         .selected_text(crate::i18n::ts(look.fill.label()))
                         .show_ui(ui, |ui| {
@@ -744,7 +743,7 @@ impl VectorizeUi {
                     sc.trace = new;
                 }
                 field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")).on_hover_text(ts!("Grosor de los rotuladores nuevos")));
-                ui.label(RichText::new(ts!("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.")).small().color(pal.secondary));
+                ui.label(RichText::new(ts!("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.")).small().color(pal.tertiary));
             }
             _ => {}
         }
@@ -762,12 +761,12 @@ impl VectorizeUi {
                 (VecMode::Colors | VecMode::Mix, n) => tr!("Se añadirán %{n} tintas nuevas al panel de tintas.", n = n),
                 _ => ts!("Se usará tu rotulador más parecido.").to_string(),
             };
-            ui.label(RichText::new(help).small().color(pal.secondary));
+            ui.label(RichText::new(help).small().color(pal.tertiary));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 for c in &choices {
                     let name = match c {
-                        PenChoice::Existing(i) => doc.pens.get(*i).map(|p| p.name.clone()).unwrap_or_default(),
+                        PenChoice::Existing(i) => doc.pens.get(*i).map(crate::i18n::pen_name).unwrap_or_default(),
                         PenChoice::New(_, n, _) => tr!("%{n} (nuevo)", n = n),
                     };
                     theme::swatch(ui, choice_color(doc, c), 16.0).on_hover_text(name);
@@ -783,7 +782,7 @@ impl VectorizeUi {
             field(ui, ts!("Curvas"), |ui| ui.add(egui::Slider::new(&mut prm.smooth, 0..=4)));
         }
         field(ui, ts!("Resolución"), |ui| {
-            egui::ComboBox::from_id_salt("vec-res")
+            egui::ComboBox::from_id_salt("vec-res").icon(crate::theme::combo_icon)
                 .width(ui.available_width())
                 .selected_text(format!("{} px", prm.max_px))
                 .show_ui(ui, |ui| {
@@ -890,7 +889,7 @@ fn my_pens(ui: &mut egui::Ui, prm: &mut VecParams, doc: &Document) {
     if prm.mix_pens.is_empty() {
         prm.mix_pens = doc.pens.iter().map(|p| p.color).filter(|c| !light(*c)).collect();
     }
-    ui.label(RichText::new(ts!("Toca un rotulador para quitarlo o ponerlo en la mezcla.")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Toca un rotulador para quitarlo o ponerlo en la mezcla.")).small().color(pal.tertiary));
     ui.horizontal_wrapped(|ui| {
         for pen in &doc.pens {
             let on = prm.mix_pens.contains(&pen.color);
@@ -904,7 +903,7 @@ fn my_pens(ui: &mut egui::Ui, prm: &mut VecParams, doc: &Document) {
             } else {
                 painter.circle_filled(rect.center(), 10.0, egui::Color32::from_white_alpha(150));
             }
-            let resp = resp.on_hover_text(if on { tr!("%{name} · en la mezcla", name = pen.name) } else { tr!("%{name} · fuera de la mezcla", name = pen.name) });
+            let resp = resp.on_hover_text(if on { tr!("%{name} · en la mezcla", name = crate::i18n::pen_name(pen)) } else { tr!("%{name} · fuera de la mezcla", name = crate::i18n::pen_name(pen)) });
             if resp.clicked() {
                 if on {
                     if prm.mix_pens.len() > 1 {

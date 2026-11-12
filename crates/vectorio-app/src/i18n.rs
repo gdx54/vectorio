@@ -2,7 +2,7 @@
 //! y `locales/app.yml` solo aporta las demás lenguas. Una clave sin traducción se muestra
 //! en español, y una prueba avisa de cualquier clave usada que falte en el archivo.
 
-/// Texto traducido (`String`). Con variables: `tr!("Guardado en %{ruta}", ruta = x)`.
+/// Texto traducido (`String`). Con variables: con `tr!` y `ruta = x`.
 macro_rules! tr {
     ($($t:tt)*) => { rust_i18n::t!($($t)*).into_owned() };
 }
@@ -31,6 +31,29 @@ pub fn ts(key: &'static str) -> &'static str {
     })
 }
 
+/// Nombres de tinta que genera Vectorio. Se guardan siempre en español en el documento y
+/// se traducen al mostrarlos, para que sigan al idioma elegido y a su color automático.
+const COLOR_NAMES: &[&str] = &[
+    tm!("Negro fino"), tm!("Negro"), tm!("Blanco"), tm!("Gris"), tm!("Rojo"), tm!("Naranja"), tm!("Amarillo"), tm!("Verde"),
+    tm!("Turquesa"), tm!("Cian"), tm!("Azul"), tm!("Índigo"), tm!("Violeta"), tm!("Morado"), tm!("Magenta"), tm!("Rosa"), tm!("Marrón"),
+];
+
+/// Nombre de una tinta para mostrar: las de nombre automático se traducen; las que el usuario
+/// ha nombrado se dejan como están.
+pub fn pen_name(pen: &vectorio_core::Pen) -> String {
+    if pen.custom_name { return pen.name.clone(); }
+    for stored in ["Rotulador ", "Pen "] {
+        if let Some(n) = pen.name.strip_prefix(stored) {
+            if n.chars().all(|c| c.is_ascii_digit()) { return tr!("Rotulador %{n}", n = n); }
+        }
+    }
+    // También reconoce el nombre inglés, por si el documento se creó con la interfaz en inglés.
+    match COLOR_NAMES.iter().find(|k| pen.name == **k || pen.name == rust_i18n::t!(**k, locale = "en")) {
+        Some(key) => tr_key(key),
+        None => pen.name.clone(),
+    }
+}
+
 /// Las pruebas cambian el idioma global: las que dependen de él lo toman para no pisarse.
 #[cfg(test)]
 pub fn locale_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -53,10 +76,12 @@ mod tests {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
-            if path.extension().is_none_or(|e| e != "rs") || path.ends_with("i18n.rs") { continue; }
+            if path.extension().is_none_or(|e| e != "rs") { continue; }
             let text = std::fs::read_to_string(&path).unwrap();
             // Las pruebas pueden usar textos propios: solo cuenta el código de la aplicación.
             let code = text.split("#[cfg(test)]").next().unwrap();
+            let code: String = code.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+            let code = code.as_str();
             for marker in ["tr!(", "tm!(", "ts!("] {
                 let mut rest = code;
                 while let Some(i) = rest.find(marker) {
@@ -142,5 +167,19 @@ mod tests {
         assert_eq!(tr!("Plan guardado en %{ruta}", ruta = "/a"), "Plan saved to /a");
         rust_i18n::set_locale("es");
         assert_eq!(tr!("Plan guardado en %{ruta}", ruta = "/a"), "Plan guardado en /a");
+    }
+
+    #[test]
+    fn automatic_pen_names_follow_the_language_in_both_directions() {
+        let _lock = super::locale_lock();
+        let auto = |n: &str| vectorio_core::Pen::new(n, [0, 0, 0], 0.5);
+        let mut mine = auto("Rojo");
+        mine.custom_name = true;
+        rust_i18n::set_locale("en");
+        assert_eq!((super::pen_name(&auto("Rojo")).as_str(), super::pen_name(&auto("Marrón")).as_str(), super::pen_name(&auto("Rotulador 3")).as_str()), ("Red", "Brown", "Pen 3"));
+        assert_eq!(super::pen_name(&mine), "Rojo");
+        rust_i18n::set_locale("es");
+        // Un documento creado con la interfaz en inglés vuelve a verse en español.
+        assert_eq!((super::pen_name(&auto("Red")).as_str(), super::pen_name(&auto("Pen 3")).as_str(), super::pen_name(&auto("Fine black")).as_str()), ("Rojo", "Rotulador 3", "Negro fino"));
     }
 }

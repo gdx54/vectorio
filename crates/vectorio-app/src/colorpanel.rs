@@ -58,7 +58,7 @@ impl ColorEditor {
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                theme::glass_frame(&pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(18.0)).show(ui, |ui| {
+                theme::glass_sheet(ui, &pal, |ui| {
                     ui.set_width(width);
                     let content_height = height - 36.0;
                     ui.set_height(content_height);
@@ -70,7 +70,7 @@ impl ColorEditor {
                             if theme::close_button(ui).clicked() { cancelled = true; }
                         });
                     });
-                    let subtitle = if self.title == "Color del rotulador" { format!("{} · tinta compartida", pen.name) } else { self.subtitle.clone() };
+                    let subtitle = if self.title == "Color del rotulador" { tr!("%{name} · tinta compartida", name = crate::i18n::pen_name(pen)) } else { self.subtitle.clone() };
                     ui.add(egui::Label::new(RichText::new(subtitle).color(pal.secondary)).truncate());
                     ui.add_space(6.0);
                     let header_height = ui.cursor().min.y - top;
@@ -126,7 +126,7 @@ impl ColorEditor {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add_sized([132.0, 34.0], egui::Button::new(RichText::new(ts!("Hecho")).color(Color32::WHITE)).fill(pal.accent)).clicked() { open = false; }
+                            if theme::accent_button_sized(ui, ts!("Hecho"), Some(Vec2::new(132.0, 34.0))).clicked() { open = false; }
                             if ui.add_sized([132.0, 34.0], egui::Button::new(ts!("Cancelar"))).clicked() { cancelled = true; }
                         });
                     });

@@ -36,7 +36,7 @@ fn ink_property(ui: &mut Ui, id: &str, pens: &[Pen], pen: &mut usize, fill: bool
 
 /// Desplegable de rotuladores con su color.
 fn pen_combo(ui: &mut Ui, id: &str, pens: &[Pen], value: &mut usize) -> egui::Response {
-    egui::ComboBox::from_id_salt(id)
+    egui::ComboBox::from_id_salt(id).icon(crate::theme::combo_icon)
         .width(150.0)
         .selected_text(pen_label(pens, *value))
         .show_ui(ui, |ui| {
@@ -123,7 +123,7 @@ fn ink_swatch(ui: &mut Ui, color: Option<[u8; 3]>, fill: bool) -> egui::Response
 pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let pal = theme::current(ui.ctx());
     theme::section(ui, ts!("CAPAS"));
-    ui.label(RichText::new(ts!("Un objeto por capa · arriba queda delante")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Un objeto por capa · arriba queda delante")).small().color(pal.tertiary));
     ui.add_space(5.0);
     if app.doc.items.is_empty() {
         ui.label(RichText::new(ts!("Dibuja, escribe o importa una imagen para empezar.")).color(pal.secondary));
@@ -160,18 +160,18 @@ pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let selection = app.selection();
     if !selection.is_empty() && !app.pen_focus {
         ui.add_space(6.0);
-        ui.label(RichText::new(if selection.len() == 1 { tr!("1 seleccionado") } else { tr!("%{n} seleccionados", n = selection.len()) }).small().color(pal.secondary));
+        ui.label(RichText::new(if selection.len() == 1 { tr!("1 seleccionado") } else { tr!("%{n} seleccionados", n = selection.len()) }).small().color(pal.tertiary));
         ui.horizontal(|ui| {
             if ui.button(ts!("Traer adelante")).on_hover_text(ts!("Toda la selección · ⌘]")).clicked() { app.doc.reorder_items(&selection, true, false); }
             if ui.button(ts!("Enviar atrás")).on_hover_text(ts!("Toda la selección · ⌘[")).clicked() { app.doc.reorder_items(&selection, false, false); }
         });
     }
     ui.add_space(6.0);
-    ui.label(RichText::new(ts!("Doble clic para renombrar · arrastra para ordenar")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Doble clic para renombrar · arrastra para ordenar")).small().color(pal.tertiary));
     ui.add_space(6.0);
     ui.separator();
     theme::section(ui, ts!("TINTAS"));
-    ui.label(RichText::new(ts!("Arrastra para ordenar o suéltala en una capa")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Arrastra para ordenar o suéltala en una capa")).small().color(pal.tertiary));
     ui.add_space(4.0);
     pen_cards(app, ui);
     ui.add_space(6.0);
@@ -240,12 +240,16 @@ fn paint_pen_card(painter: &egui::Painter, rect: egui::Rect, pen: &Pen, pal: &th
         let shadow = Shadow { offset: Vec2::new(0.0, 6.0 + 8.0 * lift), blur: 14.0 + 18.0 * lift, spread: 0.0, color: pal.shadow.gamma_multiply(0.6 + 0.6 * lift) };
         painter.add(shadow.as_shape(rect, Rounding::same(CARD_RADIUS)));
     }
-    painter.rect_filled(rect, CARD_RADIUS, if look == CardLook::Ghost { pal.card.to_opaque() } else { pal.card });
+    painter.rect_filled(rect, CARD_RADIUS, if look == CardLook::Ghost { pal.bar } else { pal.card });
     let band = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width(), CARD_BAND));
     painter.rect_filled(band, Rounding { nw: CARD_RADIUS, ne: CARD_RADIUS, sw: 0.0, se: 0.0 }, color);
     // Reflejo superior de la banda, como una tinta vista a través del vidrio.
-    let sheen = egui::Rect::from_min_size(band.min, Vec2::new(band.width(), band.height() * 0.45));
-    painter.rect_filled(sheen, Rounding { nw: CARD_RADIUS, ne: CARD_RADIUS, sw: 0.0, se: 0.0 }, Color32::from_white_alpha(26));
+    let sheen = egui::Rect::from_min_size(band.min + Vec2::new(CARD_RADIUS * 0.35, 1.0), Vec2::new(band.width() - CARD_RADIUS * 0.7, band.height() * 0.5));
+    let mut gloss = egui::Mesh::default();
+    for (p, c) in [(sheen.left_top(), theme::white(46)), (sheen.right_top(), theme::white(46)), (sheen.right_bottom(), Color32::TRANSPARENT), (sheen.left_bottom(), Color32::TRANSPARENT)] { gloss.colored_vertex(p, c); }
+    gloss.add_triangle(0, 1, 2);
+    gloss.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(gloss));
     // Muestra del trazo: una onda con el grosor físico del rotulador.
     let luma = 0.299 * pen.color[0] as f32 + 0.587 * pen.color[1] as f32 + 0.114 * pen.color[2] as f32;
     let ink = if luma > 150.0 { Color32::from_black_alpha(120) } else { Color32::from_white_alpha(170) };
@@ -257,12 +261,13 @@ fn paint_pen_card(painter: &egui::Painter, rect: egui::Rect, pen: &Pen, pal: &th
     }).collect();
     painter.add(egui::Shape::line(wave, Stroke::new(width, ink)));
     let text_w = rect.width() - 20.0;
-    let name = truncated(painter, &pen.name, 12.5, pal.text, text_w, true);
+    let name = truncated(painter, &crate::i18n::pen_name(pen), 12.5, pal.text, text_w, true);
     painter.galley(egui::pos2(rect.left() + 10.0, band.bottom() + 5.0), name, pal.text);
     let meta = format!("#{:02X}{:02X}{:02X} · {} mm", pen.color[0], pen.color[1], pen.color[2], crate::fmt::decimal(pen.width_mm, 2));
-    let meta = truncated(painter, &meta, 10.5, pal.secondary, text_w, false);
-    painter.galley(egui::pos2(rect.left() + 10.0, band.bottom() + 20.0), meta, pal.secondary);
-    painter.rect_stroke(rect, CARD_RADIUS, Stroke::new(1.0f32, pal.glass_stroke));
+    let meta = truncated(painter, &meta, 10.5, pal.tertiary, text_w, false);
+    painter.galley(egui::pos2(rect.left() + 10.0, band.bottom() + 20.0), meta, pal.tertiary);
+    painter.rect_stroke(rect, CARD_RADIUS, Stroke::new(1.0f32, pal.outline));
+    painter.rect_stroke(rect.shrink(1.0), (CARD_RADIUS - 1.0).max(0.0), Stroke::new(0.75f32, pal.rim_lo.gamma_multiply(0.5)));
     if active { painter.rect_stroke(rect.expand(2.0), CARD_RADIUS + 2.0, Stroke::new(2.0f32, pal.accent)); }
 }
 
@@ -334,7 +339,7 @@ fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
             if on_band { app.edit_pen_color(pen); } else { app.rename_pen(pen); }
         }
         if response.hovered() && dragging.is_none() { ctx.set_cursor_icon(egui::CursorIcon::Grab); }
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr!("Tinta %{name}", name = app.doc.pens[pen].name)));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr!("Tinta %{name}", name = crate::i18n::pen_name(&app.doc.pens[pen]))));
         response.on_hover_text(ts!("Clic: dibujar con esta tinta · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa")).context_menu(|ui| {
             if ui.button(ts!("Renombrar")).clicked() { app.rename_pen(pen); ui.close_menu(); }
             if ui.button(ts!("Cambiar color compartido…")).clicked() { app.edit_pen_color(pen); ui.close_menu(); }
@@ -353,7 +358,7 @@ fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
     ui.painter().line_segment([c - vec2(0.0, 7.0), c + vec2(0.0, 7.0)], Stroke::new(1.6f32, tint));
     ui.painter().text(add_rect.center() + vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, ts!("Añadir tinta"), egui::FontId::proportional(11.5), tint);
     if add.clicked() {
-        app.doc.pens.push(Pen::new(&tr!("Rotulador %{n}", n = app.doc.pens.len() + 1), [60, 60, 70], 0.8));
+        app.doc.pens.push(Pen::new(&format!("Rotulador {}", app.doc.pens.len() + 1), [60, 60, 70], 0.8));
         app.active_pen = app.doc.pens.len() - 1;
         app.pen_focus = true;
         app.edit_pen_color(app.active_pen);
@@ -431,7 +436,7 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
             ui.set_min_width(width);
             ui.add(egui::Label::new(RichText::new(&name).strong().color(pal.text)).truncate().selectable(false));
         });
-        ui.label(RichText::new(count).small().color(pal.secondary));
+        ui.label(RichText::new(count).small().color(pal.tertiary));
     });
     if toggle {
         closed = !closed;
@@ -468,7 +473,7 @@ fn photo_section(app: &mut VectorioApp, ui: &mut Ui, group: u64) {
     row(ui, ts!("Nombre"), |ui| { ui.add(egui::TextEdit::singleline(&mut photo.name).desired_width(f32::INFINITY)); });
     ui.label(RichText::new(tr!("%{mode} · %{count}%{adjusted}", mode = crate::i18n::ts(photo.params.mode.label()),
         count = if members.len() == 1 { tr!("1 tinta") } else { tr!("%{n} tintas", n = members.len()) },
-        adjusted = if photo.params.adjust.is_identity() { "" } else { ts!(" · color ajustado") })).small().color(pal.secondary));
+        adjusted = if photo.params.adjust.is_identity() { "" } else { ts!(" · color ajustado") })).small().color(pal.tertiary));
     if ui.button(ts!("Volver a separar colores…")).on_hover_text(ts!("Abre la foto con sus ajustes (también los de luz y color); las tintas nuevas sustituyen a estas en el mismo sitio")).clicked() {
         reopen_photo(app, ui.ctx(), group);
     }
@@ -520,7 +525,7 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
     }
     let relay = members.iter().filter(|id| app.doc.get(**id).and_then(|it| it.traced()).is_some_and(|t| t.trace.relay)).count();
     if relay >= 2 {
-        ui.label(RichText::new(tr!("En relevo: %{relay} tintas comparten las líneas. «Largo» marca cada cuánto puede cambiar de rotulador.", relay = relay)).small().color(pal.secondary));
+        ui.label(RichText::new(tr!("En relevo: %{relay} tintas comparten las líneas. «Largo» marca cada cuánto puede cambiar de rotulador.", relay = relay)).small().color(pal.tertiary));
     }
     let mut order = None;
     ui.horizontal(|ui| {
@@ -534,8 +539,8 @@ fn mix_section(app: &mut VectorioApp, ui: &mut Ui, members: &[u64]) {
     let mut pens: Vec<usize> = members.iter().filter_map(|id| app.doc.get(*id)).map(Document::item_pen).collect();
     pens.sort_unstable();
     pens.dedup();
-    let names: Vec<&str> = pens.iter().filter_map(|p| app.doc.pens.get(*p)).map(|p| p.name.as_str()).collect();
-    ui.label(RichText::new(tr!("Orden: %{names}", names = names.join(" → "))).small().color(pal.secondary));
+    let names: Vec<String> = pens.iter().filter_map(|p| app.doc.pens.get(*p)).map(crate::i18n::pen_name).collect();
+    ui.label(RichText::new(tr!("Orden: %{names}", names = names.join(" → "))).small().color(pal.tertiary));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -605,7 +610,7 @@ fn styles_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
         save = ok && (enter || clicked);
     });
     if live.len() > 1 {
-        ui.label(RichText::new(ts!("Cada tinta conserva su ángulo y su hueco en la mezcla.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Cada tinta conserva su ángulo y su hueco en la mezcla.")).small().color(pal.tertiary));
     }
     if let Some(look) = apply {
         for id in &app.doc.with_relay_partners(&live) {
@@ -656,7 +661,7 @@ pub fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: boo
     let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
     theme::section(ui, title);
     style_choice(ui, &mut t.style);
-    ui.label(RichText::new(crate::i18n::ts(t.style.help())).small().color(pal.secondary));
+    ui.label(RichText::new(crate::i18n::ts(t.style.help())).small().color(pal.tertiary));
     row(ui, ts!("Separación"), |ui| { ui.add(egui::Slider::new(&mut t.spacing_mm, 0.3..=6.0).logarithmic(true).suffix(" mm")); });
     if t.style.uses_angle() {
         let label = if many { ts!("Girar") } else { ts!("Ángulo") };
@@ -685,10 +690,10 @@ pub fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: boo
         ui.add(egui::Slider::new(&mut t.weight, 0.0..=1.0).custom_formatter(percent)).on_hover_text(hover);
     });
     if many {
-        ui.label(RichText::new(ts!("Se aplica a todas las tintas seleccionadas. Girar mantiene la diferencia de ángulo entre ellas.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Se aplica a todas las tintas seleccionadas. Girar mantiene la diferencia de ángulo entre ellas.")).small().color(pal.tertiary));
     }
     if t.relay {
-        ui.label(RichText::new(ts!("En relevo: los cambios se aplican a todas las tintas que comparten las líneas.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("En relevo: los cambios se aplican a todas las tintas que comparten las líneas.")).small().color(pal.tertiary));
     }
     if t.style.uses_vibe() {
         theme::section(ui, ts!("VIBRACIÓN"));
@@ -710,7 +715,7 @@ pub fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: boo
     if busy {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(RichText::new(ts!("Recalculando trazos…")).small().color(pal.secondary));
+            ui.label(RichText::new(ts!("Recalculando trazos…")).small().color(pal.tertiary));
         });
     }
     t
@@ -890,7 +895,7 @@ fn object_row(app: &mut VectorioApp, ui: &mut Ui, id: u64, drop: &mut Option<(Ve
                 None
             } else {
                 let response = layer_name(ui, width, RichText::new(&it.name).color(if visible { pal.text } else { pal.secondary }));
-                if locked { ui.label(RichText::new("L").small().color(pal.secondary)).on_hover_text(ts!("Objeto bloqueado")); }
+                if locked { ui.label(RichText::new("L").small().color(pal.tertiary)).on_hover_text(ts!("Objeto bloqueado")); }
                 Some(response)
             }
         });
@@ -1040,7 +1045,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
 
             theme::section(ui, ts!("PÁRRAFO"));
             let label = |a: Align| match a { Align::Left => ts!("Izquierda"), Align::Center => ts!("Centrado"), Align::Right => ts!("Derecha"), Align::Justify => ts!("Justificado") };
-            egui::ComboBox::from_id_salt("paragraph-align").width(ui.available_width()).selected_text(label(spec.align)).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("paragraph-align").icon(crate::theme::combo_icon).width(ui.available_width()).selected_text(label(spec.align)).show_ui(ui, |ui| {
                 for a in [Align::Left, Align::Center, Align::Right, Align::Justify] { ui.selectable_value(&mut spec.align, a, label(a)); }
             });
             row(ui, ts!("Interlínea"), |ui| { drag(ui, &mut spec.line_height, 1.0..=3.5, 0.02, " ×"); });
@@ -1062,7 +1067,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
                 // Cada letra se ve escrita con las primeras palabras del propio texto.
                 let sample: String = spec.text.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(22).collect();
                 let sample = if sample.is_empty() { "Hola, Vectorio".to_string() } else { sample };
-                egui::ComboBox::from_id_salt("font-style").width(ui.available_width()).selected_text(crate::i18n::ts(spec.style.label())).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("font-style").icon(crate::theme::combo_icon).width(ui.available_width()).selected_text(crate::i18n::ts(spec.style.label())).show_ui(ui, |ui| {
                     for (i, style) in FontStyle::ALL.into_iter().enumerate() {
                         if i == 8 { ui.separator(); }
                         if font_option(ui, style, &sample, spec.style == style).clicked() {
@@ -1145,7 +1150,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     ui.add_enabled_ui(fillable, |ui| {
         let fill: &mut Fill = &mut it.fill;
         row(ui, ts!("Estilo"), |ui| {
-            egui::ComboBox::from_id_salt("fill-style").selected_text(crate::i18n::ts(fill.style.label())).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("fill-style").icon(crate::theme::combo_icon).selected_text(crate::i18n::ts(fill.style.label())).show_ui(ui, |ui| {
                 for s in FillStyle::ALL {
                     ui.selectable_value(&mut fill.style, s, crate::i18n::ts(s.label()));
                 }
@@ -1244,7 +1249,7 @@ fn pen_settings(app: &mut VectorioApp, ui: &mut Ui) {
         drag(ui, &mut app.doc.pens[index].width_mm, 0.1..=5.0, 0.01, " mm");
     });
     ui.add_space(8.0);
-    ui.label(RichText::new(ts!("El nombre y el color describen una tinta. El orden de los objetos se cambia en la lista de capas.")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("El nombre y el color describen una tinta. El orden de los objetos se cambia en la lista de capas.")).small().color(pal.tertiary));
 }
 
 fn shape_params(ui: &mut Ui, shape: &mut Shape) {
@@ -1300,7 +1305,7 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
     let paper = &mut app.doc.paper;
     let mut refit = false;
     row(ui, ts!("Tamaño"), |ui| {
-        egui::ComboBox::from_id_salt("paper").selected_text(crate::i18n::tr_key(&paper.name)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("paper").icon(crate::theme::combo_icon).selected_text(crate::i18n::tr_key(&paper.name)).show_ui(ui, |ui| {
             for pr in Paper::presets() {
                 let sel = pr.name == paper.name;
                 if ui.selectable_label(sel, crate::i18n::tr_key(&pr.name)).clicked() && !sel {
@@ -1311,7 +1316,7 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
             }
         });
     });
-    ui.label(RichText::new(format!("{:.0} × {:.0} mm", paper.width_mm, paper.height_mm)).small().color(pal.secondary));
+    ui.label(RichText::new(format!("{:.0} × {:.0} mm", paper.width_mm, paper.height_mm)).small().color(pal.tertiary));
     row(ui, ts!("Margen"), |ui| drop(drag(ui, &mut paper.margin_mm, 0.0..=60.0, 0.2, " mm")));
     if refit {
         app.view.fitted = false;
@@ -1337,7 +1342,7 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
         ts!("Salida · prepara la ruta, revisa la tinta y simula el secado"),
         ts!("Pellizca o ⌘ + rueda para hacer zoom; espacio para desplazar"),
     ] {
-        ui.label(RichText::new(tip).small().color(pal.secondary));
+        ui.label(RichText::new(tip).small().color(pal.tertiary));
     }
 }
 
@@ -1448,7 +1453,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
         .filter(|g| app.doc.photo(*g).is_some() && ids.iter().all(|id| app.doc.get(*id).is_some_and(|it| it.group == Some(*g))));
     let title = group.and_then(|g| app.doc.photo(g)).map(|ph| ph.name.clone()).unwrap_or_else(|| tr!("%{n} objetos", n = ids.len()));
     ui.label(RichText::new(title).heading());
-    ui.label(RichText::new(ts!("Lo que cambies aquí se aplica a todos. Arrástralos para moverlos juntos.")).small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Lo que cambies aquí se aplica a todos. Arrástralos para moverlos juntos.")).small().color(pal.tertiary));
     let first = ids.iter().filter_map(|id| app.doc.get(*id)).find(|it| !it.is_screened()).cloned();
     let fillable: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.is_fillable())).collect();
     let mut edit_ink = None;
@@ -1497,7 +1502,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let screened: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.is_screened())).collect();
     if !screened.is_empty() {
         theme::section(ui, ts!("RELLENOS DE MEZCLA"));
-        ui.label(RichText::new(ts!("Cada trama conserva su color.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Cada trama conserva su color.")).small().color(pal.tertiary));
         for id in screened {
             if let Some(it) = app.doc.get_mut(id) {
                 let name = it.name.clone();
@@ -1515,7 +1520,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
         let base = fillable.iter().find_map(|id| app.doc.get(*id)).map(|it| it.fill.clone()).unwrap_or_default();
         let mut f = base.clone();
         row(ui, ts!("Estilo"), |ui| {
-            egui::ComboBox::from_id_salt("multi-fill-style").selected_text(crate::i18n::ts(f.style.label())).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("multi-fill-style").icon(crate::theme::combo_icon).selected_text(crate::i18n::ts(f.style.label())).show_ui(ui, |ui| {
                 for s in FillStyle::ALL {
                     ui.selectable_value(&mut f.style, s, crate::i18n::ts(s.label()));
                 }
@@ -1539,7 +1544,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
                 fill_trace_controls(ui, &mut f);
             }
         }
-        ui.label(RichText::new(ts!("Cada objeto conserva su rotulador de relleno.")).small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Cada objeto conserva su rotulador de relleno.")).small().color(pal.tertiary));
         if f != base {
             for id in &fillable {
                 if let Some(it) = app.doc.get_mut(*id) {

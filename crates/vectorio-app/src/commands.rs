@@ -346,7 +346,21 @@ impl VectorioApp {
 pub struct NativeMenu {
     _menu: muda::Menu,
     ids: Vec<(muda::MenuId, Command)>,
-    rx: mpsc::Receiver<muda::MenuEvent>,
+}
+
+/// Canal de eventos del menú y orden de cerrar vigente; sobreviven a la reconstrucción del menú.
+struct MenuEvents {
+    tx: mpsc::Sender<muda::MenuEvent>,
+    rx: std::sync::Mutex<mpsc::Receiver<muda::MenuEvent>>,
+    close: std::sync::Mutex<Option<muda::MenuId>>,
+}
+
+fn events() -> &'static MenuEvents {
+    static EVENTS: std::sync::OnceLock<MenuEvents> = std::sync::OnceLock::new();
+    EVENTS.get_or_init(|| {
+        let (tx, rx) = mpsc::channel();
+        MenuEvents { tx, rx: std::sync::Mutex::new(rx), close: std::sync::Mutex::new(None) }
+    })
 }
 
 impl NativeMenu {
@@ -489,22 +503,30 @@ impl NativeMenu {
             help.set_as_help_menu_for_nsapp();
         }
 
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
         let close = ids.iter().find(|(_, c)| *c == Command::CloseWindow).map(|(id, _)| id.clone());
-        muda::MenuEvent::set_event_handler(Some(move |e: muda::MenuEvent| {
-            // Con la ventana oculta, una orden del menú (Nuevo, Abrir…) la vuelve a mostrar.
-            if Some(&e.id) != close.as_ref() {
-                crate::macos::show_window();
-            }
-            let _ = tx.send(e);
-            ctx.request_repaint();
-        }));
-        Some(NativeMenu { _menu: menu, ids, rx })
+        let shared = events();
+        *shared.close.lock().unwrap_or_else(|e| e.into_inner()) = close;
+        // muda solo admite un manejador por proceso: se registra una vez y sirve para todos los
+        // menús que se construyan después (por ejemplo al cambiar de idioma).
+        static HANDLER: std::sync::Once = std::sync::Once::new();
+        HANDLER.call_once(|| {
+            let ctx = ctx.clone();
+            muda::MenuEvent::set_event_handler(Some(move |e: muda::MenuEvent| {
+                let shared = events();
+                // Con la ventana oculta, una orden del menú (Nuevo, Abrir…) la vuelve a mostrar.
+                if Some(&e.id) != shared.close.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                    crate::macos::show_window();
+                }
+                let _ = shared.tx.send(e);
+                ctx.request_repaint();
+            }));
+        });
+        Some(NativeMenu { _menu: menu, ids })
     }
 
     /// Órdenes elegidas en el menú desde el último fotograma.
     pub fn poll(&self) -> Vec<Command> {
-        self.rx.try_iter().filter_map(|e| self.ids.iter().find(|(id, _)| *id == e.id).map(|(_, c)| *c)).collect()
+        let rx = events().rx.lock().unwrap_or_else(|e| e.into_inner());
+        rx.try_iter().filter_map(|e| self.ids.iter().find(|(id, _)| *id == e.id).map(|(_, c)| *c)).collect()
     }
 }
