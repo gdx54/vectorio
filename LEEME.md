@@ -37,7 +37,13 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
   - Al añadirlo, el dibujo queda seleccionado entero para moverlo o borrarlo de una vez.
 - **Selección múltiple**: arrastrar en vacío selecciona con un recuadro; ⇧ o ⌘ clic añade o quita. Se mueven, duplican, borran y editan juntos.
 - **Menú nativo de macOS** con todas las órdenes y la hoja de atajos (⌘/).
-- **Vista Plotter**: reproduce el orden real de dibujo con los desplazamientos en vacío y la punta del rotulador. Muestra la distancia, las subidas y el tiempo estimado.
+- **Salida** (⌘2): espacio dedicado a preparar el EasyDraw, sin driver ni conexión todavía. Usa el mismo lienzo y paneles de vidrio que Diseño: inspector a la derecha con resumen, ajustes y exportación, controles de vista sobre el papel y simulación en el panel inferior.
+  - **Mapa de tinta total**, con el criterio y la escala de Linear: gris (1 pasada), amarillo (2), naranja (3), rojo (4–5), carmín (6–9) y morado (10 o más). Cuenta la huella física de cada rotulador más el empape ajustable; permanecer dentro de una celda no multiplica las pasadas. Los focos conservan su máximo al alejar la vista.
+  - **Mapas de humedad estimada**, antes y después del plan: muestran el máximo de pasadas aún húmedas por zona. Esperar no reduce la tinta total depositada.
+  - **Protección de secado**: tiempo de secado y límite de pasadas húmedas ajustables. El plan busca otros trazos dentro de la misma tinta y espera con la pluma levantada cuando hace falta. Divide trazos largos o que se pisan repetidamente, sin simplificar su geometría; mantiene el orden de las tintas de la paleta.
+  - **Simulación por tiempo**, incluidos dibujo, viajes, subidas/bajadas, secado y pausas para cambiar de rotulador. Dos pistas de tiempo paralelas —acciones y tinta activa— con indicador compartido de alto contraste y navegación por clic o arrastre, lista de pausas y comparación de tiempo y viajes frente al recorrido sin protección. Zoom, pellizco y arrastre sobre el papel.
+  - **Plan JSON con esperas** y **SVG del recorrido**. El SVG conserva los trazos y su orden, pero no ejecuta pausas; estas quedan en el plan JSON para el futuro driver. Los ajustes de salida se guardan en el proyecto `.vectorio`.
+  - El modelo es conservador: considera húmeda la huella hasta que seca el final de cada tramo. Los 20 s de secado, 3 pasadas húmedas y 0,3 mm de empape iniciales son valores orientativos para ajustar con una prueba real de papel y rotuladores. La pausa de cambio de tinta representa un mínimo previsto; el cambio sigue siendo manual. El análisis avisa de trazos fuera del papel y se calcula en segundo plano.
 - **Vista previa del papel**: blanco, marfil, kraft, gris o negro.
 - **Archivos**:
   - Proyecto `.vectorio` en JSON.
@@ -56,7 +62,7 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
 - Paneles flotantes de vidrio legible.
 - Radios concéntricos (panel 18 pt, control 8 pt).
 - Tipografía SF Pro.
-- Modo claro u oscuro según el sistema.
+- Menú **Aspecto** en la barra superior: Claro, Oscuro o Sistema. También en Visualización → Apariencia. La elección se conserva entre sesiones y se aplica a toda la interfaz.
 
 ## Atajos
 
@@ -76,9 +82,9 @@ La lista completa está en la app con ⌘/.
 | ⌘] · ⌘[ · ⌘L · ⌘R | Adelante · Atrás · Bloquear · Otra variación |
 | ⌘S · ⇧⌘S · ⌘O · ⌘E · ⇧⌘E · ⌘N | Guardar · Guardar como · Abrir · Exportar SVG · uno por rotulador · Nuevo |
 | Flechas (⇧) | Mover 1 mm (10 mm) |
-| ⌘1 · ⌘2 | Diseño · Plotter |
+| ⌘1 · ⌘2 | Diseño · Salida |
 | ⌘= · ⌘− · Pellizco · ⌘ + rueda | Zoom |
-| Espacio + arrastrar | Desplazar (en Plotter, Espacio reproduce) |
+| Espacio + arrastrar | Desplazar (en Salida, Espacio reproduce la simulación) |
 | ⌘0 · ⇧⌘0 | Ajustar a la ventana · Tamaño real |
 | ⇧ al mover / girar | Bloquear eje / pasos de 15° |
 
@@ -109,9 +115,10 @@ La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan 
   - formas;
   - vectorizado y mezcla óptica (`mix`);
   - optimización;
+  - mapa de acumulación y plan de salida con secado (`output`);
   - SVG;
   - documento.
-- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `colorpanel` (editor integrado), `theme`).
+- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `output` (preparación de salida), `colorpanel` (editor integrado), `theme`).
 - `crates/vectorio-core/fonts`: tipografías SVG de un solo trazo.
 
 ## Próximos pasos

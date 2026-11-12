@@ -6,6 +6,7 @@ mod colorpanel;
 mod commands;
 mod inspector;
 mod macos;
+mod output;
 mod styles;
 mod theme;
 mod vectorize_ui;

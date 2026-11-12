@@ -11,6 +11,7 @@ pub mod font;
 pub mod geom;
 pub mod mix;
 pub mod optimize;
+pub mod output;
 pub mod photo;
 pub mod raster;
 pub mod shapes;

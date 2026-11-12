@@ -39,6 +39,7 @@ pub enum Command {
     PlayPause,
     Paper(usize),
     Shortcuts,
+    Appearance(crate::theme::Appearance),
 }
 
 /// Atajos con ⌘ que funcionan aunque se esté escribiendo en un campo de texto.
@@ -108,7 +109,7 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "Vista",
-        &[("⌘1 · ⌘2", "Diseño · Plotter"), ("⌘= · ⌘−", "Acercar · Alejar"), ("⌘0 · ⇧⌘0", "Ajustar · Tamaño real"), ("Espacio", "Reproducir (Plotter) · arrastrar para desplazar"), ("Pellizco · ⌘ rueda", "Zoom")],
+        &[("⌘1 · ⌘2", "Diseño · Salida"), ("⌘= · ⌘−", "Acercar · Alejar"), ("⌘0 · ⇧⌘0", "Ajustar · Tamaño real"), ("Espacio", "Simular (Salida) · arrastrar para desplazar"), ("Pellizco · ⌘ rueda", "Zoom")],
     ),
 ];
 
@@ -305,12 +306,12 @@ impl VectorioApp {
                     self.sim.progress = 1.0;
                 }
             }
-            Command::ZoomIn => self.view.zoom_by(1.25),
-            Command::ZoomOut => self.view.zoom_by(0.8),
-            Command::ZoomFit => self.view.fitted = false,
+            Command::ZoomIn => if self.mode == ViewMode::Plotter { self.output_ui.zoom_by(1.25) } else { self.view.zoom_by(1.25) },
+            Command::ZoomOut => if self.mode == ViewMode::Plotter { self.output_ui.zoom_by(0.8) } else { self.view.zoom_by(0.8) },
+            Command::ZoomFit => if self.mode == ViewMode::Plotter { self.output_ui.fit() } else { self.view.fitted = false },
             Command::ZoomActual => {
-                let k = (96.0 / 25.4) / self.view.zoom;
-                self.view.zoom_by(k);
+                if self.mode == ViewMode::Plotter { self.output_ui.actual(); }
+                else { let k = (96.0 / 25.4) / self.view.zoom; self.view.zoom_by(k); }
             }
             Command::PlayPause => {
                 if self.mode != ViewMode::Plotter {
@@ -323,6 +324,7 @@ impl VectorioApp {
             }
             Command::Paper(i) => self.paper_tint = i.min(PAPER_TINTS.len() - 1),
             Command::Shortcuts => self.show_help = !self.show_help,
+            Command::Appearance(appearance) => self.set_appearance(ctx, appearance),
         }
         ctx.request_repaint();
     }
@@ -436,13 +438,18 @@ impl NativeMenu {
         for (i, (name, _)) in PAPER_TINTS.iter().enumerate() {
             paper.append(&item(name, None, Command::Paper(i))).ok()?;
         }
+        let appearance = Submenu::new("Apariencia", true);
+        for value in crate::theme::Appearance::ALL {
+            appearance.append(&item(value.label(), None, Command::Appearance(value))).ok()?;
+        }
         let view = Submenu::with_items(
             "Visualización",
             true,
             &[
                 &item("Diseño", Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
-                &item("Plotter", Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Plotter)),
-                &item("Reproducir o pausar el plotter", None, Command::PlayPause),
+                &item("Salida", Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Plotter)),
+                &appearance,
+                &item("Simular o pausar la salida", None, Command::PlayPause),
                 &sep(),
                 &item("Acercar", Some("CmdOrCtrl+Equal"), Command::ZoomIn),
                 &item("Alejar", Some("CmdOrCtrl+Minus"), Command::ZoomOut),

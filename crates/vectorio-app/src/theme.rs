@@ -3,6 +3,41 @@
 //! tipografía del sistema. Sigue el modo claro/oscuro del sistema.
 
 use egui::{epaint::Shadow, Color32, FontFamily, FontId, Rounding, Stroke, TextStyle, Vec2};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Appearance {
+    #[default]
+    #[serde(rename = "sistema")]
+    System,
+    #[serde(rename = "claro")]
+    Light,
+    #[serde(rename = "oscuro")]
+    Dark,
+}
+
+impl Appearance {
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+    pub fn label(self) -> &'static str { match self { Self::System => "Sistema", Self::Light => "Claro", Self::Dark => "Oscuro" } }
+    pub fn apply(self, ctx: &egui::Context) {
+        ctx.set_theme(match self { Self::System => egui::ThemePreference::System, Self::Light => egui::ThemePreference::Light, Self::Dark => egui::ThemePreference::Dark });
+        ctx.request_repaint();
+    }
+    fn file() -> Option<std::path::PathBuf> {
+        Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support/Vectorio/apariencia.json"))
+    }
+    pub fn load() -> Self {
+        Self::file().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    }
+    pub fn save(self) -> Result<(), String> {
+        let file = Self::file().ok_or("No se encuentra la carpeta de usuario")?;
+        let parent = file.parent().unwrap();
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let temp = file.with_extension("json.tmp");
+        std::fs::write(&temp, serde_json::to_vec(&self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::rename(temp, file).map_err(|e| e.to_string())
+    }
+}
 
 /// Radio de los paneles flotantes; los controles internos usan el radio concéntrico
 /// (radio del panel menos su margen).
@@ -285,4 +320,28 @@ pub fn close_button(ui: &mut egui::Ui) -> egui::Response {
     ui.painter().line_segment([center + Vec2::new(-4.0, 4.0), center + Vec2::new(4.0, -4.0)], stroke);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Cerrar"));
     response.on_hover_text("Cerrar sin guardar (Esc)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn manual_appearance_overrides_system_and_system_mode_tracks_it_again() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        for (appearance, system, expected_dark) in [
+            (Appearance::Light, egui::Theme::Dark, false),
+            (Appearance::Dark, egui::Theme::Light, true),
+            (Appearance::System, egui::Theme::Light, false),
+            (Appearance::System, egui::Theme::Dark, true),
+        ] {
+            let saved = serde_json::to_vec(&appearance).unwrap();
+            let restored: Appearance = serde_json::from_slice(&saved).unwrap();
+            restored.apply(&ctx);
+            let _ = ctx.run(egui::RawInput { system_theme: Some(system), ..Default::default() }, |ctx| {
+                assert_eq!(ctx.style().visuals.dark_mode, expected_dark);
+                assert_eq!(current(ctx).canvas, palette(expected_dark).canvas);
+            });
+        }
+    }
 }

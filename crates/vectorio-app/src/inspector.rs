@@ -1057,10 +1057,16 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
             theme::section(ui, "LETRA MANUSCRITA");
             row(ui, "Letra", |ui| {
                 let before = spec.style;
+                // Cada letra se ve escrita con las primeras palabras del propio texto.
+                let sample: String = spec.text.split_whitespace().take(3).collect::<Vec<_>>().join(" ").chars().take(22).collect();
+                let sample = if sample.is_empty() { "Hola, Vectorio".to_string() } else { sample };
                 egui::ComboBox::from_id_salt("font-style").width(ui.available_width()).selected_text(spec.style.label()).show_ui(ui, |ui| {
                     for (i, style) in FontStyle::ALL.into_iter().enumerate() {
                         if i == 8 { ui.separator(); }
-                        ui.selectable_value(&mut spec.style, style, style.label());
+                        if font_option(ui, style, &sample, spec.style == style).clicked() {
+                            spec.style = style;
+                            ui.close_menu();
+                        }
                     }
                 });
                 if spec.style != before && spec.style.is_builtin() != before.is_builtin() { spec.slant_deg = if spec.style.is_builtin() { 8.0 } else { 0.0 }; }
@@ -1325,7 +1331,7 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
         "P · dibuja a mano alzada; cierra la figura para rellenarla",
         "S · arrastra para crear formas y generativos",
         "I · convierte una foto en dibujo por colores",
-        "Plotter · simula el orden real de dibujo",
+        "Salida · prepara la ruta, revisa la tinta y simula el secado",
         "Pellizca o ⌘ + rueda para hacer zoom; espacio para desplazar",
     ] {
         ui.label(RichText::new(tip).small().color(pal.secondary));
@@ -1333,6 +1339,55 @@ fn document_settings(app: &mut VectorioApp, ui: &mut Ui) {
 }
 
 /// Inspector con varios objetos: los cambios se aplican a todos a la vez.
+/// Una opción del selector de letra: el nombre y una muestra dibujada con sus trazos.
+fn font_option(ui: &mut Ui, style: FontStyle, text: &str, selected: bool) -> egui::Response {
+    let width = ui.available_width().max(220.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 38.0), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let pal = theme::current(ui.ctx());
+    let painter = ui.painter();
+    if resp.hovered() || selected {
+        let fill = if resp.hovered() { pal.accent.gamma_multiply(0.18) } else { pal.accent.gamma_multiply(0.10) };
+        painter.rect_filled(rect, 4.0, fill);
+    }
+    painter.text(
+        egui::pos2(rect.right() - 8.0, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        style.label(),
+        egui::FontId::proportional(11.0),
+        if selected { pal.accent } else { pal.secondary },
+    );
+    let spec = font::TextSpec {
+        text: text.into(),
+        size_mm: 8.0,
+        style,
+        slant_deg: if style.is_builtin() { 8.0 } else { 0.0 },
+        jitter: 0.0,
+        ..Default::default()
+    };
+    let lines = font::layout(&spec);
+    let (mut lo, mut hi) = (egui::pos2(f32::MAX, f32::MAX), egui::pos2(f32::MIN, f32::MIN));
+    for q in lines.iter().flatten() {
+        lo = egui::pos2(lo.x.min(q.x as f32), lo.y.min(q.y as f32));
+        hi = egui::pos2(hi.x.max(q.x as f32), hi.y.max(q.y as f32));
+    }
+    if lo.x < hi.x {
+        let area = egui::vec2((rect.width() * 0.58).min(190.0), 24.0);
+        let k = (area.x / (hi.x - lo.x)).min(area.y / (hi.y - lo.y).max(1.0)).min(4.0);
+        let origin = egui::pos2(rect.left() + 10.0, rect.center().y - (hi.y - lo.y) * k / 2.0);
+        let stroke = egui::Stroke::new(1.3_f32, ui.visuals().text_color());
+        for l in &lines {
+            let pts: Vec<egui::Pos2> = l.iter().map(|q| origin + (egui::pos2(q.x as f32, q.y as f32) - lo) * k).collect();
+            if pts.len() >= 2 {
+                painter.add(egui::Shape::line(pts, stroke));
+            }
+        }
+    }
+    resp
+}
+
 /// Tamaño, giro y centrado de varios objetos a la vez, alrededor del centro del
 /// recuadro común, sin descolocarlos entre sí. Los bloqueados no se mueven.
 fn group_layout_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
@@ -1611,6 +1666,16 @@ mod tests {
         let both = panel_texts(&mut app, &ctx);
         for word in ["ESTILOS", "Curvas de nivel", "Contornos", "Espiral", "Garabato"] {
             assert!(both.contains(word), "falta «{word}» con dos tintas elegidas:\n{both}");
+        }
+    }
+
+    #[test]
+    fn every_font_has_a_drawable_sample() {
+        for style in FontStyle::ALL {
+            let spec = font::TextSpec { text: "Hola, Vectorio".into(), size_mm: 8.0, style, ..Default::default() };
+            let lines = font::layout(&spec);
+            let pts = lines.iter().flatten().count();
+            assert!(pts > 10, "{} no dibuja muestra", style.label());
         }
     }
 

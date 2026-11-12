@@ -265,6 +265,8 @@ pub struct Document {
     pub pens: Vec<Pen>,
     pub items: Vec<Item>,
     pub plot: PlotSettings,
+    #[serde(default)]
+    pub output: crate::output::OutputSettings,
     pub next_id: u64,
     /// Fotos vivas (imagen y ajustes de separación) de los grupos de tintas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -273,7 +275,7 @@ pub struct Document {
 
 impl Default for Document {
     fn default() -> Self {
-        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), next_id: 1, photos: vec![] }
+        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), output: Default::default(), next_id: 1, photos: vec![] }
     }
 }
 

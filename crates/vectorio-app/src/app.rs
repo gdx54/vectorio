@@ -86,6 +86,8 @@ pub struct VectorioApp {
     pub view: View,
     pub mode: ViewMode,
     pub sim: Sim,
+    pub output_ui: crate::output::OutputUi,
+    pub appearance: theme::Appearance,
     pub paper_tint: usize,
     pub file: Option<PathBuf>,
     pub vec_ui: VectorizeUi,
@@ -102,6 +104,8 @@ pub struct VectorioApp {
 impl VectorioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::blank(&cc.egui_ctx);
+        app.appearance = theme::Appearance::load();
+        app.appearance.apply(&cc.egui_ctx);
         app.menu = NativeMenu::install(&cc.egui_ctx);
         crate::macos::install_reopen_handler();
         // Archivo pasado al abrir (`vectorio dibujo.vectorio`, `vectorio foto.jpg`).
@@ -145,6 +149,8 @@ impl VectorioApp {
             view: View::default(),
             mode: ViewMode::Design,
             sim: Sim::default(),
+            output_ui: Default::default(),
+            appearance: Default::default(),
             paper_tint: 0,
             file: None,
             vec_ui: VectorizeUi::default(),
@@ -158,6 +164,12 @@ impl VectorioApp {
 
     pub fn notify(&mut self, ctx: &egui::Context, msg: impl Into<String>) {
         self.toast = Some((msg.into(), ctx.input(|i| i.time) + 3.5));
+    }
+
+    pub fn set_appearance(&mut self, ctx: &egui::Context, appearance: theme::Appearance) {
+        self.appearance = appearance;
+        appearance.apply(ctx);
+        if let Err(error) = appearance.save() { self.notify(ctx, format!("Aspecto aplicado, pero no se pudo guardar la preferencia: {error}")); }
     }
 
     pub fn selected_item(&self) -> Option<&Item> {
@@ -533,6 +545,12 @@ impl VectorioApp {
     }
 
     pub fn export_svg(&mut self, ctx: &egui::Context) {
+        if self.mode == ViewMode::Plotter {
+            if self.rendered.rev == self.rev && !self.tracing() && self.output_ui.ready(self.rev, &self.doc.output) {
+                self.output_ui.export_svg(&self.doc);
+            } else { self.notify(ctx, "Espera a que termine el cálculo de la salida."); }
+            return;
+        }
         let Some(path) = rfd::FileDialog::new().add_filter("SVG", &["svg"]).set_file_name("vectorio-plotter.svg").save_file() else {
             return;
         };
@@ -563,10 +581,13 @@ impl VectorioApp {
     }
 
     pub fn export_per_pen(&mut self, ctx: &egui::Context) {
+        if self.mode == ViewMode::Plotter && (self.rendered.rev != self.rev || self.tracing() || !self.output_ui.ready(self.rev, &self.doc.output)) {
+            self.notify(ctx, "Espera a que termine el cálculo de la salida."); return;
+        }
         let Some(dir) = rfd::FileDialog::new().set_title("Carpeta para un SVG por rotulador").pick_folder() else {
             return;
         };
-        let layers = self.doc.layers();
+        let layers = if self.mode == ViewMode::Plotter { self.output_ui.plan.as_ref().unwrap().layers() } else { self.doc.layers() };
         let files = svg_out::export_per_pen(&self.doc, &layers);
         let n = files.len();
         let mut err = None;
@@ -620,6 +641,7 @@ impl VectorioApp {
                 });
                 ui.add_space(18.0);
 
+                if self.mode == ViewMode::Design {
                 segmented(ui, pal, |ui| {
                     for (tool, icon, tip) in [
                         (Tool::Select, Icon::Select, "Seleccionar y mover (V)"),
@@ -652,6 +674,9 @@ impl VectorioApp {
                         self.open_dialog(ctx);
                     }
                 });
+                } else {
+                    ui.label(egui::RichText::new("Preparación · EasyDraw").color(pal.secondary));
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(12.0);
@@ -662,7 +687,12 @@ impl VectorioApp {
                     }
                     egui::popup_below_widget(ui, popup_id, &export, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                         ui.set_min_width(220.0);
-                        if ui.button("SVG para plotter (⌘E)").clicked() {
+                        if self.mode == ViewMode::Plotter && ui.button("Plan con esperas…").clicked() {
+                            if self.output_ui.ready(self.rev, &self.doc.output) { self.output_ui.export_plan(); }
+                            else { self.notify(ctx, "Espera a que termine el cálculo de la salida."); }
+                        }
+                        let label = if self.mode == ViewMode::Plotter { "SVG de la ruta, sin pausas (⌘E)" } else { "SVG para plotter (⌘E)" };
+                        if ui.button(label).clicked() {
                             self.export_svg(ctx);
                         }
                         if ui.button("Un SVG por rotulador…").clicked() {
@@ -680,8 +710,18 @@ impl VectorioApp {
                         }
                     });
                     ui.add_space(8.0);
+                    ui.menu_button("Aspecto", |ui| {
+                        ui.set_min_width(125.0);
+                        for appearance in theme::Appearance::ALL {
+                            if ui.selectable_label(self.appearance == appearance, appearance.label()).clicked() {
+                                self.set_appearance(ctx, appearance);
+                                ui.close_menu();
+                            }
+                        }
+                    }).response.on_hover_text(format!("Apariencia: {}", self.appearance.label()));
+                    ui.add_space(8.0);
                     segmented(ui, pal, |ui| {
-                        for (mode, label) in [(ViewMode::Plotter, "Plotter"), (ViewMode::Design, "Diseño")] {
+                        for (mode, label) in [(ViewMode::Plotter, "Salida"), (ViewMode::Design, "Diseño")] {
                             let sel = self.mode == mode;
                             if text_segment(ui, pal, label, sel).clicked() {
                                 self.mode = mode;
@@ -856,9 +896,13 @@ impl eframe::App for VectorioApp {
         }
         self.shortcuts(ctx);
         self.toolbar(ctx, &pal);
-        egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
-        self.floating_panels(ctx, &pal);
-        self.status_bar(ctx, &pal);
+        if self.mode == ViewMode::Plotter {
+            crate::output::show(self, ctx);
+        } else {
+            egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
+            self.floating_panels(ctx, &pal);
+            self.status_bar(ctx, &pal);
+        }
         if let Some(import) = self.vec_ui.show(ctx, &self.doc) {
             self.doc.pens.extend(import.pens);
             let replacing = import.replacing.is_some();
