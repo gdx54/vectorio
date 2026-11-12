@@ -29,7 +29,7 @@ fn parse_hex(value: &str) -> Option<[u8; 3]> {
 
 impl ColorEditor {
     pub fn new(color: [u8; 3]) -> Self {
-        Self { title: "Color del rotulador".into(), subtitle: String::new(), cancelled: false, original: color, hsv: Hsva::from(theme::pen_color(color)), hex: hex(color) }
+        Self { title: ts!("Color del rotulador").into(), subtitle: String::new(), cancelled: false, original: color, hsv: Hsva::from(theme::pen_color(color)), hex: hex(color) }
     }
 
     fn set_color(&mut self, color: [u8; 3]) {
@@ -82,18 +82,18 @@ impl ColorEditor {
                             ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
                             ui.spacing_mut().slider_width = 130.0;
                             ui.horizontal(|ui| {
-                                ui.label("Antes");
-                                if theme::swatch(ui, self.original, 26.0).on_hover_text("Recuperar el color inicial").clicked() {
+                                ui.label(ts!("Antes"));
+                                if theme::swatch(ui, self.original, 26.0).on_hover_text(ts!("Recuperar el color inicial")).clicked() {
                                     self.set_color(self.original);
                                     pen.color = self.original;
                                 }
                                 ui.add_space(12.0);
-                                ui.label("Ahora");
+                                ui.label(ts!("Ahora"));
                                 theme::swatch(ui, pen.color, 26.0);
                             });
                             ui.add_space(4.0);
                             let mut changed = color_field(ui, &mut self.hsv);
-                            ui.label("Tono");
+                            ui.label(ts!("Tono"));
                             changed |= hue_bar(ui, &mut self.hsv.h);
                             if changed {
                                 let color = Color32::from(self.hsv);
@@ -102,7 +102,7 @@ impl ColorEditor {
                             }
                             ui.add_space(4.0);
                             egui::Grid::new("ink-values").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                                ui.label("Hexadecimal");
+                                ui.label(ts!("Hexadecimal"));
                                 let response = ui.add(egui::TextEdit::singleline(&mut self.hex).desired_width(150.0).char_limit(7));
                                 if response.changed() {
                                     if let Some(color) = parse_hex(&self.hex) {
@@ -113,21 +113,21 @@ impl ColorEditor {
                                     }
                                 }
                                 ui.end_row();
-                                for (index, label) in ["Rojo", "Verde", "Azul"].iter().enumerate() {
+                                for (index, label) in [ts!("Rojo"), ts!("Verde"), ts!("Azul")].iter().enumerate() {
                                     ui.label(*label);
                                     if ui.add(egui::Slider::new(&mut pen.color[index], 0..=255)).changed() { self.set_color(pen.color); }
                                     ui.end_row();
                                 }
                             });
                             if parse_hex(&self.hex).is_none() {
-                                ui.label(RichText::new("Escribe 6 cifras, por ejemplo #327AC8.").color(ui.visuals().error_fg_color).small());
+                                ui.label(RichText::new(ts!("Escribe 6 cifras, por ejemplo #327AC8.")).color(ui.visuals().error_fg_color).small());
                             }
                         });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add_sized([132.0, 34.0], egui::Button::new(RichText::new("Hecho").color(Color32::WHITE)).fill(pal.accent)).clicked() { open = false; }
-                            if ui.add_sized([132.0, 34.0], egui::Button::new("Cancelar")).clicked() { cancelled = true; }
+                            if ui.add_sized([132.0, 34.0], egui::Button::new(RichText::new(ts!("Hecho")).color(Color32::WHITE)).fill(pal.accent)).clicked() { open = false; }
+                            if ui.add_sized([132.0, 34.0], egui::Button::new(ts!("Cancelar"))).clicked() { cancelled = true; }
                         });
                     });
                 });
@@ -172,7 +172,7 @@ fn color_field(ui: &mut egui::Ui, hsv: &mut Hsva) -> bool {
     let pos = egui::pos2(rect.left() + hsv.s * rect.width(), rect.top() + (1.0 - hsv.v) * rect.height());
     ui.painter().circle_stroke(pos, 6.0, Stroke::new(3.0f32, Color32::BLACK));
     ui.painter().circle_stroke(pos, 6.0, Stroke::new(1.5f32, Color32::WHITE));
-    response.on_hover_cursor(egui::CursorIcon::Crosshair).on_hover_text("Arrastra para ajustar la saturación y la luminosidad");
+    response.on_hover_cursor(egui::CursorIcon::Crosshair).on_hover_text(ts!("Arrastra para ajustar la saturación y la luminosidad"));
     changed
 }
 
@@ -199,7 +199,7 @@ fn hue_bar(ui: &mut egui::Ui, hue: &mut f32) -> bool {
     let x = rect.left() + *hue * rect.width();
     ui.painter().vline(x, rect.y_range(), Stroke::new(4.0f32, Color32::BLACK));
     ui.painter().vline(x, rect.y_range(), Stroke::new(2.0f32, Color32::WHITE));
-    response.on_hover_cursor(egui::CursorIcon::Crosshair).on_hover_text("Arrastra para elegir el tono");
+    response.on_hover_cursor(egui::CursorIcon::Crosshair).on_hover_text(ts!("Arrastra para elegir el tono"));
     changed
 }
 

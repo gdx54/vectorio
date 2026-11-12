@@ -1,7 +1,7 @@
 //! Lienzo: papel, dibujo con los colores reales de los rotuladores, selección con asas,
 //! herramientas de dibujo y simulación del plotter. Todo se dibuja en la GPU (wgpu).
 
-use crate::app::{Tool, VectorioApp, ViewMode, PAPER_TINTS};
+use crate::app::{Tool, VectorioApp, PAPER_TINTS};
 use crate::inspector;
 use crate::theme::{self, Palette};
 use egui::{Color32, CursorIcon, Key, PointerButton, Pos2, Rect, Rounding, Sense, Shape as EShape, Stroke, Vec2};
@@ -44,12 +44,11 @@ pub struct Sim {
     pub progress: f32,
     pub playing: bool,
     pub speed: f32,
-    pub show_travel: bool,
 }
 
 impl Default for Sim {
     fn default() -> Self {
-        Sim { progress: 1.0, playing: false, speed: 20.0, show_travel: true }
+        Sim { progress: 1.0, playing: false, speed: 20.0 }
     }
 }
 
@@ -102,25 +101,17 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
     let xf = Xf { origin: rect.min + app.view.offset, zoom: app.view.zoom };
 
     paint_paper(app, &painter, &xf, &pal);
-    match app.mode {
-        ViewMode::Design => {
-            paint_items(app, &painter, &xf, rect);
-            if !modal {
-                tools(app, ui, &resp, &painter, &xf, &pal);
-                pen_drop(app, ui, &painter, &xf, rect);
-            }
-        }
-        ViewMode::Plotter => {
-            simulate(app, ui);
-            paint_plot(app, &painter, &xf, &pal);
-        }
+    paint_items(app, &painter, &xf, rect);
+    if !modal {
+        tools(app, ui, &resp, &painter, &xf, &pal);
+        pen_drop(app, ui, &painter, &xf, rect);
     }
-    if app.doc.items.is_empty() && app.mode == ViewMode::Design {
+    if app.doc.items.is_empty() {
         let c = xf.s(p(app.doc.paper.width_mm / 2.0, app.doc.paper.height_mm / 2.0));
         painter.text(
             c,
             egui::Align2::CENTER_CENTER,
-            "Escribe (T), dibuja (P), añade formas (S) o arrastra aquí una foto o un SVG",
+            ts!("Escribe (T), dibuja (P), añade formas (S) o arrastra aquí una foto o un SVG"),
             egui::FontId::proportional(14.0),
             Color32::from_gray(150),
         );
@@ -169,7 +160,7 @@ fn navigate(app: &mut VectorioApp, ui: &egui::Ui, resp: &egui::Response) {
 }
 
 fn tint(app: &VectorioApp) -> Color32 {
-    theme::pen_color(PAPER_TINTS[app.paper_tint.min(PAPER_TINTS.len() - 1)].1)
+    theme::pen_color(PAPER_TINTS[app.prefs.paper_tint.min(PAPER_TINTS.len() - 1)].1)
 }
 
 fn paint_paper(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
@@ -183,7 +174,7 @@ fn paint_paper(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, pal: &Palett
     if m > 0.0 {
         let mr = Rect::from_min_max(xf.s(p(m, m)), xf.s(p(paper.width_mm - m, paper.height_mm - m)));
         let pts = [mr.left_top(), mr.right_top(), mr.right_bottom(), mr.left_bottom(), mr.left_top()];
-        let col = if app.paper_tint >= 3 { Color32::from_white_alpha(50) } else { Color32::from_black_alpha(40) };
+        let col = if app.prefs.paper_tint >= 3 { Color32::from_white_alpha(50) } else { Color32::from_black_alpha(40) };
         painter.extend(EShape::dashed_line(&pts, Stroke::new(0.8f32, col), 5.0, 4.0));
     }
 }
@@ -708,83 +699,9 @@ fn boxed_shape(app: &VectorioApp, a: P, b: P) -> (Shape, P) {
 
 fn finish_shape(app: &mut VectorioApp, a: P, b: P) {
     let (shape, pos) = boxed_shape(app, a, b);
-    let mut item = Item::new(shape.label(), Geometry::Shape(shape), pos);
+    let mut item = Item::new(crate::i18n::ts(shape.label()), Geometry::Shape(shape), pos);
     item.stroke = Some(app.active_pen);
     item.fill.pen = app.active_pen;
     app.add_item(item);
     app.tool = Tool::Select;
-}
-
-// ── Plotter ─────────────────────────────────────────────────────────────────────
-
-fn simulate(app: &mut VectorioApp, ui: &egui::Ui) {
-    if !app.sim.playing {
-        return;
-    }
-    let dt = ui.input(|i| i.stable_dt).min(0.1);
-    let total = app.rendered.stats.seconds.max(1.0) as f32;
-    app.sim.progress += dt * app.sim.speed / total;
-    if app.sim.progress >= 1.0 {
-        app.sim.progress = 1.0;
-        app.sim.playing = false;
-    }
-    ui.ctx().request_repaint();
-}
-
-/// Dibuja las capas de plotter en orden real hasta el progreso indicado, con los
-/// desplazamientos en vacío y la punta del rotulador.
-fn paint_plot(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
-    let total = app.rendered.stats.draw_mm.max(1e-6);
-    let mut budget = app.sim.progress as f64 * total;
-    let mut shapes = Vec::new();
-    let mut travel = Vec::new();
-    let mut cur = P::default();
-    let mut tip: Option<(P, usize)> = None;
-    let travel_col = if app.paper_tint >= 3 { Color32::from_white_alpha(70) } else { pal.accent.gamma_multiply(0.45) };
-    'outer: for layer in &app.rendered.layers {
-        let stroke = pen_stroke(app, layer.pen, xf.zoom);
-        for path in &layer.paths {
-            if budget <= 0.0 {
-                break 'outer;
-            }
-            if app.sim.show_travel && cur.dist(path[0]) > 0.3 {
-                travel.push(EShape::line_segment([xf.s(cur), xf.s(path[0])], Stroke::new(0.7f32, travel_col)));
-            }
-            let len = vectorio_core::geom::length(path);
-            if len <= budget {
-                add_line(&mut shapes, screen_line(path, xf, &|q| q), stroke);
-                budget -= len;
-                cur = *path.last().unwrap();
-                tip = Some((cur, layer.pen));
-            } else {
-                let mut part = vec![path[0]];
-                for w in path.windows(2) {
-                    let d = w[0].dist(w[1]);
-                    if d >= budget {
-                        part.push(w[0].lerp(w[1], budget / d.max(1e-9)));
-                        break;
-                    }
-                    budget -= d;
-                    part.push(w[1]);
-                }
-                cur = *part.last().unwrap();
-                tip = Some((cur, layer.pen));
-                add_line(&mut shapes, screen_line(&part, xf, &|q| q), stroke);
-                break 'outer;
-            }
-        }
-    }
-    painter.extend(travel);
-    painter.extend(shapes);
-    if app.sim.progress < 1.0 {
-        if let Some((q, pen)) = tip {
-            let s = xf.s(q);
-            let c = app.doc.pens.get(pen).map(|p| theme::pen_color(p.color)).unwrap_or(Color32::GRAY);
-            painter.circle_filled(s, 6.0, c);
-            painter.circle_stroke(s, 6.0, Stroke::new(2.0f32, Color32::WHITE));
-            if let Some(pen) = app.doc.pens.get(pen) {
-                painter.text(s + Vec2::new(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &pen.name, egui::FontId::proportional(11.0), pal.secondary);
-            }
-        }
-    }
 }

@@ -20,9 +20,14 @@ muda = { version = "0.17", default-features = false }
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rust-i18n = "3"
+sys-locale = "0.3"
 
 # ⌘W oculta la ventana y el Dock la recupera (applicationShouldHandleReopen).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow"] }
+
+[dev-dependencies]
+serde_yaml = "0.9"

@@ -6,6 +6,23 @@
 use crate::{geom::length, p, Paper, Pen, PlotLayer, PlotSettings, Polyline, P};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Motivo por el que no se pudo preparar la salida. El texto para el usuario lo pone la interfaz.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OutputError {
+    InvalidSettings,
+    MissingPen,
+    InvalidPenWidth,
+    InvalidCoordinates,
+    InvalidLength,
+    /// Se pidió interrumpir el cálculo porque ya no hace falta.
+    Cancelled,
+}
+
+fn check(cancel: &AtomicBool) -> Result<(), OutputError> {
+    if cancel.load(Ordering::Relaxed) { Err(OutputError::Cancelled) } else { Ok(()) }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -175,6 +192,11 @@ pub struct OutputStats {
 pub struct OutputPlan {
     pub format: String,
     pub units: String,
+    pub generator: String,
+    /// El origen (0, 0) está en la esquina superior izquierda del papel.
+    pub origin: String,
+    /// Las Y crecen hacia abajo, como en SVG.
+    pub y_axis: String,
     pub paper: Paper,
     pub pens: Vec<Pen>,
     pub motion: PlotSettings,
@@ -270,7 +292,7 @@ impl WetState {
 }
 
 fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings, cfg: &OutputSettings,
-    protect: bool) -> (Vec<OutputStep>, OutputStats, HeatGrid) {
+    protect: bool, cancel: &AtomicBool) -> Result<(Vec<OutputStep>, OutputStats, HeatGrid), OutputError> {
     let mut steps = Vec::new();
     let mut stats = OutputStats::default();
     let mut peak = grid.clone(); peak.counts.fill(0);
@@ -291,6 +313,7 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
         // Ventana móvil acotada: no hay búsqueda cuadrática en fotos grandes.
         let mut pending: VecDeque<usize> = (layer_start..layer_end).collect();
         while !pending.is_empty() {
+            check(cancel)?;
             let mut best = (f64::INFINITY, 0, false, 0.0);
             let candidates = if protect && cfg.reorder { pending.len().min(96) } else { 1 };
             for (slot, &id) in pending.iter().take(candidates).enumerate() {
@@ -331,51 +354,64 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
         cur = P::default(); layer_start = layer_end;
     }
     stats.total_seconds = now;
-    (steps, stats, peak)
+    Ok((steps, stats, peak))
 }
 
-pub fn prepare(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], motion: &PlotSettings, cfg: &OutputSettings) -> Result<OutputPlan, String> {
+pub fn prepare(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], motion: &PlotSettings, cfg: &OutputSettings) -> Result<OutputPlan, OutputError> {
+    prepare_cancellable(layers, paper, pens, motion, cfg, &AtomicBool::new(false))
+}
+
+/// Igual que `prepare`, pero se interrumpe con `Err(Cancelled)` en cuanto `cancel` se activa.
+pub fn prepare_cancellable(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], motion: &PlotSettings, cfg: &OutputSettings,
+    cancel: &AtomicBool) -> Result<OutputPlan, OutputError> {
     if ![paper.width_mm, paper.height_mm, motion.draw_speed, motion.travel_speed, cfg.cell_mm, cfg.chunk_mm, cfg.dry_seconds]
         .iter().all(|v| v.is_finite() && *v > 0.0)
         || ![motion.lift_time, cfg.soak_mm, cfg.pen_change_seconds].iter().all(|v| v.is_finite() && *v >= 0.0)
         || !(paper.width_mm * paper.height_mm).is_finite()
         || cfg.max_wet_passes == 0 || cfg.cell_mm < 0.05 || cfg.chunk_mm < 1.0 {
-        return Err("Revisa el papel, las velocidades y los tiempos de secado: deben ser valores finitos y positivos.".into());
+        return Err(OutputError::InvalidSettings);
     }
     let max_radius = pens.iter().map(|pen| pen.width_mm / 2.0 + cfg.soak_mm).fold(0.0_f64, f64::max);
     let mut total_heat = HeatGrid::new(paper, cfg.cell_mm.max(max_radius / 3.0));
     let mut original = Vec::new();
     let mut outside = 0;
     for layer in layers {
-        let pen = pens.get(layer.pen).ok_or("Hay un trazo sin rotulador válido.")?;
-        if !pen.width_mm.is_finite() || pen.width_mm <= 0.0 { return Err("El grosor del rotulador debe ser positivo.".into()); }
+        let pen = pens.get(layer.pen).ok_or(OutputError::MissingPen)?;
+        if !pen.width_mm.is_finite() || pen.width_mm <= 0.0 { return Err(OutputError::InvalidPenWidth); }
         let radius = pen.width_mm / 2.0 + cfg.soak_mm;
         for path in &layer.paths {
             if path.len() < 2 { continue; }
-            if path.iter().any(|q| !q.x.is_finite() || !q.y.is_finite()) { return Err("Hay coordenadas no válidas en el dibujo.".into()); }
-            if !length(path).is_finite() { return Err("Hay un trazado con una longitud no válida.".into()); }
+            check(cancel)?;
+            if path.iter().any(|q| !q.x.is_finite() || !q.y.is_finite()) { return Err(OutputError::InvalidCoordinates); }
+            if !length(path).is_finite() { return Err(OutputError::InvalidLength); }
             outside += path.iter().filter(|q| q.x < 0.0 || q.y < 0.0 || q.x > paper.width_mm || q.y > paper.height_mm).count();
             let cells = footprint(path, &total_heat, radius);
             for &(i, n) in &cells { total_heat.counts[i] = total_heat.counts[i].saturating_add(n); }
             original.push(OutputStroke { pen: layer.pen, path: path.clone(), footprint: cells });
         }
     }
-    let (baseline_steps, mut baseline_stats, wet_before) = schedule(&mut original, &total_heat, motion, cfg, false);
+    let (baseline_steps, mut baseline_stats, wet_before) = schedule(&mut original, &total_heat, motion, cfg, false, cancel)?;
     // Una ruta que ya cumple el límite se conserva entera: no se fragmenta ni se
     // reordena por proximidad si eso solo añadiría viajes o nuevas zonas húmedas.
     let needs_protection = cfg.drying && wet_before.max() > cfg.max_wet_passes;
     let mut strokes = if needs_protection {
         let mut strokes = Vec::new();
         for s in original {
+            check(cancel)?;
+            // Una celda que en total no supera el límite nunca puede superarlo en húmedo:
+            // el trazo que solo pasa por celdas así se conserva entero.
+            if s.footprint.iter().all(|&(i, _)| total_heat.counts[i] <= cfg.max_wet_passes) { strokes.push(s); continue; }
             let radius = pens[s.pen].width_mm / 2.0 + cfg.soak_mm;
             for part in split_path(s.path, cfg.chunk_mm) { add_stroke(&mut strokes, part, s.pen, &total_heat, radius, cfg.max_wet_passes); }
         }
         strokes
     } else { original };
-    let (steps, mut stats, wet_after) = if needs_protection { schedule(&mut strokes, &total_heat, motion, cfg, true) }
+    let (steps, mut stats, wet_after) = if needs_protection { schedule(&mut strokes, &total_heat, motion, cfg, true, cancel)? }
         else { (baseline_steps, baseline_stats.clone(), wet_before.clone()) };
     stats.outside_points = outside; baseline_stats.outside_points = outside;
-    Ok(OutputPlan { format: "vectorio-output-v1".into(), units: "mm, s".into(), paper: paper.clone(), pens: pens.to_vec(), motion: motion.clone(), settings: cfg.clone(),
+    Ok(OutputPlan { format: "vectorio-output-v1".into(), units: "mm, s".into(),
+        generator: format!("Vectorio {}", env!("CARGO_PKG_VERSION")), origin: "top-left".into(), y_axis: "down".into(),
+        paper: paper.clone(), pens: pens.to_vec(), motion: motion.clone(), settings: cfg.clone(),
         strokes, steps, stats, baseline_stats, total_heat, wet_before, wet_after })
 }
 
@@ -500,6 +536,49 @@ mod tests {
         assert_eq!(plan.stats.outside_points, 2);
         assert_eq!(plan.stats.draw_mm, 50.0);
         let bad = OutputSettings { dry_seconds: f64::NAN, ..Default::default() };
-        assert!(prepare(&[], &Paper::default(), &[], &PlotSettings::default(), &bad).is_err());
+        assert_eq!(prepare(&[], &Paper::default(), &[], &PlotSettings::default(), &bad).unwrap_err(), OutputError::InvalidSettings);
+    }
+    #[test]
+    fn only_strokes_through_hot_cells_are_split() {
+        let long = vec![p(10.0, 200.0), p(210.0, 200.0)];
+        let mut paths = vec![line(5.0); 5];
+        paths.push(long.clone());
+        let plan = prepare(&[PlotLayer { pen: 0, paths }], &Paper::default(), &[Pen::new("Negro", [0, 0, 0], 0.5)],
+            &PlotSettings::default(), &OutputSettings { max_wet_passes: 1, chunk_mm: 30.0, ..Default::default() }).unwrap();
+        assert_eq!(plan.wet_after.max(), 1);
+        assert_eq!(plan.stats.draw_mm, 5.0 * length(&line(5.0)) + length(&long));
+        // La línea larga y lejana no se trocea: sigue siendo un solo trazo.
+        assert_eq!(plan.strokes.iter().filter(|s| (length(&s.path) - 200.0).abs() < 1e-6).count(), 1);
+    }
+    #[test]
+    fn cancelling_stops_the_calculation() {
+        let paths = vec![line(5.0); 200];
+        let layers = [PlotLayer { pen: 0, paths }];
+        let cancel = AtomicBool::new(true);
+        let result = prepare_cancellable(&layers, &Paper::default(), &[Pen::new("Negro", [0, 0, 0], 0.5)],
+            &PlotSettings::default(), &OutputSettings::default(), &cancel);
+        assert_eq!(result.unwrap_err(), OutputError::Cancelled);
+    }
+    #[test]
+    fn plan_json_keeps_the_documented_schema() {
+        let plan = setup(vec![line(5.0); 3], OutputSettings { max_wet_passes: 1, ..Default::default() });
+        let json = serde_json::to_value(&plan).unwrap();
+        let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["baseline_stats", "format", "generator", "motion", "origin", "paper", "pens", "settings", "stats", "steps", "strokes", "units", "y_axis"]);
+        assert_eq!(json["format"], "vectorio-output-v1");
+        assert_eq!((json["origin"].as_str(), json["y_axis"].as_str()), (Some("top-left"), Some("down")));
+        let mut seen = std::collections::BTreeMap::new();
+        for step in json["steps"].as_array().unwrap() {
+            let mut keys: Vec<_> = step.as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            seen.insert(step["action"].as_str().unwrap().to_string(), keys);
+        }
+        assert_eq!(seen["draw"], ["action", "end_s", "start_s", "stroke"]);
+        assert_eq!(seen["travel"], ["action", "end_s", "from", "start_s", "to"]);
+        assert_eq!(seen["wait"], ["action", "at", "end_s", "start_s"]);
+        let mut stroke: Vec<_> = json["strokes"][0].as_object().unwrap().keys().cloned().collect();
+        stroke.sort();
+        assert_eq!(stroke, ["path", "pen"]);
     }
 }

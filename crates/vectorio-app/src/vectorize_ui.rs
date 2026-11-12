@@ -324,16 +324,16 @@ impl VectorizeUi {
                     let head = ui.horizontal(|ui| {
                         ui.set_height(52.0);
                         ui.add_space(18.0);
-                        ui.label(RichText::new(if self.replacing.is_some() { "Volver a separar la foto" } else { "Foto → dibujo" }).size(15.0).strong().color(pal.text));
+                        ui.label(RichText::new(if self.replacing.is_some() { ts!("Volver a separar la foto") } else { ts!("Foto → dibujo") }).size(15.0).strong().color(pal.text));
                         ui.label(RichText::new(&self.name).color(pal.secondary));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(14.0);
-                            if close_button(ui, &pal).on_hover_text("Cerrar (Esc)").clicked() {
+                            if close_button(ui, &pal).on_hover_text(ts!("Cerrar (Esc)")).clicked() {
                                 close = true;
                             }
                             ui.add_space(8.0);
                             ui.allocate_ui(Vec2::new(250.0, 28.0), |ui| {
-                                crate::app::choice(ui, &mut self.preview, &[(Preview::Original, "Original"), (Preview::Result, "Dibujo"), (Preview::Overlay, "Superpuesto")]);
+                                crate::app::choice(ui, &mut self.preview, &[(Preview::Original, ts!("Original")), (Preview::Result, ts!("Dibujo")), (Preview::Overlay, ts!("Superpuesto"))]);
                             });
                         });
                     });
@@ -393,22 +393,22 @@ impl VectorizeUi {
                                     Some((k, plot)) if k.result == self.result_revision => plot.layers.iter().map(|l| l.len()).sum(),
                                     _ => res.layers.iter().map(|l| l.lines.len()).sum(),
                                 };
-                                format!("{w:.0} × {h:.0} mm · {n} trazos · {} capas", res.layers.len())
+                                tr!("%{w} × %{h} mm · %{n} trazos · %{layers} capas", w = format!("{w:.0}"), h = format!("{h:.0}"), n = n, layers = res.layers.len())
                             }
-                            None => "Calculando…".into(),
+                            None => ts!("Calculando…").into(),
                         };
                         ui.label(RichText::new(summary).color(pal.secondary));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(16.0);
                             ui.spacing_mut().item_spacing.x = 8.0;
-                            let add = ui.add_enabled_ui(ready, |ui| theme::accent_button(ui, if self.replacing.is_some() { "Sustituir en el papel" } else { "Añadir al papel" })).inner;
+                            let add = ui.add_enabled_ui(ready, |ui| theme::accent_button(ui, if self.replacing.is_some() { ts!("Sustituir en el papel") } else { ts!("Añadir al papel") })).inner;
                             if add.on_hover_text("⏎").clicked() {
                                 accept = true;
                             }
-                            if ui.button("Cancelar").on_hover_text("Esc").clicked() {
+                            if ui.button(ts!("Cancelar")).on_hover_text("Esc").clicked() {
                                 close = true;
                             }
-                            if ui.button("Otra foto…").clicked() {
+                            if ui.button(ts!("Otra foto…")).clicked() {
                                 if let Some(path) = rfd::FileDialog::new().add_filter("Imagen", IMAGE_EXT).pick_file() {
                                     let _ = self.load(ui.ctx(), &path);
                                 }
@@ -435,17 +435,17 @@ impl VectorizeUi {
         ui.horizontal(|ui| {
             ui.set_min_height(30.0);
             ui.spacing_mut().item_spacing.x = 6.0;
-            if ui.button("Alejar").clicked() { self.view.zoom = (self.view.zoom * 0.8).clamp(0.25, 32.0); }
+            if ui.button(ts!("Alejar")).clicked() { self.view.zoom = (self.view.zoom * 0.8).clamp(0.25, 32.0); }
             ui.label(RichText::new(format!("{:.0} %", self.view.zoom * 100.0)).color(pal.secondary));
-            if ui.button("Acercar").clicked() { self.view.zoom = (self.view.zoom * 1.25).clamp(0.25, 32.0); }
-            if ui.button("Ajustar").clicked() { self.view = PreviewView::default(); }
+            if ui.button(ts!("Acercar")).clicked() { self.view.zoom = (self.view.zoom * 1.25).clamp(0.25, 32.0); }
+            if ui.button(ts!("Ajustar")).clicked() { self.view = PreviewView::default(); }
         });
         let preview_size = Vec2::new(size.x, (size.y - 38.0).max(1.0));
         let (rect, response) = ui.allocate_exact_size(preview_size, Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, egui::Rounding::same(theme::CONTROL_RADIUS), Color32::WHITE);
         let Some(tex) = &self.texture else {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Abre una imagen", egui::FontId::proportional(14.0), pal.secondary);
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, ts!("Abre una imagen"), egui::FontId::proportional(14.0), pal.secondary);
             return;
         };
         let ts = tex.size_vec2();
@@ -594,8 +594,8 @@ impl VectorizeUi {
     /// Panel izquierdo: cómo se leen la luz y los colores de la foto antes de separarla.
     fn color_panel(&mut self, ui: &mut egui::Ui) {
         let pal = theme::current(ui.ctx());
-        theme::section(ui, "COLOR DE LA FOTO");
-        ui.label(RichText::new("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.").small().color(pal.secondary));
+        theme::section(ui, ts!("COLOR DE LA FOTO"));
+        ui.label(RichText::new(ts!("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.")).small().color(pal.secondary));
         // Histograma de luz: de sombras (izquierda) a luces (derecha).
         let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 54.0), Sense::hover());
         let painter = ui.painter_at(r);
@@ -608,71 +608,71 @@ impl VectorizeUi {
             painter.rect_filled(Rect::from_min_max(Pos2::new(x, top), Pos2::new(x + bw + 0.5, r.bottom() - 4.0)), 0.0, pal.secondary.gamma_multiply(0.35 + 0.65 * (1.0 - shade as f32 / 255.0)));
         }
         let a = &mut self.params.adjust;
-        ui.checkbox(&mut a.auto_levels, "Niveles automáticos").on_hover_text("Estira la luz para que lo más oscuro sea negro y lo más claro blanco");
-        theme::section(ui, "LUZ");
-        adjust_slider(ui, "Brillo", &mut a.brightness, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
-        adjust_slider(ui, "Contraste", &mut a.contrast, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
-        adjust_slider(ui, "Tonos medios", &mut a.midtones, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
-        theme::section(ui, "COLOR");
-        adjust_slider(ui, "Saturación", &mut a.saturation, 0.0..=2.0, 1.0, |v| format!("{:.0} %", v * 100.0));
-        adjust_slider(ui, "Tono", &mut a.hue_deg, -180.0..=180.0, 0.0, |v| format!("{v:+.0}°"));
-        adjust_slider(ui, "Temperatura", &mut a.warmth, -1.0..=1.0, 0.0, |v| match v {
-            v if v > 0.005 => format!("cálida {:.0}", v * 100.0),
-            v if v < -0.005 => format!("fría {:.0}", -v * 100.0),
-            _ => "neutra".into(),
+        ui.checkbox(&mut a.auto_levels, ts!("Niveles automáticos")).on_hover_text(ts!("Estira la luz para que lo más oscuro sea negro y lo más claro blanco"));
+        theme::section(ui, ts!("LUZ"));
+        adjust_slider(ui, ts!("Brillo"), &mut a.brightness, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        adjust_slider(ui, ts!("Contraste"), &mut a.contrast, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        adjust_slider(ui, ts!("Tonos medios"), &mut a.midtones, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
+        theme::section(ui, ts!("COLOR"));
+        adjust_slider(ui, ts!("Saturación"), &mut a.saturation, 0.0..=2.0, 1.0, |v| format!("{:.0} %", v * 100.0));
+        adjust_slider(ui, ts!("Tono"), &mut a.hue_deg, -180.0..=180.0, 0.0, |v| format!("{v:+.0}°"));
+        adjust_slider(ui, ts!("Temperatura"), &mut a.warmth, -1.0..=1.0, 0.0, |v| match v {
+            v if v > 0.005 => tr!("cálida %{n}", n = format!("{:.0}", v * 100.0)),
+            v if v < -0.005 => tr!("fría %{n}", n = format!("{:.0}", -v * 100.0)),
+            _ => tr!("neutra"),
         });
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             for (name, look) in [
-                ("B/N", ColorAdjust { saturation: 0.0, contrast: 0.2, ..Default::default() }),
-                ("Vivo", ColorAdjust { saturation: 1.5, contrast: 0.25, auto_levels: true, ..Default::default() }),
-                ("Suave", ColorAdjust { contrast: -0.3, midtones: 0.3, saturation: 0.8, ..Default::default() }),
+                (ts!("B/N"), ColorAdjust { saturation: 0.0, contrast: 0.2, ..Default::default() }),
+                (ts!("Vivo"), ColorAdjust { saturation: 1.5, contrast: 0.25, auto_levels: true, ..Default::default() }),
+                (ts!("Suave"), ColorAdjust { contrast: -0.3, midtones: 0.3, saturation: 0.8, ..Default::default() }),
             ] {
                 if ui.button(name).clicked() {
                     *a = look;
                 }
             }
         });
-        if ui.add_enabled(!a.is_identity(), egui::Button::new("Restablecer")).clicked() {
+        if ui.add_enabled(!a.is_identity(), egui::Button::new(ts!("Restablecer"))).clicked() {
             *a = ColorAdjust::default();
         }
-        ui.label(RichText::new("Doble clic en un control lo devuelve a su valor inicial.").small().color(pal.secondary));
+        ui.label(RichText::new(ts!("Doble clic en un control lo devuelve a su valor inicial.")).small().color(pal.secondary));
     }
 
     fn controls(&mut self, ui: &mut egui::Ui, doc: &Document) {
         let pal = theme::current(ui.ctx());
-        theme::section(ui, "ESTILO");
+        theme::section(ui, ts!("ESTILO"));
         egui::ComboBox::from_id_salt("vec-mode")
             .width(ui.available_width())
-            .selected_text(self.params.mode.label())
+            .selected_text(crate::i18n::ts(self.params.mode.label()))
             .show_ui(ui, |ui| {
                 for m in VecMode::ALL {
-                    ui.selectable_value(&mut self.params.mode, m, m.label());
+                    ui.selectable_value(&mut self.params.mode, m, crate::i18n::ts(m.label()));
                 }
             });
-        ui.label(RichText::new(self.params.mode.help()).small().color(pal.secondary));
+        ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.secondary));
         let prm = &mut self.params;
         match prm.mode {
             VecMode::Colors => {
-                field(ui, "Colores", |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=12)));
-                field(ui, "Manchas mín.", |ui| ui.add(egui::Slider::new(&mut prm.min_size, 0.0..=200.0).logarithmic(true)));
-                ui.checkbox(&mut prm.skip_paper, "Omitir el color del papel");
+                field(ui, ts!("Colores"), |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=12)));
+                field(ui, ts!("Manchas mín."), |ui| ui.add(egui::Slider::new(&mut prm.min_size, 0.0..=200.0).logarithmic(true)));
+                ui.checkbox(&mut prm.skip_paper, ts!("Omitir el color del papel"));
             }
             VecMode::Mix => {
-                field(ui, "Rotuladores", |ui| {
+                field(ui, ts!("Rotuladores"), |ui| {
                     egui::ComboBox::from_id_salt("vec-palette")
                         .width(ui.available_width())
-                        .selected_text(prm.mix_palette.label())
+                        .selected_text(crate::i18n::ts(prm.mix_palette.label()))
                         .show_ui(ui, |ui| {
                             for m in MixPalette::ALL {
-                                ui.selectable_value(&mut prm.mix_palette, m, m.label());
+                                ui.selectable_value(&mut prm.mix_palette, m, crate::i18n::ts(m.label()));
                             }
                         })
                         .response
                 });
                 if prm.mix_palette == MixPalette::Photo {
-                    field(ui, "Colores", |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=8)));
+                    field(ui, ts!("Colores"), |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=8)));
                 }
                 if prm.mix_palette == MixPalette::Mine {
                     my_pens(ui, prm, doc);
@@ -680,8 +680,8 @@ impl VectorizeUi {
             }
             VecMode::Lines | VecMode::Silhouette => {
                 let mut auto = prm.threshold < 0;
-                field(ui, "Umbral", |ui| {
-                    let r = ui.checkbox(&mut auto, "Auto");
+                field(ui, ts!("Umbral"), |ui| {
+                    let r = ui.checkbox(&mut auto, ts!("Auto"));
                     if !auto {
                         if prm.threshold < 0 {
                             prm.threshold = 128;
@@ -694,41 +694,41 @@ impl VectorizeUi {
                 if auto {
                     prm.threshold = -1;
                 }
-                field(ui, "Manchas mín.", |ui| ui.add(egui::Slider::new(&mut prm.min_size, 0.0..=200.0).logarithmic(true)));
-                ui.checkbox(&mut prm.invert, "Invertir (trazo claro sobre oscuro)");
+                field(ui, ts!("Manchas mín."), |ui| ui.add(egui::Slider::new(&mut prm.min_size, 0.0..=200.0).logarithmic(true)));
+                ui.checkbox(&mut prm.invert, ts!("Invertir (trazo claro sobre oscuro)"));
             }
             VecMode::Engrave => {
-                field(ui, "Líneas", |ui| ui.add(egui::Slider::new(&mut prm.engrave_rows, 20..=300)));
-                field(ui, "Intensidad", |ui| ui.add(egui::Slider::new(&mut prm.engrave_amp, 0.1..=2.0)));
-                ui.checkbox(&mut prm.invert, "Invertir");
+                field(ui, ts!("Líneas"), |ui| ui.add(egui::Slider::new(&mut prm.engrave_rows, 20..=300)));
+                field(ui, ts!("Intensidad"), |ui| ui.add(egui::Slider::new(&mut prm.engrave_amp, 0.1..=2.0)));
+                ui.checkbox(&mut prm.invert, ts!("Invertir"));
             }
         }
 
         let look = &mut self.look;
         match self.params.mode {
             VecMode::Colors | VecMode::Silhouette => {
-                theme::section(ui, "RELLENO DE LAS FORMAS");
-                field(ui, "Relleno", |ui| {
+                theme::section(ui, ts!("RELLENO DE LAS FORMAS"));
+                field(ui, ts!("Relleno"), |ui| {
                     egui::ComboBox::from_id_salt("vec-fill")
                         .width(ui.available_width())
-                        .selected_text(look.fill.label())
+                        .selected_text(crate::i18n::ts(look.fill.label()))
                         .show_ui(ui, |ui| {
                             // Los efectos de trazo se eligen luego en cada objeto, con todos sus ajustes.
                             for s in FillStyle::ALL.into_iter().filter(|s| *s != FillStyle::Trace) {
-                                ui.selectable_value(&mut look.fill, s, s.label());
+                                ui.selectable_value(&mut look.fill, s, crate::i18n::ts(s.label()));
                             }
                         })
                         .response
                 });
                 if !matches!(look.fill, FillStyle::None | FillStyle::Solid) {
-                    field(ui, "Separación", |ui| ui.add(egui::Slider::new(&mut look.spacing, 0.4..=6.0).logarithmic(true).suffix(" mm")));
+                    field(ui, ts!("Separación"), |ui| ui.add(egui::Slider::new(&mut look.spacing, 0.4..=6.0).logarithmic(true).suffix(" mm")));
                 }
                 if matches!(look.fill, FillStyle::Hatch | FillStyle::Cross | FillStyle::Zigzag | FillStyle::Solid | FillStyle::Wave) {
-                    field(ui, "Ángulo", |ui| ui.add(egui::Slider::new(&mut look.angle, 0.0..=180.0).suffix("°")));
-                    ui.checkbox(&mut look.vary_angle, "Un ángulo distinto para cada color");
+                    field(ui, ts!("Ángulo"), |ui| ui.add(egui::Slider::new(&mut look.angle, 0.0..=180.0).suffix("°")));
+                    ui.checkbox(&mut look.vary_angle, ts!("Un ángulo distinto para cada color"));
                 }
                 if look.fill != FillStyle::None {
-                    ui.checkbox(&mut look.outline, "Dibujar también el contorno");
+                    ui.checkbox(&mut look.outline, ts!("Dibujar también el contorno"));
                 }
             }
             VecMode::Mix => {
@@ -736,20 +736,20 @@ impl VectorizeUi {
                 // tinta y las demás se reparten en 180°.
                 let sc = &mut look.screen;
                 let base = TraceParams { style: sc.screen, spacing_mm: sc.spacing_mm, angle_deg: sc.angle_deg, ..sc.trace.clone() };
-                let new = crate::inspector::trace_controls_in(ui, "TRAMA INICIAL", &base, false, false);
+                let new = crate::inspector::trace_controls_in(ui, ts!("TRAMA INICIAL"), &base, false, false);
                 if new != base {
                     sc.screen = new.style;
                     sc.spacing_mm = new.spacing_mm;
                     sc.angle_deg = new.angle_deg;
                     sc.trace = new;
                 }
-                field(ui, "Grosor punta", |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")).on_hover_text("Grosor de los rotuladores nuevos"));
-                ui.label(RichText::new("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.").small().color(pal.secondary));
+                field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut look.screen.pen_width_mm, 0.2..=1.5).suffix(" mm")).on_hover_text(ts!("Grosor de los rotuladores nuevos")));
+                ui.label(RichText::new(ts!("Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.")).small().color(pal.secondary));
             }
             _ => {}
         }
 
-        theme::section(ui, "ROTULADORES");
+        theme::section(ui, ts!("ROTULADORES"));
         if let Some(res) = self.result.clone() {
             let choices = self.assign(doc, &res);
             let mut colors: Vec<[u8; 3]> = choices.iter().filter_map(|c| if let PenChoice::New(c, ..) = c { Some(*c) } else { None }).collect();
@@ -757,10 +757,10 @@ impl VectorizeUi {
             colors.dedup();
             let new = colors.len();
             let help = match (self.params.mode, new) {
-                (VecMode::Colors | VecMode::Mix, 0) => "Usa rotuladores que ya tienes.".to_string(),
-                (VecMode::Colors | VecMode::Mix, 1) => "Se añadirá 1 tinta nueva al panel de tintas.".to_string(),
-                (VecMode::Colors | VecMode::Mix, n) => format!("Se añadirán {n} tintas nuevas al panel de tintas."),
-                _ => "Se usará tu rotulador más parecido.".to_string(),
+                (VecMode::Colors | VecMode::Mix, 0) => ts!("Usa rotuladores que ya tienes.").to_string(),
+                (VecMode::Colors | VecMode::Mix, 1) => ts!("Se añadirá 1 tinta nueva al panel de tintas.").to_string(),
+                (VecMode::Colors | VecMode::Mix, n) => tr!("Se añadirán %{n} tintas nuevas al panel de tintas.", n = n),
+                _ => ts!("Se usará tu rotulador más parecido.").to_string(),
             };
             ui.label(RichText::new(help).small().color(pal.secondary));
             ui.horizontal_wrapped(|ui| {
@@ -768,21 +768,21 @@ impl VectorizeUi {
                 for c in &choices {
                     let name = match c {
                         PenChoice::Existing(i) => doc.pens.get(*i).map(|p| p.name.clone()).unwrap_or_default(),
-                        PenChoice::New(_, n, _) => format!("{n} (nuevo)"),
+                        PenChoice::New(_, n, _) => tr!("%{n} (nuevo)", n = n),
                     };
                     theme::swatch(ui, choice_color(doc, c), 16.0).on_hover_text(name);
                 }
             });
         }
 
-        theme::section(ui, "DETALLE");
+        theme::section(ui, ts!("DETALLE"));
         let prm = &mut self.params;
-        field(ui, "Suavizar foto", |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=4.0)));
+        field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=4.0)));
         if prm.mode != VecMode::Mix {
-            field(ui, "Simplificar", |ui| ui.add(egui::Slider::new(&mut prm.detail, 0.2..=3.0)));
-            field(ui, "Curvas", |ui| ui.add(egui::Slider::new(&mut prm.smooth, 0..=4)));
+            field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.detail, 0.2..=3.0)));
+            field(ui, ts!("Curvas"), |ui| ui.add(egui::Slider::new(&mut prm.smooth, 0..=4)));
         }
-        field(ui, "Resolución", |ui| {
+        field(ui, ts!("Resolución"), |ui| {
             egui::ComboBox::from_id_salt("vec-res")
                 .width(ui.available_width())
                 .selected_text(format!("{} px", prm.max_px))
@@ -794,8 +794,8 @@ impl VectorizeUi {
                 .response
         });
 
-        theme::section(ui, "TAMAÑO EN EL PAPEL");
-        field(ui, "Área útil", |ui| ui.add(egui::Slider::new(&mut self.size_pct, 10.0..=100.0).suffix(" %")));
+        theme::section(ui, ts!("TAMAÑO EN EL PAPEL"));
+        field(ui, ts!("Área útil"), |ui| ui.add(egui::Slider::new(&mut self.size_pct, 10.0..=100.0).suffix(" %")));
     }
 
     fn scale(&self, doc: &Document, res: &VecResult) -> f64 {
@@ -890,7 +890,7 @@ fn my_pens(ui: &mut egui::Ui, prm: &mut VecParams, doc: &Document) {
     if prm.mix_pens.is_empty() {
         prm.mix_pens = doc.pens.iter().map(|p| p.color).filter(|c| !light(*c)).collect();
     }
-    ui.label(RichText::new("Toca un rotulador para quitarlo o ponerlo en la mezcla.").small().color(pal.secondary));
+    ui.label(RichText::new(ts!("Toca un rotulador para quitarlo o ponerlo en la mezcla.")).small().color(pal.secondary));
     ui.horizontal_wrapped(|ui| {
         for pen in &doc.pens {
             let on = prm.mix_pens.contains(&pen.color);
@@ -904,7 +904,7 @@ fn my_pens(ui: &mut egui::Ui, prm: &mut VecParams, doc: &Document) {
             } else {
                 painter.circle_filled(rect.center(), 10.0, egui::Color32::from_white_alpha(150));
             }
-            let resp = resp.on_hover_text(if on { format!("{} · en la mezcla", pen.name) } else { format!("{} · fuera de la mezcla", pen.name) });
+            let resp = resp.on_hover_text(if on { tr!("%{name} · en la mezcla", name = pen.name) } else { tr!("%{name} · fuera de la mezcla", name = pen.name) });
             if resp.clicked() {
                 if on {
                     if prm.mix_pens.len() > 1 {

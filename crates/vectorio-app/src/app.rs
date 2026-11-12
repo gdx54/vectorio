@@ -24,7 +24,7 @@ pub enum Tool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ViewMode {
     Design,
-    Plotter,
+    Output,
 }
 
 /// Resultado de convertir el documento en capas de plotter.
@@ -44,11 +44,11 @@ pub struct ItemPlot {
 }
 
 pub const PAPER_TINTS: [(&str, [u8; 3]); 5] = [
-    ("Blanco", [255, 255, 255]),
-    ("Marfil", [250, 245, 232]),
-    ("Kraft", [205, 170, 125]),
-    ("Gris", [120, 122, 128]),
-    ("Negro", [22, 22, 24]),
+    (tm!("Blanco"), [255, 255, 255]),
+    (tm!("Marfil"), [250, 245, 232]),
+    (tm!("Kraft"), [205, 170, 125]),
+    (tm!("Gris"), [120, 122, 128]),
+    (tm!("Negro"), [22, 22, 24]),
 ];
 
 pub struct VectorioApp {
@@ -87,8 +87,9 @@ pub struct VectorioApp {
     pub mode: ViewMode,
     pub sim: Sim,
     pub output_ui: crate::output::OutputUi,
-    pub appearance: theme::Appearance,
-    pub paper_tint: usize,
+    pub prefs: crate::prefs::Preferences,
+    prefs_dirty: bool,
+    pub prefs_ui: crate::prefs_ui::PrefsUi,
     pub file: Option<PathBuf>,
     pub vec_ui: VectorizeUi,
     pub interaction: Interaction,
@@ -104,8 +105,12 @@ pub struct VectorioApp {
 impl VectorioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::blank(&cc.egui_ctx);
-        app.appearance = theme::Appearance::load();
-        app.appearance.apply(&cc.egui_ctx);
+        app.prefs = crate::prefs::Preferences::load();
+        app.apply_prefs(&cc.egui_ctx);
+        // Los documentos nuevos salen con el papel y los ajustes elegidos en Ajustes.
+        app.doc = app.prefs.new_document.document();
+        app.committed = app.doc.clone();
+        app.shown = app.doc.clone();
         app.menu = NativeMenu::install(&cc.egui_ctx);
         crate::macos::install_reopen_handler();
         // Archivo pasado al abrir (`vectorio dibujo.vectorio`, `vectorio foto.jpg`).
@@ -150,8 +155,9 @@ impl VectorioApp {
             mode: ViewMode::Design,
             sim: Sim::default(),
             output_ui: Default::default(),
-            appearance: Default::default(),
-            paper_tint: 0,
+            prefs: Default::default(),
+            prefs_dirty: false,
+            prefs_ui: Default::default(),
             file: None,
             vec_ui: VectorizeUi::default(),
             interaction: Interaction::default(),
@@ -166,10 +172,28 @@ impl VectorioApp {
         self.toast = Some((msg.into(), ctx.input(|i| i.time) + 3.5));
     }
 
-    pub fn set_appearance(&mut self, ctx: &egui::Context, appearance: theme::Appearance) {
-        self.appearance = appearance;
-        appearance.apply(ctx);
-        if let Err(error) = appearance.save() { self.notify(ctx, format!("Aspecto aplicado, pero no se pudo guardar la preferencia: {error}")); }
+    /// Pone en marcha lo que las preferencias controlan en la interfaz.
+    fn apply_prefs(&self, ctx: &egui::Context) {
+        rust_i18n::set_locale(self.prefs.language.resolve());
+        self.prefs.appearance.apply(ctx);
+        if (ctx.zoom_factor() - self.prefs.ui_scale).abs() > f32::EPSILON { ctx.set_zoom_factor(self.prefs.ui_scale); }
+    }
+
+    /// Cambia las preferencias, las aplica y las deja pendientes de guardar.
+    pub fn set_prefs(&mut self, ctx: &egui::Context, prefs: crate::prefs::Preferences) {
+        let language_changed = prefs.language != self.prefs.language;
+        self.prefs = prefs.sanitized();
+        self.apply_prefs(ctx);
+        // El menú nativo se construye con los textos del idioma: se rehace al cambiarlo.
+        if language_changed && self.menu.is_some() { self.menu = NativeMenu::install(ctx); }
+        self.prefs_dirty = true;
+    }
+
+    /// Guarda las preferencias cuando no hay un gesto en curso (un deslizador, un arrastre).
+    fn save_prefs(&mut self, ctx: &egui::Context) {
+        if !self.prefs_dirty || ctx.input(|i| i.pointer.any_down()) { return; }
+        self.prefs_dirty = false;
+        if let Err(error) = self.prefs.save() { self.notify(ctx, tr!("No se pudieron guardar los ajustes: %{error}", error = error)); }
     }
 
     pub fn selected_item(&self) -> Option<&Item> {
@@ -300,7 +324,7 @@ impl VectorioApp {
             self.color_original = Some(self.doc.clone());
             self.color_edit = Some(i);
             self.color_picker = crate::colorpanel::ColorEditor::new(pen.color);
-            self.color_picker.subtitle = format!("{} · tinta compartida", pen.name);
+            self.color_picker.subtitle = tr!("%{name} · tinta compartida", name = pen.name);
         }
     }
 
@@ -317,8 +341,8 @@ impl VectorioApp {
         self.color_targets = targets;
         self.color_edit = Some(index);
         self.color_picker = crate::colorpanel::ColorEditor::new(self.doc.pens[index].color);
-        self.color_picker.title = if fill { "Color del relleno" } else { "Color del contorno" }.into();
-        self.color_picker.subtitle = if self.color_targets.len() == 1 { name } else { format!("{} objetos seleccionados", self.color_targets.len()) };
+        self.color_picker.title = if fill { tr!("Color del relleno") } else { tr!("Color del contorno") };
+        self.color_picker.subtitle = if self.color_targets.len() == 1 { name } else { tr!("%{n} objetos seleccionados", n = self.color_targets.len()) };
     }
 
     pub fn cancel_color_edit(&mut self) {
@@ -452,6 +476,12 @@ impl VectorioApp {
         self.job.is_some()
     }
 
+    /// El plan de salida corresponde al dibujo y a los ajustes actuales: ni el dibujo ni
+    /// las tintas se están recalculando y el plan ya no está desfasado.
+    pub fn output_ready(&self) -> bool {
+        self.rendered.rev == self.rev && !self.tracing() && !self.is_computing() && self.output_ui.ready(self.rev, &self.doc.output)
+    }
+
     // ── Archivos ────────────────────────────────────────────────────────────────
 
     pub fn new_document(&mut self) {
@@ -459,7 +489,7 @@ impl VectorioApp {
         self.color_edit = None;
         self.color_original = None;
         self.pen_focus = false;
-        self.doc = Document::default();
+        self.doc = self.prefs.new_document.document();
         self.selected = None;
         self.fix_selection();
         self.file = None;
@@ -468,10 +498,10 @@ impl VectorioApp {
 
     pub fn open_dialog(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Todo lo compatible", &["vectorio", "svg", "png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
-            .add_filter("Proyecto Vectorio", &["vectorio"])
+            .add_filter(tr!("Todo lo compatible"), &["vectorio", "svg", "png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
+            .add_filter(tr!("Proyecto Vectorio"), &["vectorio"])
             .add_filter("SVG", &["svg"])
-            .add_filter("Imagen", &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
+            .add_filter(tr!("Imagen"), &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
             .pick_file()
         {
             self.open_path(ctx, &path);
@@ -493,12 +523,12 @@ impl VectorioApp {
                     self.file = Some(path.to_path_buf());
                     self.view.fitted = false;
                 }
-                Err(e) => self.notify(ctx, format!("No se pudo abrir el proyecto: {e}")),
+                Err(e) => self.notify(ctx, tr!("No se pudo abrir el proyecto: %{error}", error = e)),
             },
             "svg" => self.import_svg(ctx, path),
             _ => match self.vec_ui.load(ctx, path) {
                 Ok(()) => {}
-                Err(e) => self.notify(ctx, format!("No se pudo abrir la imagen: {e}")),
+                Err(e) => self.notify(ctx, tr!("No se pudo abrir la imagen: %{error}", error = e)),
             },
         }
     }
@@ -506,7 +536,7 @@ impl VectorioApp {
     fn import_svg(&mut self, ctx: &egui::Context, path: &Path) {
         let data = match std::fs::read(path) {
             Ok(d) => d,
-            Err(e) => return self.notify(ctx, format!("No se pudo leer el SVG: {e}")),
+            Err(e) => return self.notify(ctx, tr!("No se pudo leer el SVG: %{error}", error = e)),
         };
         match svg_in::import(&data) {
             Ok(list) if !list.is_empty() => {
@@ -521,34 +551,33 @@ impl VectorioApp {
                     last = Some(self.doc.add(item));
                 }
                 self.selected = last;
-                self.notify(ctx, format!("{n} trazados importados de {name}"));
+                self.notify(ctx, tr!("%{n} trazados importados de %{name}", n = n, name = name));
             }
-            Ok(_) => self.notify(ctx, "El SVG no contiene trazados"),
-            Err(e) => self.notify(ctx, format!("SVG no válido: {e}")),
+            Ok(_) => self.notify(ctx, tr!("El SVG no contiene trazados")),
+            Err(e) => self.notify(ctx, tr!("SVG no válido: %{error}", error = e)),
         }
     }
 
     pub fn save(&mut self, ctx: &egui::Context, save_as: bool) {
         let path = match (&self.file, save_as) {
             (Some(p), false) => Some(p.clone()),
-            _ => rfd::FileDialog::new().add_filter("Proyecto Vectorio", &["vectorio"]).set_file_name("dibujo.vectorio").save_file(),
+            _ => rfd::FileDialog::new().add_filter(tr!("Proyecto Vectorio"), &["vectorio"]).set_file_name("dibujo.vectorio").save_file(),
         };
         if let Some(path) = path {
             match std::fs::write(&path, self.doc.to_json()) {
                 Ok(()) => {
-                    self.notify(ctx, format!("Guardado {}", path.file_name().and_then(|n| n.to_str()).unwrap_or("")));
+                    self.notify(ctx, tr!("Guardado %{name}", name = path.file_name().and_then(|n| n.to_str()).unwrap_or("")));
                     self.file = Some(path);
                 }
-                Err(e) => self.notify(ctx, format!("No se pudo guardar: {e}")),
+                Err(e) => self.notify(ctx, tr!("No se pudo guardar: %{error}", error = e)),
             }
         }
     }
 
     pub fn export_svg(&mut self, ctx: &egui::Context) {
-        if self.mode == ViewMode::Plotter {
-            if self.rendered.rev == self.rev && !self.tracing() && self.output_ui.ready(self.rev, &self.doc.output) {
-                self.output_ui.export_svg(&self.doc);
-            } else { self.notify(ctx, "Espera a que termine el cálculo de la salida."); }
+        if self.mode == ViewMode::Output {
+            if self.output_ready() { self.output_ui.export_svg(&self.doc); }
+            else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
             return;
         }
         let Some(path) = rfd::FileDialog::new().add_filter("SVG", &["svg"]).set_file_name("vectorio-plotter.svg").save_file() else {
@@ -556,8 +585,8 @@ impl VectorioApp {
         };
         let layers = self.doc.layers();
         match std::fs::write(&path, svg_out::export(&self.doc, &layers)) {
-            Ok(()) => self.notify(ctx, format!("SVG exportado con {} capas (una por rotulador)", layers.len())),
-            Err(e) => self.notify(ctx, format!("No se pudo exportar: {e}")),
+            Ok(()) => self.notify(ctx, tr!("SVG exportado con %{n} capas (una por rotulador)", n = layers.len())),
+            Err(e) => self.notify(ctx, tr!("No se pudo exportar: %{error}", error = e)),
         }
     }
 
@@ -567,27 +596,27 @@ impl VectorioApp {
         let count = vectorio_core::font::compose(spec).page_count;
         let name: String = item.name.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(50).collect();
         let name = if name.is_empty() { "texto" } else { &name };
-        let Some(folder) = rfd::FileDialog::new().set_title("Carpeta para las páginas SVG").pick_folder() else { return };
+        let Some(folder) = rfd::FileDialog::new().set_title(tr!("Carpeta para las páginas SVG")).pick_folder() else { return };
         let mut doc = self.doc.clone();
         for page in 0..count {
             if let Some(Item { geometry: Geometry::Text(spec), .. }) = doc.get_mut(id) { spec.page = page; }
             let svg = svg_out::export(&doc, &doc.layers());
             if let Err(error) = std::fs::write(folder.join(format!("{name}-pagina-{:03}.svg", page + 1)), svg) {
-                self.notify(ctx, format!("No se pudieron exportar las páginas: {error}"));
+                self.notify(ctx, tr!("No se pudieron exportar las páginas: %{error}", error = error));
                 return;
             }
         }
-        self.notify(ctx, format!("{count} páginas SVG exportadas"));
+        self.notify(ctx, tr!("%{n} páginas SVG exportadas", n = count));
     }
 
     pub fn export_per_pen(&mut self, ctx: &egui::Context) {
-        if self.mode == ViewMode::Plotter && (self.rendered.rev != self.rev || self.tracing() || !self.output_ui.ready(self.rev, &self.doc.output)) {
-            self.notify(ctx, "Espera a que termine el cálculo de la salida."); return;
+        if self.mode == ViewMode::Output && !self.output_ready() {
+            self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); return;
         }
-        let Some(dir) = rfd::FileDialog::new().set_title("Carpeta para un SVG por rotulador").pick_folder() else {
+        let Some(dir) = rfd::FileDialog::new().set_title(tr!("Carpeta para un SVG por rotulador")).pick_folder() else {
             return;
         };
-        let layers = if self.mode == ViewMode::Plotter { self.output_ui.plan.as_ref().unwrap().layers() } else { self.doc.layers() };
+        let layers = if self.mode == ViewMode::Output { self.output_ui.plan.as_ref().unwrap().layers() } else { self.doc.layers() };
         let files = svg_out::export_per_pen(&self.doc, &layers);
         let n = files.len();
         let mut err = None;
@@ -597,8 +626,8 @@ impl VectorioApp {
             }
         }
         match err {
-            None => self.notify(ctx, format!("{n} archivos SVG exportados")),
-            Some(e) => self.notify(ctx, format!("Error al exportar: {e}")),
+            None => self.notify(ctx, tr!("%{n} archivos SVG exportados", n = n)),
+            Some(e) => self.notify(ctx, tr!("Error al exportar: %{error}", error = e)),
         }
     }
 
@@ -633,7 +662,7 @@ impl VectorioApp {
                     .and_then(|p| p.file_stem())
                     .and_then(|s| s.to_str())
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| "Sin título".into());
+                    .unwrap_or_else(|| tr!("Sin título"));
                 ui.vertical(|ui| {
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new("Vectorio").size(13.5).strong().color(pal.text));
@@ -644,12 +673,12 @@ impl VectorioApp {
                 if self.mode == ViewMode::Design {
                 segmented(ui, pal, |ui| {
                     for (tool, icon, tip) in [
-                        (Tool::Select, Icon::Select, "Seleccionar y mover (V)"),
-                        (Tool::Draw, Icon::Draw, "Mano alzada (P)"),
-                        (Tool::Text, Icon::Text, "Texto manuscrito (T)"),
-                        (Tool::Shape, Icon::Shape, "Formas y generativos (S)"),
+                        (Tool::Select, Icon::Select, tm!("Seleccionar y mover (V)")),
+                        (Tool::Draw, Icon::Draw, tm!("Mano alzada (P)")),
+                        (Tool::Text, Icon::Text, tm!("Texto manuscrito (T)")),
+                        (Tool::Shape, Icon::Shape, tm!("Formas y generativos (S)")),
                     ] {
-                        if icon_button(ui, pal, icon, self.tool == tool).on_hover_text(tip).clicked() {
+                        if icon_button(ui, pal, icon, self.tool == tool).on_hover_text(crate::i18n::tr_key(tip)).clicked() {
                             self.tool = tool;
                         }
                     }
@@ -657,75 +686,65 @@ impl VectorioApp {
                 if self.tool == Tool::Shape {
                     let presets = Shape::presets();
                     egui::ComboBox::from_id_salt("shape-kind")
-                        .selected_text(presets[self.shape_kind].label())
+                        .selected_text(crate::i18n::ts(presets[self.shape_kind].label()))
                         .width(130.0)
                         .show_ui(ui, |ui| {
                             for (i, s) in presets.iter().enumerate() {
-                                ui.selectable_value(&mut self.shape_kind, i, s.label());
+                                ui.selectable_value(&mut self.shape_kind, i, crate::i18n::ts(s.label()));
                             }
                         });
                 }
                 ui.add_space(6.0);
                 segmented(ui, pal, |ui| {
-                    if icon_button(ui, pal, Icon::Image, false).on_hover_text("Foto → dibujo (I)").clicked() {
+                    if icon_button(ui, pal, Icon::Image, false).on_hover_text(tr!("Foto → dibujo (I)")).clicked() {
                         self.vec_ui.open_dialog(ctx);
                     }
-                    if icon_button(ui, pal, Icon::Open, false).on_hover_text("Abrir proyecto, SVG o imagen (⌘O)").clicked() {
+                    if icon_button(ui, pal, Icon::Open, false).on_hover_text(tr!("Abrir proyecto, SVG o imagen (⌘O)")).clicked() {
                         self.open_dialog(ctx);
                     }
                 });
                 } else {
-                    ui.label(egui::RichText::new("Preparación · EasyDraw").color(pal.secondary));
+                    ui.label(egui::RichText::new(tr!("Preparación · %{plotter}", plotter = self.prefs.plotter())).color(pal.secondary));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(12.0);
-                    let export = theme::accent_button(ui, "Exportar");
+                    let export = theme::accent_button(ui, &tr!("Exportar"));
                     let popup_id = egui::Id::new("export-menu");
                     if export.clicked() {
                         ui.memory_mut(|m| m.toggle_popup(popup_id));
                     }
                     egui::popup_below_widget(ui, popup_id, &export, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                         ui.set_min_width(220.0);
-                        if self.mode == ViewMode::Plotter && ui.button("Plan con esperas…").clicked() {
-                            if self.output_ui.ready(self.rev, &self.doc.output) { self.output_ui.export_plan(); }
-                            else { self.notify(ctx, "Espera a que termine el cálculo de la salida."); }
+                        if self.mode == ViewMode::Output && ui.button(tr!("Plan con esperas…")).clicked() {
+                            if self.output_ready() { self.output_ui.export_plan(); }
+                            else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
                         }
-                        let label = if self.mode == ViewMode::Plotter { "SVG de la ruta, sin pausas (⌘E)" } else { "SVG para plotter (⌘E)" };
+                        let label = if self.mode == ViewMode::Output { tr!("SVG de la ruta, sin pausas (⌘E)") } else { tr!("SVG para plotter (⌘E)") };
                         if ui.button(label).clicked() {
                             self.export_svg(ctx);
                         }
-                        if ui.button("Un SVG por rotulador…").clicked() {
+                        if ui.button(tr!("Un SVG por rotulador…")).clicked() {
                             self.export_per_pen(ctx);
                         }
                         ui.separator();
-                        if ui.button("Guardar proyecto (⌘S)").clicked() {
+                        if ui.button(tr!("Guardar proyecto (⌘S)")).clicked() {
                             self.save(ctx, false);
                         }
-                        if ui.button("Guardar como… (⇧⌘S)").clicked() {
+                        if ui.button(tr!("Guardar como… (⇧⌘S)")).clicked() {
                             self.save(ctx, true);
                         }
-                        if ui.button("Nuevo documento (⌘N)").clicked() {
+                        if ui.button(tr!("Nuevo documento (⌘N)")).clicked() {
                             self.new_document();
                         }
                     });
                     ui.add_space(8.0);
-                    ui.menu_button("Aspecto", |ui| {
-                        ui.set_min_width(125.0);
-                        for appearance in theme::Appearance::ALL {
-                            if ui.selectable_label(self.appearance == appearance, appearance.label()).clicked() {
-                                self.set_appearance(ctx, appearance);
-                                ui.close_menu();
-                            }
-                        }
-                    }).response.on_hover_text(format!("Apariencia: {}", self.appearance.label()));
-                    ui.add_space(8.0);
                     segmented(ui, pal, |ui| {
-                        for (mode, label) in [(ViewMode::Plotter, "Salida"), (ViewMode::Design, "Diseño")] {
+                        for (mode, label) in [(ViewMode::Output, tr!("Salida")), (ViewMode::Design, tr!("Diseño"))] {
                             let sel = self.mode == mode;
-                            if text_segment(ui, pal, label, sel).clicked() {
+                            if text_segment(ui, pal, &label, sel).clicked() {
                                 self.mode = mode;
-                                if mode == ViewMode::Plotter && self.sim.progress <= 0.0 {
+                                if mode == ViewMode::Output && self.sim.progress <= 0.0 {
                                     self.sim.progress = 1.0;
                                 }
                             }
@@ -734,11 +753,11 @@ impl VectorioApp {
                     ui.add_space(8.0);
                     segmented(ui, pal, |ui| {
                         let redo = icon_button_state(ui, pal, Icon::Redo, false, self.can_redo());
-                        if redo.on_hover_text("Rehacer (⇧⌘Z)").clicked() && self.can_redo() {
+                        if redo.on_hover_text(tr!("Rehacer (⇧⌘Z)")).clicked() && self.can_redo() {
                             self.redo();
                         }
                         let undo = icon_button_state(ui, pal, Icon::Undo, false, self.can_undo());
-                        if undo.on_hover_text("Deshacer (⌘Z)").clicked() && self.can_undo() {
+                        if undo.on_hover_text(tr!("Deshacer (⌘Z)")).clicked() && self.can_undo() {
                             self.undo();
                         }
                     });
@@ -783,42 +802,18 @@ impl VectorioApp {
                     ui.set_max_width(screen.width() - 2.0 * (inspector::RIGHT_W + 60.0));
                     ui.horizontal(|ui| {
                         let st = &self.rendered.stats;
-                        let fmt_m = |mm: f64| if mm >= 1000.0 { format!("{:.1} m", mm / 1000.0).replace('.', ",") } else { format!("{mm:.0} mm") };
-                        let mins = st.seconds / 60.0;
-                        let time = if mins >= 60.0 { format!("{:.0} h {:02.0} min", (mins / 60.0).floor(), mins % 60.0) } else { format!("{mins:.0} min") };
-                        if self.mode == ViewMode::Plotter {
-                            let label = if self.sim.playing { "Pausa" } else { "Reproducir" };
-                            if ui.button(label).clicked() {
-                                if !self.sim.playing && self.sim.progress >= 1.0 {
-                                    self.sim.progress = 0.0;
-                                }
-                                self.sim.playing = !self.sim.playing;
-                            }
-                            ui.add(egui::Slider::new(&mut self.sim.progress, 0.0..=1.0).show_value(false));
-                            egui::ComboBox::from_id_salt("sim-speed").width(64.0).selected_text(format!("×{:.0}", self.sim.speed)).show_ui(ui, |ui| {
-                                for s in [5.0, 20.0, 60.0, 200.0] {
-                                    ui.selectable_value(&mut self.sim.speed, s, format!("×{s:.0}"));
-                                }
-                            });
-                            ui.checkbox(&mut self.sim.show_travel, "Desplazamientos");
-                            ui.separator();
-                        }
-                        let info = format!(
-                            "Dibujo {} · Viajes {} · {} subidas · {} rotulador{} · ≈ {}",
-                            fmt_m(st.draw_mm),
-                            fmt_m(st.travel_mm),
-                            st.lifts,
-                            self.rendered.layers.len(),
-                            if self.rendered.layers.len() == 1 { "" } else { "es" },
-                            time
-                        );
+                        let n = self.rendered.layers.len();
+                        let pens = if n == 1 { tr!("1 rotulador") } else { tr!("%{n} rotuladores", n = n) };
+                        let info = tr!("Dibujo %{draw} · Viajes %{travel} · %{lifts} subidas · %{pens} · ≈ %{time}",
+                            draw = crate::fmt::distance(st.draw_mm), travel = crate::fmt::distance(st.travel_mm), lifts = st.lifts, pens = pens,
+                            time = { let m = (st.seconds / 60.0).round() as u64; if m >= 60 { format!("{} h {:02} min", m / 60, m % 60) } else { format!("{m} min") } });
                         ui.label(egui::RichText::new(info).color(pal.secondary));
                         if self.is_computing() {
                             ui.spinner();
                         }
                         ui.separator();
                         ui.label(egui::RichText::new(format!("{:.0} %", self.view.zoom_percent())).color(pal.secondary));
-                        if ui.small_button("Ajustar").on_hover_text("⌘0").clicked() {
+                        if ui.small_button(tr!("Ajustar")).on_hover_text("⌘0").clicked() {
                             self.view.fitted = false;
                         }
                     });
@@ -841,9 +836,9 @@ impl VectorioApp {
         egui::Area::new(egui::Id::new("help-sheet")).anchor(egui::Align2::CENTER_CENTER, Vec2::new(0.0, theme::TOOLBAR_H / 2.0)).order(egui::Order::Foreground).show(ctx, |ui| {
             theme::glass_frame(pal).fill(pal.bar.to_opaque()).inner_margin(egui::Margin::same(22.0)).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Atajos de teclado").size(15.0).strong().color(pal.text));
+                    ui.label(egui::RichText::new(tr!("Atajos de teclado")).size(15.0).strong().color(pal.text));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Esc para cerrar").color(pal.secondary));
+                        ui.label(egui::RichText::new(tr!("Esc para cerrar")).color(pal.secondary));
                     });
                 });
                 ui.add_space(10.0);
@@ -896,7 +891,7 @@ impl eframe::App for VectorioApp {
         }
         self.shortcuts(ctx);
         self.toolbar(ctx, &pal);
-        if self.mode == ViewMode::Plotter {
+        if self.mode == ViewMode::Output {
             crate::output::show(self, ctx);
         } else {
             egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas)).show(ctx, |ui| canvas::show(self, ui));
@@ -910,14 +905,16 @@ impl eframe::App for VectorioApp {
             self.set_selection(ids);
             self.tool = Tool::Select;
             self.notify(ctx, if replacing {
-                "Foto separada de nuevo en el mismo sitio."
+                tr!("Foto separada de nuevo en el mismo sitio.")
             } else {
-                "Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho."
+                tr!("Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho.")
             });
         }
         if self.show_help {
             self.help_sheet(ctx, &pal);
         }
+        if let Some(prefs) = self.prefs_ui.show(ctx, &self.prefs, &self.doc, &pal) { self.set_prefs(ctx, prefs); }
+        self.save_prefs(ctx);
         self.show_color_panel(ctx);
         self.toast(ctx, &pal);
         self.update_traces(ctx);
@@ -1078,11 +1075,11 @@ fn paint_icon(painter: &egui::Painter, c: Pos2, icon: Icon, s: Stroke) {
 
 fn help_groups(ui: &mut egui::Ui, pal: &Palette, groups: &[(&str, &[(&str, &str)])]) {
     for (title, rows) in groups {
-        theme::section(ui, &title.to_uppercase());
+        theme::section(ui, &crate::i18n::tr_key(title).to_uppercase());
         egui::Grid::new(("help", *title)).num_columns(2).spacing([14.0, 5.0]).show(ui, |ui| {
             for (keys, what) in rows.iter() {
-                ui.label(egui::RichText::new(*keys).strong().color(pal.text));
-                ui.label(egui::RichText::new(*what).color(pal.secondary));
+                ui.label(egui::RichText::new(crate::i18n::tr_key(keys)).strong().color(pal.text));
+                ui.label(egui::RichText::new(crate::i18n::tr_key(what)).color(pal.secondary));
                 ui.end_row();
             }
         });

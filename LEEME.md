@@ -42,7 +42,8 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
   - **Mapas de humedad estimada**, antes y después del plan: muestran el máximo de pasadas aún húmedas por zona. Esperar no reduce la tinta total depositada.
   - **Protección de secado**: tiempo de secado y límite de pasadas húmedas ajustables. El plan busca otros trazos dentro de la misma tinta y espera con la pluma levantada cuando hace falta. Divide trazos largos o que se pisan repetidamente, sin simplificar su geometría; mantiene el orden de las tintas de la paleta.
   - **Simulación por tiempo**, incluidos dibujo, viajes, subidas/bajadas, secado y pausas para cambiar de rotulador. Dos pistas de tiempo paralelas —acciones y tinta activa— con indicador compartido de alto contraste y navegación por clic o arrastre, lista de pausas y comparación de tiempo y viajes frente al recorrido sin protección. Zoom, pellizco y arrastre sobre el papel.
-  - **Plan JSON con esperas** y **SVG del recorrido**. El SVG conserva los trazos y su orden, pero no ejecuta pausas; estas quedan en el plan JSON para el futuro driver. Los ajustes de salida se guardan en el proyecto `.vectorio`.
+  - **Plan JSON con esperas** y **SVG del recorrido**. El SVG conserva los trazos y su orden, pero no ejecuta pausas; estas quedan en el plan JSON para el futuro driver (formato documentado en `docs/formato-salida.md`). Cada exportación avisa de dónde se guardó o de por qué falló. Los ajustes de salida se guardan en el proyecto `.vectorio`.
+  - El recorrido se simula sobre el color de papel elegido. Al cambiar ajustes se espera un instante a que dejen de cambiar, se interrumpe el cálculo anterior y se conserva el punto de la simulación. Solo se dividen los trazos que cruzan zonas que superan el límite de pasadas húmedas.
   - El modelo es conservador: considera húmeda la huella hasta que seca el final de cada tramo. Los 20 s de secado, 3 pasadas húmedas y 0,3 mm de empape iniciales son valores orientativos para ajustar con una prueba real de papel y rotuladores. La pausa de cambio de tinta representa un mínimo previsto; el cambio sigue siendo manual. El análisis avisa de trazos fuera del papel y se calcula en segundo plano.
 - **Vista previa del papel**: blanco, marfil, kraft, gris o negro.
 - **Archivos**:
@@ -62,7 +63,7 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
 - Paneles flotantes de vidrio legible.
 - Radios concéntricos (panel 18 pt, control 8 pt).
 - Tipografía SF Pro.
-- Menú **Aspecto** en la barra superior: Claro, Oscuro o Sistema. También en Visualización → Apariencia. La elección se conserva entre sesiones y se aplica a toda la interfaz.
+- **Ajustes** (⌘, o menú Vectorio → Ajustes…): aspecto Claro, Oscuro o Sistema (también en Visualización → Apariencia), tamaño de la interfaz, ideas para empezar, color del papel, nombre del plotter y los valores con los que empieza cada documento nuevo (papel, velocidades y secado; «Usar los de este documento» copia los del proyecto abierto). Se aplican al momento y se guardan en `~/Library/Application Support/Vectorio/preferencias.json`. **Idioma**: Sistema, Español o English. Están traducidos todos los paneles, menús, avisos, tamaños de papel, estilos, tipografías y tintas de serie (en documentos nuevos); lo que ya está guardado en un proyecto no cambia. Los mensajes de error internos del núcleo siguen en español. Los textos viven en `crates/vectorio-app/locales/app.yml` (la clave es el texto en español; una prueba falla si falta alguna traducción).
 
 ## Atajos
 
@@ -80,6 +81,7 @@ La lista completa está en la app con ⌘/.
 | ⇥ · ⇧⇥ | Objeto siguiente · anterior |
 | Esc | Cancelar, cerrar, deseleccionar |
 | ⌘] · ⌘[ · ⌘L · ⌘R | Adelante · Atrás · Bloquear · Otra variación |
+| ⌘, | Ajustes |
 | ⌘S · ⇧⌘S · ⌘O · ⌘E · ⇧⌘E · ⌘N | Guardar · Guardar como · Abrir · Exportar SVG · uno por rotulador · Nuevo |
 | Flechas (⇧) | Mover 1 mm (10 mm) |
 | ⌘1 · ⌘2 | Diseño · Salida |
@@ -118,7 +120,7 @@ La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan 
   - mapa de acumulación y plan de salida con secado (`output`);
   - SVG;
   - documento.
-- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `output` (preparación de salida), `colorpanel` (editor integrado), `theme`).
+- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `output` (preparación de salida), `prefs` y `prefs_ui` (ajustes), `colorpanel` (editor integrado), `theme`).
 - `crates/vectorio-core/fonts`: tipografías SVG de un solo trazo.
 
 ## Próximos pasos
@@ -128,6 +130,7 @@ La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan 
 - Recortar rellenos por capas, para que lo de abajo no se pinte bajo lo de arriba.
 - Un editor de glifos.
 - Exportar como PNG de vista previa.
+- Cachear el dibujo del recorrido en Salida para fotos con muchísimos trazos.
 
 ## Créditos
 

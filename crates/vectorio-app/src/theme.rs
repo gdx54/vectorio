@@ -18,24 +18,10 @@ pub enum Appearance {
 
 impl Appearance {
     pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
-    pub fn label(self) -> &'static str { match self { Self::System => "Sistema", Self::Light => "Claro", Self::Dark => "Oscuro" } }
+    pub fn label(self) -> String { match self { Self::System => tr!("Sistema"), Self::Light => tr!("Claro"), Self::Dark => tr!("Oscuro") } }
     pub fn apply(self, ctx: &egui::Context) {
         ctx.set_theme(match self { Self::System => egui::ThemePreference::System, Self::Light => egui::ThemePreference::Light, Self::Dark => egui::ThemePreference::Dark });
         ctx.request_repaint();
-    }
-    fn file() -> Option<std::path::PathBuf> {
-        Some(std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support/Vectorio/apariencia.json"))
-    }
-    pub fn load() -> Self {
-        Self::file().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
-    }
-    pub fn save(self) -> Result<(), String> {
-        let file = Self::file().ok_or("No se encuentra la carpeta de usuario")?;
-        let parent = file.parent().unwrap();
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        let temp = file.with_extension("json.tmp");
-        std::fs::write(&temp, serde_json::to_vec(&self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        std::fs::rename(temp, file).map_err(|e| e.to_string())
     }
 }
 

@@ -40,6 +40,7 @@ pub enum Command {
     Paper(usize),
     Shortcuts,
     Appearance(crate::theme::Appearance),
+    Preferences,
 }
 
 /// Atajos con ⌘ que funcionan aunque se esté escribiendo en un campo de texto.
@@ -60,8 +61,9 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::OpenBracket, Command::SendBackward),
     (Modifiers::COMMAND, Key::L, Command::ToggleLock),
     (Modifiers::COMMAND, Key::R, Command::Reseed),
+    (Modifiers::COMMAND, Key::Comma, Command::Preferences),
     (Modifiers::COMMAND, Key::Num1, Command::Mode(ViewMode::Design)),
-    (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Plotter)),
+    (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Output)),
     (Modifiers::COMMAND, Key::Equals, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Plus, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Minus, Command::ZoomOut),
@@ -84,32 +86,32 @@ const PLAIN_KEYS: &[(Key, Command)] = &[
 /// Lista para la hoja de atajos (⌘/).
 pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     (
-        "Herramientas",
-        &[("V", "Seleccionar y mover"), ("P", "Mano alzada"), ("T", "Caja de texto manuscrito"), ("S", "Formas"), ("I · ⇧⌘I", "Foto → dibujo")],
+        tm!("Herramientas"),
+        &[("V", tm!("Seleccionar y mover")), ("P", tm!("Mano alzada")), ("T", tm!("Caja de texto manuscrito")), ("S", tm!("Formas")), ("I · ⇧⌘I", tm!("Foto → dibujo"))],
     ),
     (
-        "Archivo",
-        &[("⌘N", "Nuevo"), ("⌘O", "Abrir"), ("⌘S · ⇧⌘S", "Guardar · Guardar como"), ("⌘E · ⇧⌘E", "Exportar SVG · uno por rotulador")],
+        tm!("Archivo"),
+        &[("⌘N", tm!("Nuevo")), ("⌘O", tm!("Abrir")), ("⌘,", tm!("Ajustes")), ("⌘S · ⇧⌘S", tm!("Guardar · Guardar como")), ("⌘E · ⇧⌘E", tm!("Exportar SVG · uno por rotulador"))],
     ),
     (
-        "Edición",
+        tm!("Edición"),
         &[
-            ("⌘Z · ⇧⌘Z", "Deshacer · Rehacer"),
-            ("⌘D · ⌫", "Duplicar · Eliminar"),
-            ("⌘A", "Seleccionar todo"),
-            ("Arrastrar en vacío", "Seleccionar con recuadro"),
-            ("⇧ · ⌘ clic", "Añadir o quitar de la selección"),
-            ("⇥ · ⇧⇥", "Objeto siguiente · anterior"),
-            ("Esc", "Cancelar, cerrar, deseleccionar"),
+            ("⌘Z · ⇧⌘Z", tm!("Deshacer · Rehacer")),
+            ("⌘D · ⌫", tm!("Duplicar · Eliminar")),
+            ("⌘A", tm!("Seleccionar todo")),
+            (tm!("Arrastrar en vacío"), tm!("Seleccionar con recuadro")),
+            (tm!("⇧ · ⌘ clic"), tm!("Añadir o quitar de la selección")),
+            ("⇥ · ⇧⇥", tm!("Objeto siguiente · anterior")),
+            (tm!("Esc"), tm!("Cancelar, cerrar, deseleccionar")),
         ],
     ),
     (
-        "Objeto",
-        &[("⌘] · ⌘[", "Adelante · Atrás"), ("⇧⌘] · ⇧⌘[", "Al frente · Al fondo"), ("⌘L", "Bloquear"), ("⌘R", "Otra variación de la letra"), ("Flechas (⇧)", "Mover 1 mm (10 mm)")],
+        tm!("Objeto"),
+        &[("⌘] · ⌘[", tm!("Adelante · Atrás")), ("⇧⌘] · ⇧⌘[", tm!("Al frente · Al fondo")), ("⌘L", tm!("Bloquear")), ("⌘R", tm!("Otra variación de la letra")), (tm!("Flechas (⇧)"), tm!("Mover 1 mm (10 mm)"))],
     ),
     (
-        "Vista",
-        &[("⌘1 · ⌘2", "Diseño · Salida"), ("⌘= · ⌘−", "Acercar · Alejar"), ("⌘0 · ⇧⌘0", "Ajustar · Tamaño real"), ("Espacio", "Simular (Salida) · arrastrar para desplazar"), ("Pellizco · ⌘ rueda", "Zoom")],
+        tm!("Vista"),
+        &[("⌘1 · ⌘2", tm!("Diseño · Salida")), ("⌘= · ⌘−", tm!("Acercar · Alejar")), ("⌘0 · ⇧⌘0", tm!("Ajustar · Tamaño real")), (tm!("Espacio"), tm!("Simular (Salida) · arrastrar para desplazar")), (tm!("Pellizco · ⌘ rueda"), tm!("Zoom"))],
     ),
 ];
 
@@ -165,7 +167,7 @@ impl VectorioApp {
         } else if act(Modifiers::NONE, Key::Tab) {
             self.run(ctx, Command::SelectNext);
         }
-        if self.mode == ViewMode::Plotter && act(Modifiers::NONE, Key::Space) {
+        if self.mode == ViewMode::Output && act(Modifiers::NONE, Key::Space) {
             self.run(ctx, Command::PlayPause);
         }
         let step = if ctx.input(|i| i.modifiers.shift) { 10.0 } else { 1.0 };
@@ -186,6 +188,10 @@ impl VectorioApp {
     fn escape(&mut self, ctx: &egui::Context) {
         if ctx.memory(|m| m.any_popup_open()) {
             ctx.memory_mut(|m| m.close_popup());
+            return;
+        }
+        if self.prefs_ui.open {
+            self.prefs_ui.open = false;
             return;
         }
         match std::mem::take(&mut self.interaction) {
@@ -302,29 +308,33 @@ impl VectorioApp {
             }
             Command::Mode(m) => {
                 self.mode = m;
-                if m == ViewMode::Plotter && self.sim.progress <= 0.0 {
+                if m == ViewMode::Output && self.sim.progress <= 0.0 {
                     self.sim.progress = 1.0;
                 }
             }
-            Command::ZoomIn => if self.mode == ViewMode::Plotter { self.output_ui.zoom_by(1.25) } else { self.view.zoom_by(1.25) },
-            Command::ZoomOut => if self.mode == ViewMode::Plotter { self.output_ui.zoom_by(0.8) } else { self.view.zoom_by(0.8) },
-            Command::ZoomFit => if self.mode == ViewMode::Plotter { self.output_ui.fit() } else { self.view.fitted = false },
+            Command::ZoomIn => if self.mode == ViewMode::Output { self.output_ui.zoom_by(1.25) } else { self.view.zoom_by(1.25) },
+            Command::ZoomOut => if self.mode == ViewMode::Output { self.output_ui.zoom_by(0.8) } else { self.view.zoom_by(0.8) },
+            Command::ZoomFit => if self.mode == ViewMode::Output { self.output_ui.fit() } else { self.view.fitted = false },
             Command::ZoomActual => {
-                if self.mode == ViewMode::Plotter { self.output_ui.actual(); }
+                if self.mode == ViewMode::Output { self.output_ui.actual(); }
                 else { let k = (96.0 / 25.4) / self.view.zoom; self.view.zoom_by(k); }
             }
             Command::PlayPause => {
-                if self.mode != ViewMode::Plotter {
-                    self.mode = ViewMode::Plotter;
+                if self.mode != ViewMode::Output {
+                    self.mode = ViewMode::Output;
                 }
                 if self.sim.progress >= 1.0 {
                     self.sim.progress = 0.0;
                 }
                 self.sim.playing = !self.sim.playing;
             }
-            Command::Paper(i) => self.paper_tint = i.min(PAPER_TINTS.len() - 1),
+            Command::Paper(i) => { let prefs = crate::prefs::Preferences { paper_tint: i.min(PAPER_TINTS.len() - 1), ..self.prefs.clone() }; self.set_prefs(ctx, prefs); }
             Command::Shortcuts => self.show_help = !self.show_help,
-            Command::Appearance(appearance) => self.set_appearance(ctx, appearance),
+            Command::Appearance(appearance) => {
+                let prefs = crate::prefs::Preferences { appearance, ..self.prefs.clone() };
+                self.set_prefs(ctx, prefs);
+            }
+            Command::Preferences => self.prefs_ui.show_window(&self.prefs),
         }
         ctx.request_repaint();
     }
@@ -352,70 +362,70 @@ impl NativeMenu {
         let sep = P::separator;
 
         let about = P::about(
-            Some("Acerca de Vectorio"),
+            Some(&tr!("Acerca de Vectorio")),
             Some(AboutMetadata {
                 name: Some("Vectorio".into()),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
-                comments: Some("Cosas bonitas con un plotter de rotuladores.".into()),
-                credits: Some("Tipografías de trazo único: Hershey Text de Evil Mad Scientist (SIL Open Font License), derivadas del trabajo del Dr. A. V. Hershey.".into()),
+                comments: Some(tr!("Cosas bonitas con un plotter de rotuladores.")),
+                credits: Some(tr!("Tipografías de trazo único: Hershey Text de Evil Mad Scientist (SIL Open Font License), derivadas del trabajo del Dr. A. V. Hershey.")),
                 ..Default::default()
             }),
         );
         let app_menu = Submenu::with_items(
             "Vectorio",
             true,
-            &[&about, &sep(), &P::services(Some("Servicios")), &sep(), &P::hide(Some("Ocultar Vectorio")), &P::hide_others(Some("Ocultar otros")), &P::show_all(Some("Mostrar todo")), &sep(), &P::quit(Some("Salir de Vectorio"))],
+            &[&about, &sep(), &item(&tr!("Ajustes…"), Some("CmdOrCtrl+Comma"), Command::Preferences), &sep(), &P::services(Some(&tr!("Servicios"))), &sep(), &P::hide(Some(&tr!("Ocultar Vectorio"))), &P::hide_others(Some(&tr!("Ocultar otros"))), &P::show_all(Some(&tr!("Mostrar todo"))), &sep(), &P::quit(Some(&tr!("Salir de Vectorio")))],
         )
         .ok()?;
 
         let file = Submenu::with_items(
-            "Archivo",
+            tr!("Archivo"),
             true,
             &[
-                &item("Nuevo", Some("CmdOrCtrl+N"), Command::New),
-                &item("Abrir…", Some("CmdOrCtrl+O"), Command::Open),
-                &item("Foto → dibujo…", Some("Shift+CmdOrCtrl+I"), Command::ImportImage),
+                &item(&tr!("Nuevo"), Some("CmdOrCtrl+N"), Command::New),
+                &item(&tr!("Abrir…"), Some("CmdOrCtrl+O"), Command::Open),
+                &item(&tr!("Foto → dibujo…"), Some("Shift+CmdOrCtrl+I"), Command::ImportImage),
                 &sep(),
-                &item("Cerrar", Some("CmdOrCtrl+W"), Command::CloseWindow),
-                &item("Guardar", Some("CmdOrCtrl+S"), Command::Save),
-                &item("Guardar como…", Some("Shift+CmdOrCtrl+S"), Command::SaveAs),
+                &item(&tr!("Cerrar"), Some("CmdOrCtrl+W"), Command::CloseWindow),
+                &item(&tr!("Guardar"), Some("CmdOrCtrl+S"), Command::Save),
+                &item(&tr!("Guardar como…"), Some("Shift+CmdOrCtrl+S"), Command::SaveAs),
                 &sep(),
-                &item("Exportar SVG…", Some("CmdOrCtrl+E"), Command::ExportSvg),
-                &item("Exportar un SVG por rotulador…", Some("Shift+CmdOrCtrl+E"), Command::ExportPerPen),
+                &item(&tr!("Exportar SVG…"), Some("CmdOrCtrl+E"), Command::ExportSvg),
+                &item(&tr!("Exportar un SVG por rotulador…"), Some("Shift+CmdOrCtrl+E"), Command::ExportPerPen),
             ],
         )
         .ok()?;
 
         // Sin Cortar/Copiar/Pegar: así los campos de texto siguen recibiendo esas teclas.
         let edit = Submenu::with_items(
-            "Edición",
+            tr!("Edición"),
             true,
             &[
-                &item("Deshacer", Some("CmdOrCtrl+Z"), Command::Undo),
-                &item("Rehacer", Some("Shift+CmdOrCtrl+Z"), Command::Redo),
+                &item(&tr!("Deshacer"), Some("CmdOrCtrl+Z"), Command::Undo),
+                &item(&tr!("Rehacer"), Some("Shift+CmdOrCtrl+Z"), Command::Redo),
                 &sep(),
-                &item("Duplicar", Some("CmdOrCtrl+D"), Command::Duplicate),
-                &item("Eliminar", None, Command::Delete),
+                &item(&tr!("Duplicar"), Some("CmdOrCtrl+D"), Command::Duplicate),
+                &item(&tr!("Eliminar"), None, Command::Delete),
                 &sep(),
-                &item("Seleccionar todo", Some("CmdOrCtrl+A"), Command::SelectAll),
-                &item("Seleccionar siguiente", None, Command::SelectNext),
-                &item("Seleccionar anterior", None, Command::SelectPrev),
-                &item("Deseleccionar", None, Command::Deselect),
+                &item(&tr!("Seleccionar todo"), Some("CmdOrCtrl+A"), Command::SelectAll),
+                &item(&tr!("Seleccionar siguiente"), None, Command::SelectNext),
+                &item(&tr!("Seleccionar anterior"), None, Command::SelectPrev),
+                &item(&tr!("Deseleccionar"), None, Command::Deselect),
             ],
         )
         .ok()?;
 
         let object = Submenu::with_items(
-            "Objeto",
+            tr!("Objeto"),
             true,
             &[
-                &item("Traer adelante", Some("CmdOrCtrl+BracketRight"), Command::BringForward),
-                &item("Enviar atrás", Some("CmdOrCtrl+BracketLeft"), Command::SendBackward),
-                &item("Traer al frente", Some("Shift+CmdOrCtrl+BracketRight"), Command::BringToFront),
-                &item("Enviar al fondo", Some("Shift+CmdOrCtrl+BracketLeft"), Command::SendToBack),
+                &item(&tr!("Traer adelante"), Some("CmdOrCtrl+BracketRight"), Command::BringForward),
+                &item(&tr!("Enviar atrás"), Some("CmdOrCtrl+BracketLeft"), Command::SendBackward),
+                &item(&tr!("Traer al frente"), Some("Shift+CmdOrCtrl+BracketRight"), Command::BringToFront),
+                &item(&tr!("Enviar al fondo"), Some("Shift+CmdOrCtrl+BracketLeft"), Command::SendToBack),
                 &sep(),
-                &item("Bloquear o desbloquear", Some("CmdOrCtrl+L"), Command::ToggleLock),
-                &item("Otra variación de la letra", Some("CmdOrCtrl+R"), Command::Reseed),
+                &item(&tr!("Bloquear o desbloquear"), Some("CmdOrCtrl+L"), Command::ToggleLock),
+                &item(&tr!("Otra variación de la letra"), Some("CmdOrCtrl+R"), Command::Reseed),
             ],
         )
         .ok()?;
@@ -423,53 +433,53 @@ impl NativeMenu {
         // Las herramientas usan teclas sueltas (V, P, T, S): no se ponen como atajo del
         // menú para no robar esas letras a los campos de texto.
         let tools = Submenu::with_items(
-            "Herramientas",
+            tr!("Herramientas"),
             true,
             &[
-                &item("Seleccionar y mover   V", None, Command::Tool(Tool::Select)),
-                &item("Mano alzada   P", None, Command::Tool(Tool::Draw)),
-                &item("Texto manuscrito   T", None, Command::Tool(Tool::Text)),
-                &item("Formas   S", None, Command::Tool(Tool::Shape)),
+                &item(&tr!("Seleccionar y mover   V"), None, Command::Tool(Tool::Select)),
+                &item(&tr!("Mano alzada   P"), None, Command::Tool(Tool::Draw)),
+                &item(&tr!("Texto manuscrito   T"), None, Command::Tool(Tool::Text)),
+                &item(&tr!("Formas   S"), None, Command::Tool(Tool::Shape)),
             ],
         )
         .ok()?;
 
-        let paper = Submenu::new("Color del papel", true);
+        let paper = Submenu::new(tr!("Color del papel"), true);
         for (i, (name, _)) in PAPER_TINTS.iter().enumerate() {
-            paper.append(&item(name, None, Command::Paper(i))).ok()?;
+            paper.append(&item(&crate::i18n::tr_key(name), None, Command::Paper(i))).ok()?;
         }
-        let appearance = Submenu::new("Apariencia", true);
+        let appearance = Submenu::new(tr!("Apariencia"), true);
         for value in crate::theme::Appearance::ALL {
-            appearance.append(&item(value.label(), None, Command::Appearance(value))).ok()?;
+            appearance.append(&item(&value.label(), None, Command::Appearance(value))).ok()?;
         }
         let view = Submenu::with_items(
-            "Visualización",
+            tr!("Visualización"),
             true,
             &[
-                &item("Diseño", Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
-                &item("Salida", Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Plotter)),
+                &item(&tr!("Diseño"), Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
+                &item(&tr!("Salida"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Output)),
                 &appearance,
-                &item("Simular o pausar la salida", None, Command::PlayPause),
+                &item(&tr!("Simular o pausar la salida"), None, Command::PlayPause),
                 &sep(),
-                &item("Acercar", Some("CmdOrCtrl+Equal"), Command::ZoomIn),
-                &item("Alejar", Some("CmdOrCtrl+Minus"), Command::ZoomOut),
-                &item("Ajustar a la ventana", Some("CmdOrCtrl+Digit0"), Command::ZoomFit),
-                &item("Tamaño real", Some("Shift+CmdOrCtrl+Digit0"), Command::ZoomActual),
+                &item(&tr!("Acercar"), Some("CmdOrCtrl+Equal"), Command::ZoomIn),
+                &item(&tr!("Alejar"), Some("CmdOrCtrl+Minus"), Command::ZoomOut),
+                &item(&tr!("Ajustar a la ventana"), Some("CmdOrCtrl+Digit0"), Command::ZoomFit),
+                &item(&tr!("Tamaño real"), Some("Shift+CmdOrCtrl+Digit0"), Command::ZoomActual),
                 &sep(),
                 &paper,
                 &sep(),
-                &P::fullscreen(Some("Pantalla completa")),
+                &P::fullscreen(Some(&tr!("Pantalla completa"))),
             ],
         )
         .ok()?;
 
         let window = Submenu::with_items(
-            "Ventana",
+            tr!("Ventana"),
             true,
-            &[&P::minimize(Some("Minimizar")), &P::maximize(Some("Zoom")), &sep(), &P::bring_all_to_front(Some("Traer todo al frente"))],
+            &[&P::minimize(Some(&tr!("Minimizar"))), &P::maximize(Some(&tr!("Zoom"))), &sep(), &P::bring_all_to_front(Some(&tr!("Traer todo al frente")))],
         )
         .ok()?;
-        let help = Submenu::with_items("Ayuda", true, &[&item("Atajos de teclado", Some("CmdOrCtrl+Slash"), Command::Shortcuts)]).ok()?;
+        let help = Submenu::with_items(tr!("Ayuda"), true, &[&item(&tr!("Atajos de teclado"), Some("CmdOrCtrl+Slash"), Command::Shortcuts)]).ok()?;
 
         let menu = Menu::with_items(&[&app_menu, &file, &edit, &object, &tools, &view, &window, &help]).ok()?;
         #[cfg(target_os = "macos")]

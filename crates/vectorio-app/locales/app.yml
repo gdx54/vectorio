@@ -1,0 +1,1285 @@
+_version: 2
+"Blanco":
+  en: "White"
+"Marfil":
+  en: "Ivory"
+"Kraft":
+  en: "Kraft"
+"Gris":
+  en: "Gray"
+"Negro":
+  en: "Black"
+"No se pudieron guardar los ajustes: %{error}":
+  en: "Couldn't save the settings: %{error}"
+"%{name} · tinta compartida":
+  en: "%{name} · shared pen"
+"Todo lo compatible":
+  en: "All supported files"
+"Proyecto Vectorio":
+  en: "Vectorio project"
+"Imagen":
+  en: "Image"
+"No se pudo abrir el proyecto: %{error}":
+  en: "Couldn't open the project: %{error}"
+"No se pudo abrir la imagen: %{error}":
+  en: "Couldn't open the image: %{error}"
+"No se pudo leer el SVG: %{error}":
+  en: "Couldn't read the SVG: %{error}"
+"%{n} trazados importados de %{name}":
+  en: "%{n} paths imported from %{name}"
+"El SVG no contiene trazados":
+  en: "The SVG contains no paths"
+"SVG no válido: %{error}":
+  en: "Invalid SVG: %{error}"
+"Guardado %{name}":
+  en: "Saved %{name}"
+"No se pudo guardar: %{error}":
+  en: "Couldn't save: %{error}"
+"Espera a que termine el cálculo de la salida.":
+  en: "Wait for the output calculation to finish."
+"SVG exportado con %{n} capas (una por rotulador)":
+  en: "SVG exported with %{n} layers (one per pen)"
+"No se pudo exportar: %{error}":
+  en: "Couldn't export: %{error}"
+"Carpeta para las páginas SVG":
+  en: "Folder for the SVG pages"
+"No se pudieron exportar las páginas: %{error}":
+  en: "Couldn't export the pages: %{error}"
+"%{n} páginas SVG exportadas":
+  en: "%{n} SVG pages exported"
+"Carpeta para un SVG por rotulador":
+  en: "Folder for one SVG per pen"
+"%{n} archivos SVG exportados":
+  en: "%{n} SVG files exported"
+"Error al exportar: %{error}":
+  en: "Export error: %{error}"
+"Sin título":
+  en: "Untitled"
+"Seleccionar y mover (V)":
+  en: "Select and move (V)"
+"Mano alzada (P)":
+  en: "Freehand (P)"
+"Texto manuscrito (T)":
+  en: "Handwritten text (T)"
+"Formas y generativos (S)":
+  en: "Shapes and generative (S)"
+"Foto → dibujo (I)":
+  en: "Photo → drawing (I)"
+"Abrir proyecto, SVG o imagen (⌘O)":
+  en: "Open project, SVG or image (⌘O)"
+"Preparación · %{plotter}":
+  en: "Prepare · %{plotter}"
+"Exportar":
+  en: "Export"
+"Plan con esperas…":
+  en: "Plan with waits…"
+"SVG de la ruta, sin pausas (⌘E)":
+  en: "Route SVG, no pauses (⌘E)"
+"SVG para plotter (⌘E)":
+  en: "SVG for plotter (⌘E)"
+"Un SVG por rotulador…":
+  en: "One SVG per pen…"
+"Guardar proyecto (⌘S)":
+  en: "Save project (⌘S)"
+"Guardar como… (⇧⌘S)":
+  en: "Save as… (⇧⌘S)"
+"Nuevo documento (⌘N)":
+  en: "New document (⌘N)"
+"Salida":
+  en: "Output"
+"Diseño":
+  en: "Design"
+"Rehacer (⇧⌘Z)":
+  en: "Redo (⇧⌘Z)"
+"Deshacer (⌘Z)":
+  en: "Undo (⌘Z)"
+"1 rotulador":
+  en: "1 pen"
+"%{n} rotuladores":
+  en: "%{n} pens"
+"Dibujo %{draw} · Viajes %{travel} · %{lifts} subidas · %{pens} · ≈ %{time}":
+  en: "Drawing %{draw} · Travel %{travel} · %{lifts} lifts · %{pens} · ≈ %{time}"
+"Ajustar":
+  en: "Fit"
+"Atajos de teclado":
+  en: "Keyboard shortcuts"
+"Esc para cerrar":
+  en: "Esc to close"
+"Foto separada de nuevo en el mismo sitio.":
+  en: "Photo separated again in the same place."
+"Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho.":
+  en: "Drawing added and fully selected. Adjust each pen in the right panel."
+"Herramientas":
+  en: "Tools"
+"Seleccionar y mover":
+  en: "Select and move"
+"Mano alzada":
+  en: "Freehand"
+"Caja de texto manuscrito":
+  en: "Handwritten text box"
+"Formas":
+  en: "Shapes"
+"Foto → dibujo":
+  en: "Photo → drawing"
+"Archivo":
+  en: "File"
+"Nuevo":
+  en: "New"
+"Abrir":
+  en: "Open"
+"Ajustes":
+  en: "Settings"
+"Guardar · Guardar como":
+  en: "Save · Save as"
+"Exportar SVG · uno por rotulador":
+  en: "Export SVG · one per pen"
+"Edición":
+  en: "Edit"
+"Deshacer · Rehacer":
+  en: "Undo · Redo"
+"Duplicar · Eliminar":
+  en: "Duplicate · Delete"
+"Seleccionar todo":
+  en: "Select all"
+"Arrastrar en vacío":
+  en: "Drag on empty space"
+"Seleccionar con recuadro":
+  en: "Select with a box"
+"⇧ · ⌘ clic":
+  en: "⇧ · ⌘ click"
+"Añadir o quitar de la selección":
+  en: "Add to or remove from the selection"
+"Objeto siguiente · anterior":
+  en: "Next · previous object"
+"Esc":
+  en: "Esc"
+"Cancelar, cerrar, deseleccionar":
+  en: "Cancel, close, deselect"
+"Objeto":
+  en: "Object"
+"Adelante · Atrás":
+  en: "Forward · Backward"
+"Al frente · Al fondo":
+  en: "To front · To back"
+"Bloquear":
+  en: "Lock"
+"Otra variación de la letra":
+  en: "Another letter variation"
+"Flechas (⇧)":
+  en: "Arrows (⇧)"
+"Mover 1 mm (10 mm)":
+  en: "Move 1 mm (10 mm)"
+"Vista":
+  en: "View"
+"Diseño · Salida":
+  en: "Design · Output"
+"Acercar · Alejar":
+  en: "Zoom in · Zoom out"
+"Ajustar · Tamaño real":
+  en: "Fit · Actual size"
+"Espacio":
+  en: "Space"
+"Simular (Salida) · arrastrar para desplazar":
+  en: "Simulate (Output) · drag to pan"
+"Pellizco · ⌘ rueda":
+  en: "Pinch · ⌘ scroll"
+"Zoom":
+  en: "Zoom"
+"Acerca de Vectorio":
+  en: "About Vectorio"
+"Cosas bonitas con un plotter de rotuladores.":
+  en: "Pretty things with a pen plotter."
+"Tipografías de trazo único: Hershey Text de Evil Mad Scientist (SIL Open Font License), derivadas del trabajo del Dr. A. V. Hershey.":
+  en: "Single-stroke typefaces: Hershey Text by Evil Mad Scientist (SIL Open Font License), derived from the work of Dr. A. V. Hershey."
+"Ajustes…":
+  en: "Settings…"
+"Servicios":
+  en: "Services"
+"Ocultar Vectorio":
+  en: "Hide Vectorio"
+"Ocultar otros":
+  en: "Hide Others"
+"Mostrar todo":
+  en: "Show All"
+"Salir de Vectorio":
+  en: "Quit Vectorio"
+"Abrir…":
+  en: "Open…"
+"Foto → dibujo…":
+  en: "Photo → drawing…"
+"Cerrar":
+  en: "Close"
+"Guardar":
+  en: "Save"
+"Guardar como…":
+  en: "Save as…"
+"Exportar SVG…":
+  en: "Export SVG…"
+"Exportar un SVG por rotulador…":
+  en: "Export one SVG per pen…"
+"Deshacer":
+  en: "Undo"
+"Rehacer":
+  en: "Redo"
+"Duplicar":
+  en: "Duplicate"
+"Eliminar":
+  en: "Delete"
+"Seleccionar siguiente":
+  en: "Select next"
+"Seleccionar anterior":
+  en: "Select previous"
+"Deseleccionar":
+  en: "Deselect"
+"Traer adelante":
+  en: "Bring forward"
+"Enviar atrás":
+  en: "Send backward"
+"Traer al frente":
+  en: "Bring to front"
+"Enviar al fondo":
+  en: "Send to back"
+"Bloquear o desbloquear":
+  en: "Lock or unlock"
+"Seleccionar y mover   V":
+  en: "Select and move   V"
+"Mano alzada   P":
+  en: "Freehand   P"
+"Texto manuscrito   T":
+  en: "Handwritten text   T"
+"Formas   S":
+  en: "Shapes   S"
+"Color del papel":
+  en: "Paper color"
+"Apariencia":
+  en: "Appearance"
+"Visualización":
+  en: "View"
+"Simular o pausar la salida":
+  en: "Simulate or pause the output"
+"Acercar":
+  en: "Zoom in"
+"Alejar":
+  en: "Zoom out"
+"Ajustar a la ventana":
+  en: "Fit to window"
+"Tamaño real":
+  en: "Actual size"
+"Pantalla completa":
+  en: "Enter Full Screen"
+"Ventana":
+  en: "Window"
+"Minimizar":
+  en: "Minimize"
+"Traer todo al frente":
+  en: "Bring All to Front"
+"Ayuda":
+  en: "Help"
+"Revisa el papel, las velocidades y los tiempos de secado: deben ser valores finitos y positivos.":
+  en: "Check the paper, speeds and drying times: they must be finite, positive values."
+"Hay un trazo sin rotulador válido.":
+  en: "A stroke has no valid pen."
+"El grosor del rotulador debe ser positivo.":
+  en: "The pen width must be positive."
+"Hay coordenadas no válidas en el dibujo.":
+  en: "The drawing has invalid coordinates."
+"Hay un trazado con una longitud no válida.":
+  en: "A path has an invalid length."
+"El cálculo se interrumpió.":
+  en: "The calculation was interrupted."
+"El análisis no ha terminado. Pulsa Recalcular para intentarlo de nuevo.":
+  en: "The analysis didn't finish. Press Recalculate to try again."
+"SECADO POR ZONAS":
+  en: "DRYING BY ZONE"
+"Proteger las zonas húmedas":
+  en: "Protect wet zones"
+"Tiempo de secado por pasada":
+  en: "Drying time per pass"
+"Máximo de pasadas aún húmedas":
+  en: "Maximum wet passes"
+"Alternar zonas mientras seca":
+  en: "Alternate zones while drying"
+"Tramo máximo al proteger":
+  en: "Maximum segment when protecting"
+"Cuando hace falta proteger una zona, divide trazos largos para alternar o esperar con la pluma levantada. Las rutas que ya cumplen el límite se conservan intactas.":
+  en: "When a zone needs protection, long strokes are split so the plotter can alternate or wait with the pen up. Routes that already meet the limit are kept intact."
+"HUELLA DE LA TINTA":
+  en: "INK FOOTPRINT"
+"Empape alrededor del trazo":
+  en: "Bleed around the stroke"
+"Como en Linear: se añade al radio físico del rotulador al calcular qué zonas se pisan.":
+  en: "As in Linear: added to the pen's physical radius when working out which zones overlap."
+"El grosor se toma de cada tinta del documento.":
+  en: "The width comes from each of the document's pens."
+"Tiempos y precisión":
+  en: "Timing and precision"
+"Dibujar":
+  en: "Draw"
+"Viajar":
+  en: "Travel"
+"Subir/bajar":
+  en: "Lift/lower"
+"Pausa al cambiar tinta":
+  en: "Pause on pen change"
+"Celda del mapa":
+  en: "Map cell"
+"Cambios manuales con esta pausa mínima prevista. Se conserva el orden de la paleta.":
+  en: "Manual changes with this expected minimum pause. The palette order is kept."
+"Ajusta secado y empape con una prueba de tu papel y rotuladores.":
+  en: "Tune drying and bleed with a test on your paper and pens."
+"Estimación conservadora: cada huella se considera húmeda hasta que seca el final del trazo.":
+  en: "Conservative estimate: each footprint is considered wet until the end of the stroke dries."
+"Recalcular salida":
+  en: "Recalculate output"
+"Guardar plan con esperas…":
+  en: "Save plan with waits…"
+"Exportar SVG de la ruta…":
+  en: "Export route SVG…"
+"JSON: ruta y pausas. SVG: recorrido sin esperas.":
+  en: "JSON: route and pauses. SVG: route without waits."
+"Guardar plan de salida con secado":
+  en: "Save output plan with drying"
+"Plan de salida Vectorio":
+  en: "Vectorio output plan"
+"Plan guardado en %{ruta}":
+  en: "Plan saved to %{ruta}"
+"No se pudo guardar el plan: %{error}":
+  en: "Couldn't save the plan: %{error}"
+"SVG de la ruta exportado en %{ruta}":
+  en: "Route SVG exported to %{ruta}"
+"%{w} × %{h} mm · preparación sin conexión al plotter":
+  en: "%{w} × %{h} mm · preparation with no plotter connection"
+"estimados":
+  en: "estimated"
+"Dibujo":
+  en: "Drawing"
+"Viajes":
+  en: "Travel"
+"Secado":
+  en: "Drying"
+"%{time} · %{n} pausas":
+  en: "%{time} · %{n} pauses"
+"Cambios de tinta":
+  en: "Pen changes"
+"Calculando huella y recorrido…":
+  en: "Calculating footprint and route…"
+"Húmedo: %{a} → %{b} pasadas\nSobre el límite de %{limit}: %{c} → %{d}":
+  en: "Wet: %{a} → %{b} passes\nOver the limit of %{limit}: %{c} → %{d}"
+"Hay trazos fuera del papel":
+  en: "Some strokes are outside the paper"
+"Pausar":
+  en: "Pause"
+"Simular salida":
+  en: "Simulate output"
+"Ver viajes":
+  en: "Show travel"
+"Acciones":
+  en: "Actions"
+"Tintas":
+  en: "Pens"
+"Cambio":
+  en: "Change"
+"Cambio de tinta":
+  en: "Pen change"
+"%{time} · %{pen}\nPulsa o arrastra en cualquiera de las dos pistas para recorrer la salida.":
+  en: "%{time} · %{pen}\nClick or drag on either track to scrub through the output."
+"Gris: viaje · violeta: secado · ocre: cambio":
+  en: "Gray: travel · purple: drying · ochre: change"
+"Secando con la pluma levantada · faltan %{time}":
+  en: "Drying with the pen up · %{time} left"
+"Cambiar a %{pen}":
+  en: "Switch to %{pen}"
+"Dibujando con %{pen}":
+  en: "Drawing with %{pen}"
+"Viajando con la pluma levantada":
+  en: "Traveling with the pen up"
+"Desglose y pausas del plan":
+  en: "Breakdown and pauses of the plan"
+"Dibujar %{draw} · viajar %{travel} · subir/bajar %{lift} · secar %{wait} · cambios %{change} · %{n} trazos":
+  en: "Draw %{draw} · travel %{travel} · lift/lower %{lift} · dry %{wait} · changes %{change} · %{n} strokes"
+"Mismo dibujo sin protección: %{t1} y %{d1} de viajes. Preparado: %{t2} y %{d2} de viajes.":
+  en: "Same drawing without protection: %{t1} and %{d1} of travel. Prepared: %{t2} and %{d2} of travel."
+"%{start} · secar %{wait} · X %{x}, Y %{y} mm":
+  en: "%{start} · dry %{wait} · X %{x}, Y %{y} mm"
+"%{start} · cambiar a %{pen}":
+  en: "%{start} · switch to %{pen}"
+"Tinta total":
+  en: "Total ink"
+"Todas las pasadas que se pisan. Esperar no reduce la cantidad total de tinta.":
+  en: "All the passes that overlap. Waiting does not reduce the total amount of ink."
+"Húmedo · sin secado":
+  en: "Wet · no drying"
+"Máximo de pasadas aún húmedas en cada zona, sin protección.":
+  en: "Maximum passes still wet in each zone, without protection."
+"Húmedo · preparado":
+  en: "Wet · prepared"
+"Máximo de pasadas aún húmedas con la ruta y las esperas preparadas.":
+  en: "Maximum passes still wet with the route and waits prepared."
+"Recorrido":
+  en: "Route"
+"Simula dibujo, viajes, secado y cambios manuales de tinta.":
+  en: "Simulates drawing, travel, drying and manual pen changes."
+"Ver dibujo":
+  en: "Show drawing"
+"Recalculando…":
+  en: "Recalculating…"
+"Añade texto, formas o una foto en Diseño.\nAquí verás la huella de tinta y el plan de salida.":
+  en: "Add text, shapes or a photo in Design.\nHere you will see the ink footprint and the output plan."
+"Pasadas por celda de %{cell} mm · máximo %{max} · % de superficie dibujada":
+  en: "Passes per %{cell} mm cell · maximum %{max} · % of drawn surface"
+"Sistema":
+  en: "System"
+"General":
+  en: "General"
+"Documento nuevo":
+  en: "New document"
+"Listo":
+  en: "Done"
+"APARIENCIA":
+  en: "APPEARANCE"
+"Claro":
+  en: "Light"
+"Oscuro":
+  en: "Dark"
+"IDIOMA":
+  en: "LANGUAGE"
+"TAMAÑO DE LA INTERFAZ":
+  en: "INTERFACE SIZE"
+"Se aplica al soltar el deslizador.":
+  en: "Applied when you release the slider."
+"AYUDA":
+  en: "HELP"
+"Mostrar ideas para empezar en el panel de documento":
+  en: "Show getting-started ideas in the document panel"
+"PAPEL":
+  en: "PAPER"
+"Tamaño":
+  en: "Size"
+"Ancho":
+  en: "Width"
+"Alto":
+  en: "Height"
+"Margen":
+  en: "Margin"
+"COLOR DEL PAPEL (VISTA PREVIA)":
+  en: "PAPER COLOR (PREVIEW)"
+"PLOTTER":
+  en: "PLOTTER"
+"Viaje":
+  en: "Travel"
+"Usar los de este documento":
+  en: "Use this document's"
+"Papel, velocidades y ajustes de salida del proyecto abierto":
+  en: "Paper, speeds and output settings of the open project"
+"Restablecer":
+  en: "Reset"
+"Solo afecta a los documentos nuevos; cada proyecto guarda los suyos.":
+  en: "Only affects new documents; each project keeps its own."
+"Nombre":
+  en: "Name"
+"VALORES INICIALES DE SALIDA":
+  en: "INITIAL OUTPUT VALUES"
+"Tiempo de secado":
+  en: "Drying time"
+"Pasadas húmedas":
+  en: "Wet passes"
+"Empape":
+  en: "Bleed"
+"Solo afectan a documentos nuevos; cada proyecto guarda los suyos.":
+  en: "Only affects new documents; each project keeps its own."
+" · color ajustado":
+  en: " · color adjusted"
+" · ⌥ relleno":
+  en: " · ⌥ fill"
+"%{kind} de «%{name}»%{alt}":
+  en: "%{kind} of “%{name}”%{alt}"
+"%{label} · %{n} trazos":
+  en: "%{label} · %{n} strokes"
+"%{mode} · %{count}%{adjusted}":
+  en: "%{mode} · %{count}%{adjusted}"
+"%{name} · en la mezcla":
+  en: "%{name} · in the mix"
+"%{name} · fuera de la mezcla":
+  en: "%{name} · out of the mix"
+"%{n} (nuevo)":
+  en: "%{n} (new)"
+"%{n} objetos":
+  en: "%{n} objects"
+"%{n} objetos seleccionados":
+  en: "%{n} objects selected"
+"%{n} seleccionados":
+  en: "%{n} selected"
+"%{n} tintas":
+  en: "%{n} pens"
+"%{n} trazos":
+  en: "%{n} strokes"
+"%{n} trazos · %{pts} puntos":
+  en: "%{n} strokes · %{pts} points"
+"%{w} × %{h} mm · %{n} trazos · %{layers} capas":
+  en: "%{w} × %{h} mm · %{n} strokes · %{layers} layers"
+"1 seleccionado":
+  en: "1 selected"
+"1 tinta":
+  en: "1 pen"
+"A mano":
+  en: "By hand"
+"A3 apaisado":
+  en: "A3 landscape"
+"A3 vertical":
+  en: "A3 portrait"
+"A4 apaisado":
+  en: "A4 landscape"
+"A4 vertical":
+  en: "A4 portrait"
+"A5 apaisado":
+  en: "A5 landscape"
+"Abanico":
+  en: "Fan"
+"Abre la foto con sus ajustes (también los de luz y color); las tintas nuevas sustituyen a estas en el mismo sitio":
+  en: "Opens the photo with its settings (light and color too); the new pens replace these in the same place"
+"Abre una imagen":
+  en: "Open an image"
+"Agranda los puntos donde hay más color.":
+  en: "Enlarges the dots where there is more color."
+"Ahora":
+  en: "Now"
+"Al cruzar: en cuántos grados se reparten los ángulos de las tintas. Con 180° quedan lo más separadas posible; con menos, se cruzan en rombos alargados.":
+  en: "When crossing: how many degrees the pen angles are spread over. At 180° they are as far apart as possible; with less, they cross in elongated diamonds."
+"Al entrelazar, todas las tintas copian también el largo, la vibración, la irregularidad y demás ajustes de la primera, no solo el estilo y el ángulo.":
+  en: "When interleaving, all pens also copy the length, vibration, irregularity and other settings of the first one, not just the style and angle."
+"Allure · caligrafía":
+  en: "Allure · calligraphy"
+"Alto de la caja; 0 permite un texto sin límite vertical":
+  en: "Box height; 0 allows text with no vertical limit"
+"Altura de las mayúsculas":
+  en: "Capital letter height"
+"Amarillo":
+  en: "Yellow"
+"Amplitud":
+  en: "Amplitude"
+"Ancho de la caja; 0 conserva el texto sin ajuste de línea":
+  en: "Box width; 0 keeps the text without line wrapping"
+"Anillos alrededor de un centro, troceados según el tono. Con varias tintas aparece moiré.":
+  en: "Rings around a center, cut up by tone. With several pens a moiré appears."
+"Anterior":
+  en: "Previous"
+"Antes":
+  en: "Before"
+"Aro":
+  en: "Ring"
+"Arquitecto · técnica":
+  en: "Architect · technical"
+"Arrastra para ajustar la saturación y la luminosidad":
+  en: "Drag to adjust saturation and brightness"
+"Arrastra para elegir el tono":
+  en: "Drag to choose the hue"
+"Arrastra para ordenar o suéltala en una capa":
+  en: "Drag to reorder or drop it on a layer"
+"Auto":
+  en: "Auto"
+"Azul":
+  en: "Blue"
+"Añadir al papel":
+  en: "Add to paper"
+"Añadir tinta":
+  en: "Add pen"
+"Añadir un rotulador a la paleta":
+  en: "Add a pen to the palette"
+"B/N":
+  en: "B/W"
+"Bloquear todos":
+  en: "Lock all"
+"Borrar estilo":
+  en: "Delete style"
+"Brillo":
+  en: "Brightness"
+"CAJA DE TEXTO":
+  en: "TEXT BOX"
+"CAPAS":
+  en: "LAYERS"
+"COLOR":
+  en: "COLOR"
+"COLOR DE LA FOTO":
+  en: "PHOTO COLOR"
+"COLOR DEL RELLENO":
+  en: "FILL COLOR"
+"CONTORNO":
+  en: "OUTLINE"
+"Cada cuánto puede pasar la línea de un rotulador a otro.":
+  en: "How often the line can pass from one pen to another."
+"Cada esquina del laberinto se mueve un poco, como dibujado a mano.":
+  en: "Each corner of the maze moves a little, as if drawn by hand."
+"Cada línea guarda una distancia distinta con sus vecinas.":
+  en: "Each line keeps a different distance from its neighbors."
+"Cada línea se aparta de su sitio: la separación deja de ser regular. En Ondas, además, cada línea ondula a destiempo.":
+  en: "Each line moves off its spot: the spacing stops being regular. In Waves, each line also undulates out of step."
+"Cada objeto conserva su rotulador de relleno.":
+  en: "Each object keeps its own fill pen."
+"Cada tinta con su ángulo, repartidos en el abanico: las líneas se cruzan como en una cuatricromía.":
+  en: "Each pen at its own angle, spread across the fan: the lines cross as in four-color printing."
+"Cada tinta conserva su ángulo y su hueco en la mezcla.":
+  en: "Each pen keeps its angle and its slot in the mix."
+"Cada trama conserva su color.":
+  en: "Each hatch keeps its color."
+"Calculando…":
+  en: "Calculating…"
+"Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.":
+  en: "Changes how light and colors are interpreted. See the effect in “Original” or in the drawing."
+"Cambiar color compartido…":
+  en: "Change shared color…"
+"Cambiar color de los rellenos…":
+  en: "Change fill colors…"
+"Cambiar…":
+  en: "Change…"
+"Cancelar":
+  en: "Cancel"
+"Capitol · cursiva unida":
+  en: "Capitol · joined italic"
+"Casual · rotulador":
+  en: "Casual · marker"
+"Centrado":
+  en: "Centered"
+"Centrar en el papel":
+  en: "Center on the paper"
+"Centro X":
+  en: "Center X"
+"Centro Y":
+  en: "Center Y"
+"Cerrar (Esc)":
+  en: "Close (Esc)"
+"Cian · magenta · amarillo · negro":
+  en: "Cyan · magenta · yellow · black"
+"Claras primero":
+  en: "Light first"
+"Claros y oscuros":
+  en: "Lights and darks"
+"Clic: dibujar con esta tinta · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa":
+  en: "Click: draw with this pen · double-click: color (top) or name (bottom) · drag to reorder or drop it on a layer"
+"Color":
+  en: "Color"
+"Color del contorno":
+  en: "Outline color"
+"Color del contorno de este objeto":
+  en: "This object's outline color"
+"Color del relleno":
+  en: "Fill color"
+"Color del relleno de este objeto":
+  en: "This object's fill color"
+"Color del rotulador":
+  en: "Pen color"
+"Colores":
+  en: "Colors"
+"Colores de la foto":
+  en: "Photo colors"
+"Concéntrico":
+  en: "Concentric"
+"Contorna las zonas oscuras como formas cerradas que luego puedes rellenar.":
+  en: "Outlines the dark areas as closed shapes you can fill later."
+"Contorno":
+  en: "Outline"
+"Contornos":
+  en: "Contours"
+"Contraste":
+  en: "Contrast"
+"Convertir en caja de texto":
+  en: "Convert to text box"
+"Convertir en trazos fijos":
+  en: "Convert to fixed strokes"
+"Corazón":
+  en: "Heart"
+"Corrientes":
+  en: "Streams"
+"Cruces":
+  en: "Crosses"
+"Cruz":
+  en: "Cross"
+"Cruzado":
+  en: "Crossed"
+"Cruzar":
+  en: "Cross"
+"Curva":
+  en: "Curve"
+"Curvas":
+  en: "Curves"
+"Curvas de nivel":
+  en: "Contour lines"
+"Curvas de nivel que rodean cada mancha de color hacia dentro.":
+  en: "Contour lines that wrap inward around each patch of color."
+"Cuánto color pone el relleno: en los tonos bajos las líneas se cortan en trazos sueltos.":
+  en: "How much color the fill adds: in the low tones the lines are cut into loose strokes."
+"Cuánto se aparta la línea a cada lado. Nunca se sale de su color.":
+  en: "How far the line moves to each side. It never leaves its color."
+"Cuánto se tuerce cada línea o marca de su ángulo, al azar.":
+  en: "How much each line or mark twists from its angle, at random."
+"Círculo":
+  en: "Circle"
+"Círculos":
+  en: "Circles"
+"DETALLE":
+  en: "DETAIL"
+"Deformación":
+  en: "Warp"
+"Derecha":
+  en: "Right"
+"Desbloquear":
+  en: "Unlock"
+"Desorden":
+  en: "Disorder"
+"Después podrás retocar la trama de cada tinta en el panel derecho, sin volver a importar.":
+  en: "Afterwards you can tweak each pen's hatching in the right panel, without importing again."
+"Diana":
+  en: "Target"
+"Dibuja, escribe o importa una imagen para empezar.":
+  en: "Draw, write or import an image to begin."
+"Dibujar también el contorno":
+  en: "Also draw the outline"
+"Dirección de las líneas en las zonas lisas, lejos de los bordes del color.":
+  en: "Direction of the lines in smooth areas, away from the color edges."
+"Dirección de las líneas.":
+  en: "Direction of the lines."
+"Dirección de las rayas y las cruces.":
+  en: "Direction of the dashes and crosses."
+"Distancia entre dos crestas de la vibración.":
+  en: "Distance between two crests of the vibration."
+"Distancia entre dos crestas en los claros; en los oscuros las ondas se aprietan.":
+  en: "Distance between two crests in the lights; in the darks the waves tighten."
+"Doble clic en un control lo devuelve a su valor inicial.":
+  en: "Double-click a control to return it to its initial value."
+"Doble clic para renombrar · arrastra para ordenar":
+  en: "Double-click to rename · drag to reorder"
+"Doble clic: nombre · arrastra: orden de capas, sin cambiar tintas":
+  en: "Double-click: name · drag: layer order, without changing pens"
+"Documento":
+  en: "Document"
+"Duplicar selección":
+  en: "Duplicate selection"
+"EFECTOS DEL RELLENO":
+  en: "FILL EFFECTS"
+"ESTILO":
+  en: "STYLE"
+"ESTILOS":
+  en: "STYLES"
+"Editar el color de este objeto":
+  en: "Edit this object's color"
+"Efectos de trazo":
+  en: "Stroke effects"
+"El nombre y el color describen una tinta. El orden de los objetos se cambia en la lista de capas.":
+  en: "Name and color describe a pen. The order of objects is changed in the layer list."
+"El plotter pasa antes las tintas claras y las oscuras quedan encima, como en la acuarela.":
+  en: "The plotter draws the light pens first and the dark ones end up on top, as in watercolor."
+"El texto continúa en las siguientes páginas.":
+  en: "The text continues on the following pages."
+"Eliminar rotulador":
+  en: "Delete pen"
+"Eliminar selección":
+  en: "Delete selection"
+"Elipse":
+  en: "Ellipse"
+"En los oscuros se añaden capas cruzadas, cada una girada 180° entre las pasadas. Con 1, una sola capa.":
+  en: "In the darks, crossed layers are added, each turned 180° between passes. With 1, a single layer."
+"En relevo: %{relay} tintas comparten las líneas. «Largo» marca cada cuánto puede cambiar de rotulador.":
+  en: "Relay: %{relay} pens share the lines. “Length” sets how often it can switch pens."
+"En relevo: los cambios se aplican a todas las tintas que comparten las líneas.":
+  en: "Relay: changes apply to all the pens that share the lines."
+"Entrelazar":
+  en: "Interleave"
+"Entrelazar con el trazo completo":
+  en: "Interleave with the full stroke"
+"Escala":
+  en: "Scale"
+"Escribe (T), dibuja (P), añade formas (S) o arrastra aquí una foto o un SVG":
+  en: "Type (T), draw (P), add shapes (S) or drag a photo or an SVG here"
+"Escribe 6 cifras, por ejemplo #327AC8.":
+  en: "Type 6 digits, for example #327AC8."
+"Escribe o pega tu texto completo…":
+  en: "Type or paste your full text…"
+"Espaciado":
+  en: "Spacing"
+"Espacio después de cada párrafo":
+  en: "Space after each paragraph"
+"Espacio sin pintar entre los trozos de una línea.":
+  en: "Unpainted space between the pieces of a line."
+"Espiral":
+  en: "Spiral"
+"Espirógrafo":
+  en: "Spirograph"
+"Esquinas":
+  en: "Corners"
+"Estilo":
+  en: "Style"
+"Estilo guardado. Clic derecho para borrarlo.":
+  en: "Saved style. Right-click to delete it."
+"Estira la luz para que lo más oscuro sea negro y lo más claro blanco":
+  en: "Stretches the light so the darkest is black and the lightest is white"
+"Estrella":
+  en: "Star"
+"Exportar páginas…":
+  en: "Export pages…"
+"Exterior":
+  en: "Outer"
+"FOTO":
+  en: "PHOTO"
+"Fase":
+  en: "Phase"
+"Figuras cerradas (se pueden rellenar)":
+  en: "Closed shapes (can be filled)"
+"Flujo":
+  en: "Flow"
+"Folio A4":
+  en: "A4 sheet"
+"Forma":
+  en: "Shape"
+"Foto viva: clic para seleccionar todas sus tintas":
+  en: "Live photo: click to select all its pens"
+"Frec. X":
+  en: "Freq. X"
+"Frec. Y":
+  en: "Freq. Y"
+"Fuerza":
+  en: "Strength"
+"Garabato":
+  en: "Scribble"
+"Girar":
+  en: "Rotate"
+"Girar a la derecha":
+  en: "Rotate right"
+"Girar a la izquierda":
+  en: "Rotate left"
+"Girar un poco":
+  en: "Rotate slightly"
+"Giro":
+  en: "Rotation"
+"Grabado":
+  en: "Engraving"
+"Grosor":
+  en: "Width"
+"Grosor de los rotuladores nuevos":
+  en: "Width of the new pens"
+"Grosor punta":
+  en: "Tip width"
+"Guarda este trazo para aplicarlo a otras tintas y fotos":
+  en: "Saves this stroke so you can apply it to other pens and photos"
+"Guionado automático en español":
+  en: "Automatic hyphenation in Spanish"
+"Hacia la derecha, los medios tonos llevan más tinta; hacia la izquierda, menos (más contraste).":
+  en: "To the right, the midtones get more ink; to the left, less (more contrast)."
+"Hecho":
+  en: "Done"
+"Hershey Script · clásica":
+  en: "Hershey Script · classic"
+"Hexadecimal":
+  en: "Hexadecimal"
+"Hueco":
+  en: "Gap"
+"I · convierte una foto en dibujo por colores":
+  en: "I · turn a photo into a drawing by colors"
+"IDEAS PARA EMPEZAR":
+  en: "IDEAS TO GET STARTED"
+"Inclinación":
+  en: "Slant"
+"Insertar en el cursor · ⌘Enter":
+  en: "Insert at the cursor · ⌘Enter"
+"Intensidad":
+  en: "Intensity"
+"Interior":
+  en: "Inner"
+"Interlínea":
+  en: "Line spacing"
+"Invertir":
+  en: "Invert"
+"Invertir (trazo claro sobre oscuro)":
+  en: "Invert (light stroke on dark)"
+"Irregularidad":
+  en: "Irregularity"
+"Izquierda":
+  en: "Left"
+"Justificado":
+  en: "Justified"
+"LETRA MANUSCRITA":
+  en: "HANDWRITING"
+"LUZ":
+  en: "LIGHT"
+"La vibración crece en los oscuros y se calma en los claros.":
+  en: "The vibration grows in the darks and calms down in the lights."
+"Laberinto":
+  en: "Maze"
+"Lados":
+  en: "Sides"
+"Largo":
+  en: "Length"
+"Largo de cada trazo en los tonos claros. En los oscuros los trazos se juntan en líneas.":
+  en: "Length of each stroke in the light tones. In the darks the strokes join into lines."
+"Largo de línea":
+  en: "Line length"
+"Las tintas oscuras van primero y las claras las matizan por encima.":
+  en: "The dark pens go first and the light ones tint them on top."
+"Las tramas dejan de recalcularse y ya no se pueden retocar":
+  en: "The hatches stop being recalculated and can no longer be adjusted"
+"Letra":
+  en: "Typeface"
+"Lissajous":
+  en: "Lissajous"
+"Lo que cambies aquí se aplica a todos. Arrástralos para moverlos juntos.":
+  en: "What you change here applies to all of them. Drag them to move them together."
+"Los anillos dejan de estar a la misma distancia.":
+  en: "The rings stop being at the same distance."
+"Los objetos conservan su posición y pasan a la primera tinta.":
+  en: "Objects keep their position and move to the first pen."
+"Los puntos se salen de la rejilla.":
+  en: "The dots leave the grid."
+"Los rayos nacen a distancias distintas del centro.":
+  en: "The rays start at different distances from the center."
+"Losetas de arcos giradas al azar que forman caminos entrelazados; más arcos donde hay más color.":
+  en: "Arc tiles turned at random that form interwoven paths; more arcs where there is more color."
+"Lápiz":
+  en: "Pencil"
+"Líneas":
+  en: "Lines"
+"Líneas onduladas que se agitan más donde la imagen es más oscura.":
+  en: "Wavy lines that shake more where the image is darker."
+"Líneas paralelas que ondulan más fuerte y más apretado donde hay más color.":
+  en: "Parallel lines that undulate harder and tighter where there is more color."
+"Líneas paralelas: más tramos donde hay más color.":
+  en: "Parallel lines: more segments where there is more color."
+"Líneas que siguen las formas del dibujo sin salirse de su color.":
+  en: "Lines that follow the shapes of the drawing without leaving their color."
+"MEZCLA":
+  en: "MIX"
+"Manchas mín.":
+  en: "Min. blobs"
+"Mezcla":
+  en: "Mix"
+"Mis rotuladores":
+  en: "My pens"
+"Mismo estilo y ángulo para todas, cada tinta en su hueco: las líneas se alternan sin pisarse.":
+  en: "Same style and angle for all, each pen in its own slot: the lines alternate without overlapping."
+"Mostrar sus tintas":
+  en: "Show its pens"
+"Mostrar u ocultar objeto":
+  en: "Show or hide object"
+"Más fuerte donde hay más color":
+  en: "Stronger where there is more color"
+"Máximo":
+  en: "Maximum"
+"Naranja":
+  en: "Orange"
+"Neato · escolar":
+  en: "Neato · school"
+"Negro fino":
+  en: "Fine black"
+"Nervioso":
+  en: "Nervous"
+"Ninguna":
+  en: "None"
+"Ninguna línea mide más que esto: se parte en trozos y el rotulador se levanta entre ellos. «Variación» hace que los trozos no midan todos lo mismo.":
+  en: "No line is longer than this: it is split into pieces and the pen lifts between them. “Variation” makes the pieces differ in length."
+"Niveles automáticos":
+  en: "Auto levels"
+"No se ha podido abrir la foto guardada.":
+  en: "The saved photo couldn't be opened."
+"No se pudo guardar el estilo: %{error}":
+  en: "Couldn't save the style: %{error}"
+"Nombre para guardar":
+  en: "Name to save"
+"Objeto bloqueado":
+  en: "Locked object"
+"Ocultar sus tintas":
+  en: "Hide its pens"
+"Ocupar hoja":
+  en: "Fill sheet"
+"Omitir el color del papel":
+  en: "Skip the paper color"
+"Onda":
+  en: "Wave"
+"Ondas":
+  en: "Waves"
+"Ondula todo el trazo como una tela movida. Es igual para todas las tintas, así que las mezclas siguen encajando, y nunca se sale del color.":
+  en: "Ripples the whole stroke like moving cloth. It is the same for all pens, so mixes still fit together, and it never leaves the color."
+"Optimizar recorrido":
+  en: "Optimize route"
+"Orden: %{names}":
+  en: "Order: %{names}"
+"Ordena los trazos de cada rotulador para viajar menos":
+  en: "Orders each pen's strokes to travel less"
+"Original":
+  en: "Original"
+"Oscuras primero":
+  en: "Dark first"
+"Otra foto…":
+  en: "Another photo…"
+"P · dibuja a mano alzada; cierra la figura para rellenarla":
+  en: "P · draw freehand; close the shape to fill it"
+"PAPEL (VISTA PREVIA)":
+  en: "PAPER (PREVIEW)"
+"POSICIÓN":
+  en: "POSITION"
+"Papel A4 vertical y caja en su área útil":
+  en: "A4 portrait paper and a box in its usable area"
+"Pasadas":
+  en: "Passes"
+"Pellizca o ⌘ + rueda para hacer zoom; espacio para desplazar":
+  en: "Pinch or ⌘ + scroll to zoom; space to pan"
+"Pepita · a mano":
+  en: "Pepita · by hand"
+"Personalizado":
+  en: "Custom"
+"Polígono":
+  en: "Polygon"
+"Por debajo de este tono no se dibuja nada: limpia los claros y deja solo lo importante.":
+  en: "Nothing is drawn below this tone: it cleans the lights and keeps only what matters."
+"Posición horizontal del centro (0 % borde izquierdo, 100 % borde derecho).":
+  en: "Horizontal position of the center (0 % left edge, 100 % right edge)."
+"Posición vertical del centro (0 % arriba, 100 % abajo).":
+  en: "Vertical position of the center (0 % top, 100 % bottom)."
+"Postal":
+  en: "Postcard"
+"Primera línea del párrafo":
+  en: "First line of the paragraph"
+"Pulso":
+  en: "Pulse"
+"Puntas":
+  en: "Points"
+"Puntillismo":
+  en: "Pointillism"
+"Puntos":
+  en: "Dots"
+"Puntos en rejilla: más puntos donde hay más color.":
+  en: "Dots on a grid: more dots where there is more color."
+"PÁRRAFO":
+  en: "PARAGRAPH"
+"Párrafos":
+  en: "Paragraphs"
+"Pétalos n":
+  en: "Petals n"
+"Que no todos los trazos midan lo mismo.":
+  en: "So that not all strokes are the same length."
+"Que no todos los trozos midan lo mismo.":
+  en: "So that not all pieces are the same length."
+"RELLENO":
+  en: "FILL"
+"RELLENO DE LAS FORMAS":
+  en: "SHAPE FILL"
+"RELLENOS DE MEZCLA":
+  en: "MIX FILLS"
+"ROTULADORES":
+  en: "PENS"
+"Radio":
+  en: "Radius"
+"Radio X":
+  en: "Radius X"
+"Radio Y":
+  en: "Radius Y"
+"Raya":
+  en: "Dash"
+"Rayado":
+  en: "Hatching"
+"Rayos":
+  en: "Rays"
+"Rayos desde un centro; hacia fuera nacen rayos nuevos para que la separación no crezca.":
+  en: "Rays from a center; new rays start further out so the spacing doesn't grow."
+"Recalculando trazos…":
+  en: "Recalculating strokes…"
+"Recorridos de tinta ya calculados: no se recalculan.":
+  en: "Ink paths already calculated: they are not recalculated."
+"Rectángulo":
+  en: "Rectangle"
+"Recuperar el color inicial":
+  en: "Restore the initial color"
+"Reduce la foto a pocos colores; cada uno se convierte en formas con relleno de su rotulador.":
+  en: "Reduces the photo to a few colors; each becomes shapes filled with its pen."
+"Relevo":
+  en: "Relay"
+"Relleno":
+  en: "Fill"
+"Renombrar":
+  en: "Rename"
+"Repasa los trazos donde hay más color para que se vean más gruesos.":
+  en: "Goes over the strokes where there is more color so they look thicker."
+"Resolución":
+  en: "Resolution"
+"Rojo":
+  en: "Red"
+"Rojo · amarillo · azul · negro":
+  en: "Red · yellow · blue · black"
+"Rompe la regularidad del dibujo.":
+  en: "Breaks the regularity of the drawing."
+"Rosa":
+  en: "Pink"
+"Rosa polar":
+  en: "Polar rose"
+"Rotulador":
+  en: "Pen"
+"Rotulador %{n}":
+  en: "Pen %{n}"
+"Rotuladores":
+  en: "Pens"
+"Rueda":
+  en: "Wheel"
+"S · arrastra para crear formas y generativos":
+  en: "S · drag to create shapes and generative art"
+"Salida · prepara la ruta, revisa la tinta y simula el secado":
+  en: "Output · prepare the route, check the ink and simulate drying"
+"Salto de página":
+  en: "Page break"
+"Sangría":
+  en: "Indent"
+"Saturación":
+  en: "Saturation"
+"Se aplica a todas las tintas seleccionadas. Girar mantiene la diferencia de ángulo entre ellas.":
+  en: "Applies to all selected pens. Rotating keeps the angle difference between them."
+"Se añadirá 1 tinta nueva al panel de tintas.":
+  en: "1 new pen will be added to the pens panel."
+"Se añadirán %{n} tintas nuevas al panel de tintas.":
+  en: "%{n} new pens will be added to the pens panel."
+"Se usará tu rotulador más parecido.":
+  en: "Your most similar pen will be used."
+"Seda":
+  en: "Silk"
+"Seleccionar sus tintas":
+  en: "Select its pens"
+"Separación":
+  en: "Spacing"
+"Sigue el centro de los trazos oscuros. Ideal para dibujos a tinta y bocetos.":
+  en: "Follows the center of the dark strokes. Ideal for ink drawings and sketches."
+"Siguiente":
+  en: "Next"
+"Siluetas":
+  en: "Silhouettes"
+"Simplificar":
+  en: "Simplify"
+"Sin contorno":
+  en: "No outline"
+"Sin contorno · clic para añadir color":
+  en: "No outline · click to add color"
+"Sin límite":
+  en: "No limit"
+"Sin relleno":
+  en: "No fill"
+"Sin relleno · clic para añadir color":
+  en: "No fill · click to add color"
+"Society · firma":
+  en: "Society · signature"
+"Sol":
+  en: "Sun"
+"Solo las figuras cerradas admiten relleno.":
+  en: "Only closed shapes can be filled."
+"Soltar para ordenar":
+  en: "Drop to reorder"
+"Suave":
+  en: "Soft"
+"Suavizar":
+  en: "Smooth"
+"Suavizar foto":
+  en: "Smooth photo"
+"Superpone varios rotuladores con tramas cruzadas o puntos intercalados: los colores se mezclan en el papel, como en una cuatricromía.":
+  en: "Overlays several pens with crossed hatching or interleaved dots: the colors mix on the paper, as in four-color printing."
+"Superpuesto":
+  en: "Overlay"
+"Sustituir en el papel":
+  en: "Replace on paper"
+"Sólido":
+  en: "Solid"
+"T · arrastra una caja y escribe a mano":
+  en: "T · drag a box and write by hand"
+"TAMAÑO EN EL PAPEL":
+  en: "SIZE ON PAPER"
+"TAMAÑO Y GIRO":
+  en: "SIZE AND ROTATION"
+"TEXTO Y PÁRRAFO":
+  en: "TEXT AND PARAGRAPH"
+"TINTAS":
+  en: "PENS"
+"TRAMA FIJA":
+  en: "FIXED HATCH"
+"TRAMA INICIAL":
+  en: "INITIAL HATCH"
+"TRAZADO":
+  en: "PATH"
+"TRAZO":
+  en: "STROKE"
+"Tamaño de cada marca. En Auto, los círculos son del grueso del rotulador y las cruces y rayas, de casi una separación. Un círculo grande se rellena.":
+  en: "Size of each mark. In Auto, circles are the pen's width and crosses and dashes are almost one spacing long. A large circle is filled in."
+"Tamaño de las ondas de la deformación: pequeñas o amplias.":
+  en: "Size of the warp waves: small or wide."
+"También con las asas del recuadro: la esquina escala y el círculo gira (⇧ de 15 en 15°).":
+  en: "Also with the box handles: the corner scales and the circle rotates (⇧ in 15° steps)."
+"Temblor":
+  en: "Tremor"
+"Temperatura":
+  en: "Temperature"
+"Teselas":
+  en: "Tiles"
+"Tinta %{name}":
+  en: "Pen %{name}"
+"Tinta compartida por %{count} objetos":
+  en: "Pen shared by %{count} objects"
+"Toca un rotulador para quitarlo o ponerlo en la mezcla.":
+  en: "Tap a pen to remove it from or add it to the mix."
+"Toda la selección · ⌘[":
+  en: "Whole selection · ⌘["
+"Toda la selección · ⌘]":
+  en: "Whole selection · ⌘]"
+"Todas las tintas comparten las mismas líneas y se pasan el trazo: cada tramo lo pinta el color que hay debajo.":
+  en: "All pens share the same lines and hand the stroke over: each stretch is drawn by the color underneath."
+"Tono":
+  en: "Hue"
+"Tonos medios":
+  en: "Midtones"
+"Umbral":
+  en: "Threshold"
+"Un SVG por página; los demás objetos se repiten en cada hoja":
+  en: "One SVG per page; the other objects repeat on each sheet"
+"Un objeto por capa · arriba queda delante":
+  en: "One object per layer · the top is in front"
+"Un trazo continuo que se enreda más donde hay más color.":
+  en: "One continuous stroke that tangles more where there is more color."
+"Un ángulo distinto para cada color":
+  en: "A different angle for each color"
+"Una curva de Hilbert que recorre todo el color sin cruzarse, troceada según el tono.":
+  en: "A Hilbert curve that covers the whole color without crossing itself, cut up by tone."
+"Una sola espiral que se ondula más donde hay más color. Con varias tintas, cada centro se desplaza y aparece moiré.":
+  en: "A single spiral that ripples more where there is more color. With several pens, each center shifts and a moiré appears."
+"Une trazos cuyos extremos están a menos de esta distancia":
+  en: "Joins strokes whose ends are closer than this distance"
+"Unir":
+  en: "Join"
+"Unir letras":
+  en: "Join letters"
+"Usa rotuladores que ya tienes.":
+  en: "Uses pens you already have."
+"VIBRACIÓN":
+  en: "VIBRATION"
+"Variación":
+  en: "Variation"
+"Vectorio · cuidada":
+  en: "Vectorio · neat"
+"Vectorio · manuscrita":
+  en: "Vectorio · handwritten"
+"Vectorio · técnica":
+  en: "Vectorio · technical"
+"Verde":
+  en: "Green"
+"Violeta":
+  en: "Violet"
+"Vivo":
+  en: "Vivid"
+"Volver a separar colores…":
+  en: "Separate colors again…"
+"Volver a separar la foto":
+  en: "Separate the photo again"
+"Vueltas":
+  en: "Turns"
+"Zigzag":
+  en: "Zigzag"
+"Zigzag continuo":
+  en: "Continuous zigzag"
+"cálida %{n}":
+  en: "warm %{n}"
+"fría %{n}":
+  en: "cool %{n}"
+"neutra":
+  en: "neutral"
+"Ángulo":
+  en: "Angle"
+"Área útil":
+  en: "Usable area"

@@ -14,30 +14,29 @@ pub struct SavedStyle {
 /// Estilos que trae Vectorio.
 pub fn presets() -> Vec<SavedStyle> {
     let base = TraceParams::default();
-    let style = |name: &str, trace: TraceParams| SavedStyle { name: name.into(), trace };
+    let style = |name: &str, trace: TraceParams| SavedStyle { name: crate::i18n::tr_key(name), trace };
     vec![
-        style("Grabado", TraceParams { spacing_mm: 0.7, dash_mm: 30.0, weight: 0.5, ..base.clone() }),
-        style("Curvas de nivel", TraceParams { style: TraceStyle::Contour, spacing_mm: 1.0, dash_mm: 25.0, ..base.clone() }),
-        style("Corrientes", TraceParams { style: TraceStyle::Flow, spacing_mm: 0.9, dash_mm: 12.0, dash_vary: 0.6, ..base.clone() }),
-        style("Nervioso", TraceParams { style: TraceStyle::Flow, dash_mm: 8.0, vibe: Vibe::Tremor, vibe_mm: 0.6, wave_mm: 3.0, ..base.clone() }),
-        style("Ondas", TraceParams { spacing_mm: 1.2, dash_mm: 40.0, vibe: Vibe::Wave, vibe_mm: 0.5, wave_mm: 2.0, ..base.clone() }),
-        style("Espiral", TraceParams { style: TraceStyle::Spiral, spacing_mm: 1.0, dash_mm: 6.0, ..base.clone() }),
-        style("Garabato", TraceParams { style: TraceStyle::Scribble, spacing_mm: 0.9, ..base.clone() }),
-        style("Puntillismo", TraceParams { style: TraceStyle::Dots, spacing_mm: 1.2, weight: 0.6, ..base.clone() }),
-        style("Cruzado", TraceParams { spacing_mm: 1.0, dash_mm: 30.0, passes: 3, ..base.clone() }),
-        style("A mano", TraceParams { spacing_mm: 0.9, dash_mm: 14.0, dash_vary: 0.7, jitter: 0.6, angle_jitter_deg: 6.0, max_len_mm: 18.0, ..base.clone() }),
-        style("Seda", TraceParams { style: TraceStyle::Waves, spacing_mm: 1.0, wave_mm: 3.0, warp_mm: 2.5, warp_scale_mm: 25.0, ..base.clone() }),
-        style("Sol", TraceParams { style: TraceStyle::Radial, spacing_mm: 1.0, dash_mm: 10.0, dash_vary: 0.5, ..base.clone() }),
-        style("Diana", TraceParams { style: TraceStyle::Circles, spacing_mm: 0.9, dash_mm: 12.0, ..base.clone() }),
-        style("Teselas", TraceParams { style: TraceStyle::Truchet, spacing_mm: 0.9, ..base.clone() }),
-        style("Laberinto", TraceParams { style: TraceStyle::Hilbert, spacing_mm: 1.0, dash_mm: 20.0, ..base.clone() }),
-        style("Cruces", TraceParams { style: TraceStyle::Dots, spacing_mm: 1.4, dot_shape: DotShape::Cross, angle_deg: 45.0, angle_jitter_deg: 10.0, ..base }),
+        style(tm!("Grabado"), TraceParams { spacing_mm: 0.7, dash_mm: 30.0, weight: 0.5, ..base.clone() }),
+        style(tm!("Curvas de nivel"), TraceParams { style: TraceStyle::Contour, spacing_mm: 1.0, dash_mm: 25.0, ..base.clone() }),
+        style(tm!("Corrientes"), TraceParams { style: TraceStyle::Flow, spacing_mm: 0.9, dash_mm: 12.0, dash_vary: 0.6, ..base.clone() }),
+        style(tm!("Nervioso"), TraceParams { style: TraceStyle::Flow, dash_mm: 8.0, vibe: Vibe::Tremor, vibe_mm: 0.6, wave_mm: 3.0, ..base.clone() }),
+        style(tm!("Ondas"), TraceParams { spacing_mm: 1.2, dash_mm: 40.0, vibe: Vibe::Wave, vibe_mm: 0.5, wave_mm: 2.0, ..base.clone() }),
+        style(tm!("Espiral"), TraceParams { style: TraceStyle::Spiral, spacing_mm: 1.0, dash_mm: 6.0, ..base.clone() }),
+        style(tm!("Garabato"), TraceParams { style: TraceStyle::Scribble, spacing_mm: 0.9, ..base.clone() }),
+        style(tm!("Puntillismo"), TraceParams { style: TraceStyle::Dots, spacing_mm: 1.2, weight: 0.6, ..base.clone() }),
+        style(tm!("Cruzado"), TraceParams { spacing_mm: 1.0, dash_mm: 30.0, passes: 3, ..base.clone() }),
+        style(tm!("A mano"), TraceParams { spacing_mm: 0.9, dash_mm: 14.0, dash_vary: 0.7, jitter: 0.6, angle_jitter_deg: 6.0, max_len_mm: 18.0, ..base.clone() }),
+        style(tm!("Seda"), TraceParams { style: TraceStyle::Waves, spacing_mm: 1.0, wave_mm: 3.0, warp_mm: 2.5, warp_scale_mm: 25.0, ..base.clone() }),
+        style(tm!("Sol"), TraceParams { style: TraceStyle::Radial, spacing_mm: 1.0, dash_mm: 10.0, dash_vary: 0.5, ..base.clone() }),
+        style(tm!("Diana"), TraceParams { style: TraceStyle::Circles, spacing_mm: 0.9, dash_mm: 12.0, ..base.clone() }),
+        style(tm!("Teselas"), TraceParams { style: TraceStyle::Truchet, spacing_mm: 0.9, ..base.clone() }),
+        style(tm!("Laberinto"), TraceParams { style: TraceStyle::Hilbert, spacing_mm: 1.0, dash_mm: 20.0, ..base.clone() }),
+        style(tm!("Cruces"), TraceParams { style: TraceStyle::Dots, spacing_mm: 1.4, dot_shape: DotShape::Cross, angle_deg: 45.0, angle_jitter_deg: 10.0, ..base }),
     ]
 }
 
 fn file() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/Vectorio/estilos.json"))
+    Some(crate::paths::support_dir()?.join("estilos.json"))
 }
 
 /// Estilos guardados por el usuario (vacío si no hay o el archivo no se entiende).

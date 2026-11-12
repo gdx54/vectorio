@@ -1,8 +1,9 @@
 //! Espacio de salida: análisis físico, planificación de secado y simulación temporal.
-use crate::{app::{Rendered, VectorioApp}, canvas::Sim, theme};
+use crate::{app::{Rendered, VectorioApp, PAPER_TINTS}, canvas::Sim, theme};
 use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use std::sync::{mpsc, Arc};
-use vectorio_core::{output::{self, HeatGrid, OutputPlan, OutputSettings, OutputStep}, Document, P};
+use crate::fmt::{distance, duration, pct};
+use std::sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc};
+use vectorio_core::{output::{self, HeatGrid, OutputError, OutputPlan, OutputSettings, OutputStep}, Document, P};
 
 #[derive(Clone, PartialEq)]
 struct Key { rev: u64, settings: OutputSettings }
@@ -13,15 +14,36 @@ enum Map { #[default] Total, Before, After, Route }
 #[derive(Default)]
 struct HeatSummary { max: u16, inked: usize, above: usize, levels: [usize; 6] }
 
+struct Job { key: Key, cancel: Arc<AtomicBool>, rx: mpsc::Receiver<Result<OutputPlan, OutputError>> }
+
+/// Pausa entre el último cambio y el cálculo, para no encadenar análisis al arrastrar un deslizador.
+const DEBOUNCE_S: f64 = 0.25;
+
+fn error_text(error: &OutputError) -> String {
+    match error {
+        OutputError::InvalidSettings => tr!("Revisa el papel, las velocidades y los tiempos de secado: deben ser valores finitos y positivos."),
+        OutputError::MissingPen => tr!("Hay un trazo sin rotulador válido."),
+        OutputError::InvalidPenWidth => tr!("El grosor del rotulador debe ser positivo."),
+        OutputError::InvalidCoordinates => tr!("Hay coordenadas no válidas en el dibujo."),
+        OutputError::InvalidLength => tr!("Hay un trazado con una longitud no válida."),
+        OutputError::Cancelled => tr!("El cálculo se interrumpió."),
+    }
+}
+
 struct PenSpan { start_s: f64, end_s: f64, pen: Option<usize> }
 
 pub struct OutputUi {
     key: Option<Key>,
-    job: Option<(Key, mpsc::Receiver<Result<OutputPlan, String>>)>,
+    job: Option<Job>,
+    /// Cambio pendiente de calcular y desde cuándo (segundos de egui): se espera a que
+    /// dejen de cambiar los valores antes de lanzar un cálculo completo.
+    pending: Option<(Key, f64)>,
     pub plan: Option<Arc<OutputPlan>>,
     error: Option<String>,
-    heat_meshes: Vec<egui::Mesh>,
-    heat_view: Option<(Pos2, f32, usize, egui::Mesh)>,
+    /// Resultado de la última exportación; la aplicación lo muestra como aviso.
+    notice: Option<String>,
+    /// Mapas de tinta total, húmedo sin secado y húmedo preparado, como texturas.
+    heat_textures: Vec<egui::TextureHandle>,
     summaries: Vec<HeatSummary>,
     timeline: Option<egui::TextureHandle>,
     timeline_dark: bool,
@@ -37,24 +59,12 @@ pub struct OutputUi {
 
 impl Default for OutputUi {
     fn default() -> Self {
-        Self { key: None, job: None, plan: None, error: None, heat_meshes: vec![], heat_view: None, summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], map: Map::Total,
+        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], map: Map::Total,
             show_drawing: false, show_travel: true, zoom: 1.0, offset: Vec2::ZERO,
             fitted: false, viewport: Vec2::ZERO }
     }
 }
 
-pub fn duration(seconds: f64) -> String {
-    let s = seconds.ceil().max(0.0) as u64;
-    if s >= 3600 { format!("{} h {:02} min", s / 3600, s / 60 % 60) }
-    else if s >= 60 { format!("{} min {:02} s", s / 60, s % 60) }
-    else { format!("{s} s") }
-}
-fn distance(mm: f64) -> String {
-    if mm >= 1000.0 { format!("{:.1} m", mm / 1000.0).replace('.', ",") } else { format!("{mm:.0} mm") }
-}
-fn pct(n: usize, total: usize) -> String {
-    format!("{:.1} %", n as f64 * 100.0 / total.max(1) as f64).replace('.', ",")
-}
 fn heat_color(i: usize) -> Color32 {
     let [r, g, b, a] = output::HEAT_COLORS[i]; Color32::from_rgba_unmultiplied(r, g, b, a)
 }
@@ -64,20 +74,26 @@ impl OutputUi {
         self.plan.is_some() && self.job.is_none() && self.key.as_ref() == Some(&Key { rev, settings: cfg.clone() })
     }
     fn update(&mut self, ctx: &egui::Context, doc: &Document, rendered: &Rendered, current: bool, sim: &mut Sim) {
-        if let Some((_, rx)) = &self.job {
-            match rx.try_recv() {
+        let key = Key { rev: rendered.rev, settings: doc.output.clone() };
+        // Un cálculo con valores que ya no son los actuales se interrumpe y se descarta.
+        if self.job.as_ref().is_some_and(|j| j.key != key) {
+            if let Some(job) = self.job.take() { job.cancel.store(true, Ordering::Relaxed); }
+        }
+        if let Some(job) = &self.job {
+            match job.rx.try_recv() {
                 Ok(result) => {
-                    self.key = self.job.take().map(|j| j.0);
-                    self.error = result.as_ref().err().cloned();
+                    self.key = self.job.take().map(|j| j.key);
+                    let had_plan = self.plan.is_some();
+                    self.error = result.as_ref().err().map(error_text);
                     self.plan = result.ok().map(Arc::new);
-                    self.heat_meshes.clear();
-                    self.heat_view = None;
+                    self.heat_textures.clear();
                     self.summaries.clear();
                     self.timeline = None;
                     self.pen_spans.clear();
                     if let Some(plan) = &self.plan {
                         for grid in [&plan.total_heat, &plan.wet_before, &plan.wet_after] {
-                            self.heat_meshes.push(heat_mesh(grid));
+                            self.heat_textures.push(ctx.load_texture(format!("output-heat-{}", self.heat_textures.len()), heat_image(grid),
+                                egui::TextureOptions { minification: egui::TextureFilter::Linear, ..egui::TextureOptions::NEAREST }));
                             self.summaries.push(HeatSummary { max: grid.max(), inked: grid.inked(),
                                 above: grid.at_least(plan.settings.max_wet_passes.saturating_add(1)), levels: grid.levels() });
                         }
@@ -85,11 +101,13 @@ impl OutputUi {
                         self.timeline_dark = ctx.style().visuals.dark_mode;
                         self.pen_spans = pen_spans(plan);
                     }
-                    sim.progress = 1.0; sim.playing = false;
+                    // Con un plan anterior se conserva el punto de la simulación; solo el primero salta al final.
+                    if !had_plan || self.plan.is_none() { sim.progress = 1.0; }
+                    sim.playing = false;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.key = self.job.take().map(|j| j.0);
-                    self.error = Some("El análisis no ha terminado. Pulsa Recalcular para intentarlo de nuevo.".into());
+                    self.key = self.job.take().map(|j| j.key);
+                    self.error = Some(tr!("El análisis no ha terminado. Pulsa Recalcular para intentarlo de nuevo."));
                     self.plan = None;
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -102,115 +120,132 @@ impl OutputUi {
             }
             ctx.request_repaint();
         }
-        let key = Key { rev: rendered.rev, settings: doc.output.clone() };
-        if current && self.job.is_none() && self.key.as_ref() != Some(&key) {
-            let (tx, rx) = mpsc::channel();
-            let (layers, paper, pens, motion, cfg, ctx) =
-                (rendered.layers.clone(), doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), ctx.clone());
-            std::thread::spawn(move || {
-                let result = output::prepare(&layers, &paper, &pens, &motion, &cfg);
-                let _ = tx.send(result); ctx.request_repaint();
-            });
-            self.job = Some((key, rx)); self.error = None; sim.playing = false;
+        if !current || self.job.is_some() || self.key.as_ref() == Some(&key) {
+            self.pending = None;
+            return;
         }
+        // El primer análisis sale al instante; los siguientes esperan a que cesen los cambios.
+        let now = ctx.input(|i| i.time);
+        let since = match &self.pending { Some((k, t)) if *k == key => *t, _ => now };
+        self.pending = Some((key.clone(), since));
+        let wait = if self.plan.is_some() { DEBOUNCE_S - (now - since) } else { 0.0 };
+        if wait > 0.0 { ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait)); return; }
+        self.pending = None;
+        let (tx, rx) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (layers, paper, pens, motion, cfg, flag, ctx) =
+            (rendered.layers.clone(), doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), cancel.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &flag);
+            let _ = tx.send(result); ctx.request_repaint();
+        });
+        self.job = Some(Job { key, cancel, rx }); self.error = None; sim.playing = false;
     }
 
     fn settings(&mut self, ui: &mut egui::Ui, doc: &mut Document, sim: &mut Sim) {
         let pal = theme::current(ui.ctx());
-        theme::section(ui, "SECADO POR ZONAS");
-        ui.checkbox(&mut doc.output.drying, "Proteger las zonas húmedas");
+        theme::section(ui, &tr!("SECADO POR ZONAS"));
+        ui.checkbox(&mut doc.output.drying, tr!("Proteger las zonas húmedas"));
         ui.add_enabled_ui(doc.output.drying, |ui| {
-            ui.label("Tiempo de secado por pasada");
+            ui.label(tr!("Tiempo de secado por pasada"));
             ui.add(egui::Slider::new(&mut doc.output.dry_seconds, 1.0..=180.0).suffix(" s"));
-            ui.label("Máximo de pasadas aún húmedas");
+            ui.label(tr!("Máximo de pasadas aún húmedas"));
             ui.add(egui::Slider::new(&mut doc.output.max_wet_passes, 1..=10));
-            ui.checkbox(&mut doc.output.reorder, "Alternar zonas mientras seca");
-            ui.label("Tramo máximo al proteger");
+            ui.checkbox(&mut doc.output.reorder, tr!("Alternar zonas mientras seca"));
+            ui.label(tr!("Tramo máximo al proteger"));
             ui.add(egui::Slider::new(&mut doc.output.chunk_mm, 5.0..=100.0).suffix(" mm"))
-                .on_hover_text("Cuando hace falta proteger una zona, divide trazos largos para alternar o esperar con la pluma levantada. Las rutas que ya cumplen el límite se conservan intactas.");
+                .on_hover_text(tr!("Cuando hace falta proteger una zona, divide trazos largos para alternar o esperar con la pluma levantada. Las rutas que ya cumplen el límite se conservan intactas."));
         });
         ui.add_space(8.0);
-        theme::section(ui, "HUELLA DE LA TINTA");
-        ui.label("Empape alrededor del trazo");
+        theme::section(ui, &tr!("HUELLA DE LA TINTA"));
+        ui.label(tr!("Empape alrededor del trazo"));
         ui.add(egui::Slider::new(&mut doc.output.soak_mm, 0.0..=2.0).max_decimals(2).suffix(" mm"))
-            .on_hover_text("Como en Linear: se añade al radio físico del rotulador al calcular qué zonas se pisan.");
-        ui.label(RichText::new("El grosor se toma de cada tinta del documento.").small().color(pal.secondary));
+            .on_hover_text(tr!("Como en Linear: se añade al radio físico del rotulador al calcular qué zonas se pisan."));
+        ui.label(RichText::new(tr!("El grosor se toma de cada tinta del documento.")).small().color(pal.secondary));
         ui.add_space(8.0);
-        egui::CollapsingHeader::new("Tiempos y precisión").show(ui, |ui| {
-            setting(ui, "Dibujar", &mut doc.plot.draw_speed, 1.0..=200.0, " mm/s");
-            setting(ui, "Viajar", &mut doc.plot.travel_speed, 1.0..=400.0, " mm/s");
-            setting(ui, "Subir/bajar", &mut doc.plot.lift_time, 0.0..=3.0, " s");
-            setting(ui, "Pausa al cambiar tinta", &mut doc.output.pen_change_seconds, 0.0..=300.0, " s");
-            setting(ui, "Celda del mapa", &mut doc.output.cell_mm, 0.1..=2.0, " mm");
-            ui.label(RichText::new("Cambios manuales con esta pausa mínima prevista. Se conserva el orden de la paleta.").small().color(pal.secondary));
+        egui::CollapsingHeader::new(tr!("Tiempos y precisión")).show(ui, |ui| {
+            setting(ui, &tr!("Dibujar"), &mut doc.plot.draw_speed, 1.0..=200.0, " mm/s");
+            setting(ui, &tr!("Viajar"), &mut doc.plot.travel_speed, 1.0..=400.0, " mm/s");
+            setting(ui, &tr!("Subir/bajar"), &mut doc.plot.lift_time, 0.0..=3.0, " s");
+            setting(ui, &tr!("Pausa al cambiar tinta"), &mut doc.output.pen_change_seconds, 0.0..=300.0, " s");
+            setting(ui, &tr!("Celda del mapa"), &mut doc.output.cell_mm, 0.1..=2.0, " mm");
+            ui.label(RichText::new(tr!("Cambios manuales con esta pausa mínima prevista. Se conserva el orden de la paleta.")).small().color(pal.secondary));
         });
         self.details(ui, sim);
         ui.add_space(8.0);
-        ui.label(RichText::new("Ajusta secado y empape con una prueba de tu papel y rotuladores.").small().color(pal.secondary))
-            .on_hover_text("Estimación conservadora: cada huella se considera húmeda hasta que seca el final del trazo.");
+        ui.label(RichText::new(tr!("Ajusta secado y empape con una prueba de tu papel y rotuladores.")).small().color(pal.secondary))
+            .on_hover_text(tr!("Estimación conservadora: cada huella se considera húmeda hasta que seca el final del trazo."));
     }
 
     fn actions(&mut self, ui: &mut egui::Ui, doc: &Document, ready: bool) {
         let pal = theme::current(ui.ctx());
         ui.separator();
         ui.add_space(6.0);
-        if ui.button("Recalcular salida").clicked() { self.key = None; }
+        if ui.button(tr!("Recalcular salida")).clicked() { self.key = None; }
         let has_drawing = self.plan.as_ref().is_some_and(|p| p.stats.strokes > 0);
         ui.add_enabled_ui(ready && has_drawing, |ui| {
-            if theme::accent_button(ui, "Guardar plan con esperas…").clicked() { self.export_plan(); }
-            if ui.button("Exportar SVG de la ruta…").clicked() { self.export_svg(doc); }
+            if theme::accent_button(ui, &tr!("Guardar plan con esperas…")).clicked() { self.export_plan(); }
+            if ui.button(tr!("Exportar SVG de la ruta…")).clicked() { self.export_svg(doc); }
         });
-        ui.label(RichText::new("JSON: ruta y pausas. SVG: recorrido sin esperas.").small().color(pal.secondary));
+        ui.label(RichText::new(tr!("JSON: ruta y pausas. SVG: recorrido sin esperas.")).small().color(pal.secondary));
         if let Some(error) = &self.error { ui.colored_label(pal.text, error); }
     }
 
     pub fn export_plan(&mut self) {
         let Some(plan) = &self.plan else { return };
-        let Some(path) = rfd::FileDialog::new().set_title("Guardar plan de salida con secado")
-            .add_filter("Plan de salida Vectorio", &["json"]).set_file_name("vectorio-salida.json").save_file() else { return };
+        let Some(path) = rfd::FileDialog::new().set_title(tr!("Guardar plan de salida con secado"))
+            .add_filter(tr!("Plan de salida Vectorio"), &["json"]).set_file_name("vectorio-salida.json").save_file() else { return };
         let result = serde_json::to_vec_pretty(plan.as_ref()).map_err(|e| e.to_string())
-            .and_then(|bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()));
-        self.error = result.err().map(|e| format!("No se pudo guardar el plan: {e}"));
+            .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
+        self.finish_export(result.map(|()| tr!("Plan guardado en %{ruta}", ruta = path.display())), tr!("No se pudo guardar el plan: %{error}"));
     }
     pub fn export_svg(&mut self, doc: &Document) {
         let Some(plan) = &self.plan else { return };
         let Some(path) = rfd::FileDialog::new().add_filter("SVG", &["svg"])
             .set_file_name("vectorio-ruta.svg").save_file() else { return };
         let svg = vectorio_core::svg_out::export(doc, &plan.layers());
-        self.error = std::fs::write(path, svg).err().map(|e| format!("No se pudo exportar: {e}"));
+        let result = std::fs::write(&path, svg).map_err(|e| e.to_string());
+        self.finish_export(result.map(|()| tr!("SVG de la ruta exportado en %{ruta}", ruta = path.display())), tr!("No se pudo exportar: %{error}"));
+    }
+    /// Éxito o fallo de una exportación: aviso en pantalla y, si falla, también en el inspector.
+    fn finish_export(&mut self, result: Result<String, String>, failure: String) {
+        match result {
+            Ok(message) => { self.error = None; self.notice = Some(message); }
+            Err(e) => { let message = failure.replace("%{error}", &e); self.error = Some(message.clone()); self.notice = Some(message); }
+        }
     }
 
-    fn summary(&self, ui: &mut egui::Ui, doc: &Document, ready: bool) {
+    fn summary(&self, ui: &mut egui::Ui, doc: &Document, ready: bool, plotter: &str) {
         let pal = theme::current(ui.ctx());
-        ui.label(RichText::new("Salida").size(17.0).strong().color(pal.text));
-        ui.label(RichText::new(format!("EasyDraw · {}", doc.paper.name)).small().color(pal.secondary))
-            .on_hover_text(format!("{:.0} × {:.0} mm · preparación sin conexión al plotter", doc.paper.width_mm, doc.paper.height_mm));
+        ui.label(RichText::new(tr!("Salida")).size(17.0).strong().color(pal.text));
+        ui.label(RichText::new(format!("{plotter} · {}", crate::i18n::tr_key(&doc.paper.name))).small().color(pal.secondary))
+            .on_hover_text(tr!("%{w} × %{h} mm · preparación sin conexión al plotter", w = format!("{:.0}", doc.paper.width_mm), h = format!("{:.0}", doc.paper.height_mm)));
         if let Some(plan) = &self.plan {
             ui.add_space(5.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(duration(plan.stats.total_seconds)).size(21.0).strong().color(pal.text));
-                ui.label(RichText::new("estimados").small().color(pal.secondary));
+                ui.label(RichText::new(tr!("estimados")).small().color(pal.secondary));
             });
             egui::Grid::new("output-summary-grid").num_columns(2).spacing([16.0, 3.0]).show(ui, |ui| {
-                for (label, value) in [("Dibujo", distance(plan.stats.draw_mm)), ("Viajes", distance(plan.stats.travel_mm)),
-                    ("Secado", format!("{} · {} pausas", duration(plan.stats.wait_seconds), plan.stats.waits)),
-                    ("Cambios de tinta", plan.stats.pen_changes.to_string())] {
+                for (label, value) in [(tr!("Dibujo"), distance(plan.stats.draw_mm)), (tr!("Viajes"), distance(plan.stats.travel_mm)),
+                    (tr!("Secado"), tr!("%{time} · %{n} pausas", time = duration(plan.stats.wait_seconds), n = plan.stats.waits)),
+                    (tr!("Cambios de tinta"), plan.stats.pen_changes.to_string())] {
                     ui.label(RichText::new(label).small().color(pal.secondary));
                     ui.label(RichText::new(value).small().color(pal.text)); ui.end_row();
                 }
             });
         }
         ui.horizontal_wrapped(|ui| {
-            if !ready && self.error.is_none() { ui.spinner(); ui.label("Calculando huella y recorrido…"); }
+            if !ready && self.error.is_none() { ui.spinner(); ui.label(tr!("Calculando huella y recorrido…")); }
             else if let Some(plan) = &self.plan {
                 let limit = plan.settings.max_wet_passes;
                 if self.summaries.len() == 3 {
-                    ui.label(RichText::new(format!("Húmedo: {} → {} pasadas\nSobre el límite de {limit}: {} → {}",
-                        self.summaries[1].max, self.summaries[2].max,
-                        pct(self.summaries[1].above, self.summaries[0].inked),
-                        pct(self.summaries[2].above, self.summaries[0].inked))).small().color(pal.secondary));
+                    ui.label(RichText::new(tr!("Húmedo: %{a} → %{b} pasadas\nSobre el límite de %{limit}: %{c} → %{d}",
+                        a = self.summaries[1].max, b = self.summaries[2].max, limit = limit,
+                        c = pct(self.summaries[1].above, self.summaries[0].inked),
+                        d = pct(self.summaries[2].above, self.summaries[0].inked))).small().color(pal.secondary));
                 }
-                if plan.stats.outside_points > 0 { ui.label(RichText::new("Hay trazos fuera del papel").strong().color(pal.text)); }
+                if plan.stats.outside_points > 0 { ui.label(RichText::new(tr!("Hay trazos fuera del papel")).strong().color(pal.text)); }
             }
         });
         ui.add_space(6.0);
@@ -222,7 +257,7 @@ impl OutputUi {
         let total = plan.stats.total_seconds;
         let pal = theme::current(ui.ctx());
         ui.horizontal_wrapped(|ui| {
-            if ui.add_enabled(ready && total > 0.0, egui::Button::new(if sim.playing { "Pausar" } else { "Simular salida" })).clicked() {
+            if ui.add_enabled(ready && total > 0.0, egui::Button::new(if sim.playing { tr!("Pausar") } else { tr!("Simular salida") })).clicked() {
                 if sim.progress >= 1.0 { sim.progress = 0.0; }
                 sim.playing = !sim.playing; self.map = Map::Route;
             }
@@ -233,15 +268,15 @@ impl OutputUi {
                 });
             });
             ui.label(format!("{} / {}", duration(sim.progress as f64 * total), duration(total)));
-            ui.checkbox(&mut self.show_travel, "Ver viajes");
+            ui.checkbox(&mut self.show_travel, tr!("Ver viajes"));
         });
         let (response, painter) = ui.allocate_painter(Vec2::new(ui.available_width(), 82.0), Sense::click_and_drag());
         let r = response.rect;
         let route = Rect::from_min_max(Pos2::new(r.left() + 62.0, r.top() + 10.0), Pos2::new(r.right(), r.top() + 34.0));
         let inks = Rect::from_min_max(Pos2::new(route.left(), r.top() + 42.0), Pos2::new(route.right(), r.top() + 60.0));
         let time_x = |t: f64| route.left() + route.width() * (t / total.max(1e-9)) as f32;
-        for (label, track) in [("Acciones", route), ("Tintas", inks)] {
-            painter.text(Pos2::new(r.left(), track.center().y), egui::Align2::LEFT_CENTER, label,
+        for (label, track) in [(tr!("Acciones"), route), (tr!("Tintas"), inks)] {
+            painter.text(Pos2::new(r.left(), track.center().y), egui::Align2::LEFT_CENTER, &label,
                 egui::FontId::proportional(11.0), pal.secondary);
             painter.rect_filled(track, 0.0, pal.control_hover);
         }
@@ -249,10 +284,10 @@ impl OutputUi {
         let ink_painter = painter.with_clip_rect(inks);
         for span in &self.pen_spans {
             let band = Rect::from_min_max(Pos2::new(time_x(span.start_s), inks.top()), Pos2::new(time_x(span.end_s), inks.bottom()));
-            let (color, label) = span.pen.map_or((pal.control_hover, "Cambio"), |pen| (theme::pen_color(plan.pens[pen].color), plan.pens[pen].name.as_str()));
+            let (color, label) = span.pen.map_or((pal.control_hover, tr!("Cambio")), |pen| (theme::pen_color(plan.pens[pen].color), plan.pens[pen].name.clone()));
             ink_painter.rect_filled(band, 0.0, color);
             let light = color.r() as u32 * 299 + color.g() as u32 * 587 + color.b() as u32 * 114 > 140_000;
-            let galley = ink_painter.layout_no_wrap(label.into(), egui::FontId::proportional(11.0), if light { Color32::BLACK } else { Color32::WHITE });
+            let galley = ink_painter.layout_no_wrap(label, egui::FontId::proportional(11.0), if light { Color32::BLACK } else { Color32::WHITE });
             if galley.size().x + 12.0 <= band.width() {
                 ink_painter.galley(band.center() - galley.size() / 2.0, galley, Color32::WHITE);
             }
@@ -281,18 +316,18 @@ impl OutputUi {
         if let Some(pos) = response.hover_pos().filter(|p| p.x >= route.left()) {
             let t = ((pos.x - route.left()) / route.width()).clamp(0.0, 1.0) as f64 * total;
             let pen = self.pen_spans.iter().find(|s| s.start_s <= t && t <= s.end_s)
-                .and_then(|s| s.pen).map_or("Cambio de tinta", |pen| plan.pens[pen].name.as_str());
-            response.on_hover_text(format!("{} · {pen}\nPulsa o arrastra en cualquiera de las dos pistas para recorrer la salida.", duration(t)));
+                .and_then(|s| s.pen).map_or(tr!("Cambio de tinta"), |pen| plan.pens[pen].name.clone());
+            response.on_hover_text(tr!("%{time} · %{pen}\nPulsa o arrastra en cualquiera de las dos pistas para recorrer la salida.", time = duration(t), pen = pen));
         }
         let now = sim.progress as f64 * total;
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Gris: viaje · violeta: secado · ocre: cambio").small().color(pal.secondary));
+            ui.label(RichText::new(tr!("Gris: viaje · violeta: secado · ocre: cambio")).small().color(pal.secondary));
             if let Some(step) = plan.steps.get(plan.steps.partition_point(|s| s.times().1 <= now)) {
                 let text = match *step {
-                    OutputStep::Wait { end_s, .. } => format!("Secando con la pluma levantada · faltan {}", duration(end_s - now)),
-                    OutputStep::ChangePen { pen, .. } => format!("Cambiar a {}", plan.pens[pen].name),
-                    OutputStep::Draw { stroke, .. } => format!("Dibujando con {}", plan.pens[plan.strokes[stroke].pen].name),
-                    OutputStep::Travel { .. } => "Viajando con la pluma levantada".into(),
+                    OutputStep::Wait { end_s, .. } => tr!("Secando con la pluma levantada · faltan %{time}", time = duration(end_s - now)),
+                    OutputStep::ChangePen { pen, .. } => tr!("Cambiar a %{pen}", pen = plan.pens[pen].name),
+                    OutputStep::Draw { stroke, .. } => tr!("Dibujando con %{pen}", pen = plan.pens[plan.strokes[stroke].pen].name),
+                    OutputStep::Travel { .. } => tr!("Viajando con la pluma levantada"),
                 };
                 ui.label(RichText::new(text).small().color(pal.text));
             }
@@ -303,18 +338,18 @@ impl OutputUi {
         let Some(plan) = self.plan.clone() else { return };
         let total = plan.stats.total_seconds;
         let now = sim.progress as f64 * total;
-        egui::CollapsingHeader::new("Desglose y pausas del plan").show(ui, |ui| {
-            ui.label(format!("Dibujar {} · viajar {} · subir/bajar {} · secar {} · cambios {} · {} trazos",
-                duration(plan.stats.draw_seconds), duration(plan.stats.travel_seconds), duration(plan.stats.lift_seconds),
-                duration(plan.stats.wait_seconds), duration(plan.stats.change_seconds), plan.stats.strokes));
-            ui.label(format!("Mismo dibujo sin protección: {} y {} de viajes. Preparado: {} y {} de viajes.",
-                duration(plan.baseline_stats.total_seconds), distance(plan.baseline_stats.travel_mm), duration(total), distance(plan.stats.travel_mm)));
+        egui::CollapsingHeader::new(tr!("Desglose y pausas del plan")).show(ui, |ui| {
+            ui.label(tr!("Dibujar %{draw} · viajar %{travel} · subir/bajar %{lift} · secar %{wait} · cambios %{change} · %{n} trazos",
+                draw = duration(plan.stats.draw_seconds), travel = duration(plan.stats.travel_seconds), lift = duration(plan.stats.lift_seconds),
+                wait = duration(plan.stats.wait_seconds), change = duration(plan.stats.change_seconds), n = plan.stats.strokes));
+            ui.label(tr!("Mismo dibujo sin protección: %{t1} y %{d1} de viajes. Preparado: %{t2} y %{d2} de viajes.",
+                t1 = duration(plan.baseline_stats.total_seconds), d1 = distance(plan.baseline_stats.travel_mm), t2 = duration(total), d2 = distance(plan.stats.travel_mm)));
             egui::ScrollArea::vertical().id_salt("output-events").max_height(70.0).show(ui, |ui| {
                 for step in &plan.steps {
                     let (a, b) = step.times();
                     let label = match *step {
-                        OutputStep::Wait { at, .. } => format!("{} · secar {} · X {:.1}, Y {:.1} mm", duration(a), duration(b - a), at.x, at.y),
-                        OutputStep::ChangePen { pen, .. } => format!("{} · cambiar a {}", duration(a), plan.pens[pen].name),
+                        OutputStep::Wait { at, .. } => tr!("%{start} · secar %{wait} · X %{x}, Y %{y} mm", start = duration(a), wait = duration(b - a), x = crate::fmt::decimal(at.x, 1), y = crate::fmt::decimal(at.y, 1)),
+                        OutputStep::ChangePen { pen, .. } => tr!("%{start} · cambiar a %{pen}", start = duration(a), pen = plan.pens[pen].name),
                         _ => continue,
                     };
                     if ui.selectable_label(now >= a && now < b, label).clicked() { sim.progress = (a / total.max(1e-9)) as f32; self.map = Map::Route; }
@@ -323,24 +358,24 @@ impl OutputUi {
         });
     }
 
-    fn map(&mut self, ui: &mut egui::Ui, doc: &Document, sim: &Sim, ready: bool) {
+    fn map(&mut self, ui: &mut egui::Ui, doc: &Document, sim: &Sim, ready: bool, paper_tint: usize) {
         let pal = theme::current(ui.ctx());
         theme::glass_panel(ui, &pal, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 for (mode, label, hint) in [
-                    (Map::Total, "Tinta total", "Todas las pasadas que se pisan. Esperar no reduce la cantidad total de tinta."),
-                    (Map::Before, "Húmedo · sin secado", "Máximo de pasadas aún húmedas en cada zona, sin protección."),
-                    (Map::After, "Húmedo · preparado", "Máximo de pasadas aún húmedas con la ruta y las esperas preparadas."),
-                    (Map::Route, "Recorrido", "Simula dibujo, viajes, secado y cambios manuales de tinta.")
+                    (Map::Total, tr!("Tinta total"), tr!("Todas las pasadas que se pisan. Esperar no reduce la cantidad total de tinta.")),
+                    (Map::Before, tr!("Húmedo · sin secado"), tr!("Máximo de pasadas aún húmedas en cada zona, sin protección.")),
+                    (Map::After, tr!("Húmedo · preparado"), tr!("Máximo de pasadas aún húmedas con la ruta y las esperas preparadas.")),
+                    (Map::Route, tr!("Recorrido"), tr!("Simula dibujo, viajes, secado y cambios manuales de tinta."))
                 ] { ui.selectable_value(&mut self.map, mode, label).on_hover_text(hint); }
             });
             ui.horizontal(|ui| {
-                if self.map != Map::Route { ui.checkbox(&mut self.show_drawing, "Ver dibujo"); }
-                if ui.button("−").on_hover_text("Alejar").clicked() { self.zoom_by(0.8); }
-                if ui.button("+").on_hover_text("Acercar").clicked() { self.zoom_by(1.25); }
-                if ui.button("Ajustar").clicked() { self.fitted = false; }
-                if !ready && self.plan.is_some() { ui.label(RichText::new("Recalculando…").small().color(pal.secondary)); }
+                if self.map != Map::Route { ui.checkbox(&mut self.show_drawing, tr!("Ver dibujo")); }
+                if ui.button("−").on_hover_text(tr!("Alejar")).clicked() { self.zoom_by(0.8); }
+                if ui.button("+").on_hover_text(tr!("Acercar")).clicked() { self.zoom_by(1.25); }
+                if ui.button(tr!("Ajustar")).clicked() { self.fitted = false; }
+                if !ready && self.plan.is_some() { ui.label(RichText::new(tr!("Recalculando…")).small().color(pal.secondary)); }
             });
         });
         ui.add_space(8.0);
@@ -367,23 +402,24 @@ impl OutputUi {
         let paper_rect = Rect::from_min_size(origin, Vec2::new(doc.paper.width_mm as f32, doc.paper.height_mm as f32) * self.zoom);
         let shadow = egui::epaint::Shadow { offset: Vec2::new(0.0, 6.0), blur: 24.0, spread: 0.0, color: Color32::from_black_alpha(60) };
         painter.add(shadow.as_shape(paper_rect, egui::Rounding::same(2.0)));
-        painter.rect_filled(paper_rect, 2.0, Color32::WHITE);
-        painter.rect_stroke(paper_rect, 2.0, Stroke::new(0.7_f32, Color32::from_gray(170)));
+        // Los mapas de calor se leen sobre blanco; el recorrido usa el color de papel elegido.
+        let [r, g, b] = PAPER_TINTS[paper_tint.min(PAPER_TINTS.len() - 1)].1;
+        let paper_color = if self.map == Map::Route { Color32::from_rgb(r, g, b) } else { Color32::WHITE };
+        let dark_paper = paper_color.r() as u32 * 299 + paper_color.g() as u32 * 587 + paper_color.b() as u32 * 114 < 110_000;
+        painter.rect_filled(paper_rect, 2.0, paper_color);
+        painter.rect_stroke(paper_rect, 2.0, Stroke::new(0.7_f32, Color32::from_gray(if dark_paper { 90 } else { 170 })));
         if let Some(plan) = &self.plan {
             if self.map != Map::Route {
                 let idx = match self.map { Map::Total => 0, Map::Before => 1, _ => 2 };
-                if let Some(source) = self.heat_meshes.get(idx) {
-                    if self.heat_view.as_ref().is_none_or(|(o, z, i, _)| *o != origin || *z != self.zoom || *i != idx) {
-                        let mut mesh = source.clone();
-                        for vertex in &mut mesh.vertices { vertex.pos = origin + vertex.pos.to_vec2() * self.zoom; }
-                        self.heat_view = Some((origin, self.zoom, idx, mesh));
-                    }
-                    if let Some((_, _, _, mesh)) = &self.heat_view {
-                        painter.with_clip_rect(rect.intersect(paper_rect)).add(egui::Shape::Mesh(mesh.clone()));
-                    }
+                if let Some(texture) = self.heat_textures.get(idx) {
+                    // La rejilla cubre el papel entero: la textura se estira sobre ella.
+                    let grid = [&plan.total_heat, &plan.wet_before, &plan.wet_after][idx];
+                    let area = Rect::from_min_size(origin, Vec2::new(grid.cols as f32, grid.rows as f32) * grid.cell_mm as f32 * self.zoom);
+                    painter.with_clip_rect(rect.intersect(paper_rect))
+                        .image(texture.id(), area, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                 }
-                if self.show_drawing { draw_route(&painter, plan, origin, self.zoom, f64::INFINITY, false, true); }
-            } else { draw_route(&painter, plan, origin, self.zoom, sim.progress as f64 * plan.stats.total_seconds, self.show_travel, false); }
+                if self.show_drawing { draw_route(&painter, plan, origin, self.zoom, f64::INFINITY, RouteStyle { travel: false, faint: true, dark_paper: false }); }
+            } else { draw_route(&painter, plan, origin, self.zoom, sim.progress as f64 * plan.stats.total_seconds, RouteStyle { travel: self.show_travel, faint: false, dark_paper }); }
             if self.map != Map::Route {
                 let grid = match self.map { Map::Total => &plan.total_heat, Map::Before => &plan.wet_before, _ => &plan.wet_after };
                 let idx = match self.map { Map::Total => 0, Map::Before => 1, _ => 2 };
@@ -393,8 +429,8 @@ impl OutputUi {
             }
         }
         if doc.items.is_empty() {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Añade texto, formas o una foto en Diseño.\nAquí verás la huella de tinta y el plan de salida.",
-                egui::FontId::proportional(14.0), Color32::from_gray(110));
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, tr!("Añade texto, formas o una foto en Diseño.\nAquí verás la huella de tinta y el plan de salida."),
+                egui::FontId::proportional(14.0), Color32::from_gray(if dark_paper { 170 } else { 110 }));
         }
     }
     pub fn zoom_by(&mut self, k: f32) {
@@ -408,7 +444,7 @@ impl OutputUi {
 
 pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let current = app.rendered.rev == app.rev && !app.tracing() && !app.is_computing();
-    let ready = current && app.output_ui.ready(app.rev, &app.doc.output);
+    let ready = app.output_ready();
     app.output_ui.update(ctx, &app.doc, &app.rendered, current, &mut app.sim);
     if app.sim.playing && ready {
         app.output_ui.map = Map::Route;
@@ -417,13 +453,14 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
         if app.sim.progress >= 1.0 { app.sim.playing = false; }
         ctx.request_repaint();
     } else if !ready { app.sim.playing = false; }
+    if let Some(message) = app.output_ui.notice.take() { app.notify(ctx, message); }
     let pal = theme::current(ctx);
     egui::CentralPanel::default().frame(egui::Frame::none().fill(pal.canvas).inner_margin(egui::Margin::same(theme::INSET))).show(ctx, |ui| {
         egui::SidePanel::right("output-inspector").default_width(300.0).width_range(280.0..=360.0).resizable(true)
             .frame(egui::Frame::none().inner_margin(egui::Margin { left: 14.0, ..Default::default() })).show_inside(ui, |ui| {
                 theme::glass_panel(ui, &pal, |ui| {
                     ui.set_min_height(ui.available_height());
-                    egui::TopBottomPanel::top("output-summary").frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.summary(ui, &app.doc, ready));
+                    egui::TopBottomPanel::top("output-summary").frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.summary(ui, &app.doc, ready, app.prefs.plotter()));
                     egui::TopBottomPanel::bottom("output-actions").frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.actions(ui, &app.doc, ready));
                     egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| {
                         egui::ScrollArea::vertical().id_salt("output-settings-scroll").show(ui, |ui| app.output_ui.settings(ui, &mut app.doc, &mut app.sim));
@@ -434,7 +471,7 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
             egui::TopBottomPanel::bottom("output-playback").frame(egui::Frame::none().inner_margin(egui::Margin { top: 10.0, ..Default::default() })).show_inside(ui, |ui| {
                 theme::glass_panel(ui, &pal, |ui| { ui.set_width(ui.available_width()); app.output_ui.playback(ui, &mut app.sim, ready); });
             });
-            egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.map(ui, &app.doc, &app.sim, ready));
+            egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.map(ui, &app.doc, &app.sim, ready, app.prefs.paper_tint));
         });
     });
     // El cálculo de ready se repite en el siguiente fotograma tras recibir un trabajo.
@@ -454,10 +491,14 @@ fn legend(ui: &mut egui::Ui, grid: &HeatGrid, summary: &HeatSummary) {
             ui.add_space(4.0);
         }
     });
-    ui.label(RichText::new(format!("Pasadas por celda de {:.2} mm · máximo {} · % de superficie dibujada", grid.cell_mm, summary.max)).small().color(pal.secondary));
+    ui.label(RichText::new(tr!("Pasadas por celda de %{cell} mm · máximo %{max} · % de superficie dibujada", cell = crate::fmt::decimal(grid.cell_mm, 2), max = summary.max)).small().color(pal.secondary));
 }
 
-fn draw_route(painter: &egui::Painter, plan: &OutputPlan, origin: Pos2, zoom: f32, now: f64, travel: bool, faint: bool) {
+#[derive(Clone, Copy)]
+struct RouteStyle { travel: bool, faint: bool, dark_paper: bool }
+
+fn draw_route(painter: &egui::Painter, plan: &OutputPlan, origin: Pos2, zoom: f32, now: f64, style: RouteStyle) {
+    let RouteStyle { travel, faint, dark_paper } = style;
     let at = |q: P| origin + Vec2::new(q.x as f32, q.y as f32) * zoom;
     let mut shapes = Vec::new();
     let mut tip = None;
@@ -497,33 +538,16 @@ fn draw_route(painter: &egui::Painter, plan: &OutputPlan, origin: Pos2, zoom: f3
     }
     painter.extend(shapes);
     if !faint && now < plan.stats.total_seconds {
-        if let Some(tip) = tip { painter.circle_stroke(tip, 5.0, Stroke::new(2.0_f32, Color32::from_rgb(53, 33, 108))); }
+        if let Some(tip) = tip { painter.circle_stroke(tip, 5.0, Stroke::new(2.0_f32, if dark_paper { Color32::from_rgb(246, 240, 149) } else { Color32::from_rgb(53, 33, 108) })); }
     }
 }
 
-/// Celdas de color nativas, agrupadas en franjas iguales. Se conserva el máximo
-/// de cada bloque igual que en la imagen de Linear, sin una textura dependiente
-/// del tema. La malla transformada se reutiliza mientras no cambie el encuadre.
-fn heat_mesh(grid: &HeatGrid) -> egui::Mesh {
+/// Imagen del mapa: un píxel por bloque de celdas, conservando el máximo de cada bloque
+/// igual que en Linear. Los colores no dependen del tema, así que no hay que rehacerla
+/// al cambiar de aspecto y al dibujar solo se estira una textura.
+fn heat_image(grid: &HeatGrid) -> egui::ColorImage {
     let (w, h, pixels) = grid.pixels(2048);
-    let dx = grid.cols as f32 * grid.cell_mm as f32 / w as f32;
-    let dy = grid.rows as f32 * grid.cell_mm as f32 / h as f32;
-    let mut mesh = egui::Mesh::default();
-    for y in 0..h {
-        let mut x = 0;
-        while x < w {
-            let color = pixels[y * w + x];
-            let start = x;
-            x += 1;
-            while x < w && pixels[y * w + x] == color { x += 1; }
-            if color[3] > 0 {
-                let [r, g, b, a] = color;
-                mesh.add_colored_rect(Rect::from_min_max(Pos2::new(start as f32 * dx, y as f32 * dy),
-                    Pos2::new(x as f32 * dx, (y + 1) as f32 * dy)), Color32::from_rgba_unmultiplied(r, g, b, a));
-            }
-        }
-    }
-    mesh
+    egui::ColorImage { size: [w, h], pixels: pixels.into_iter().map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a)).collect() }
 }
 
 fn timeline_image(ctx: &egui::Context, plan: &OutputPlan) -> egui::ColorImage {
@@ -571,6 +595,15 @@ mod tests {
     use super::*;
     #[test]
     fn exports_and_simulation_stay_visible_in_small_and_large_windows() {
+        visible_in("es", ["Guardar plan con esperas…", "Exportar SVG de la ruta…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas"]);
+    }
+    #[test]
+    fn the_english_texts_also_fit_without_overflowing() {
+        visible_in("en", ["Save plan with waits…", "Export route SVG…", "Simulate output", "Wet · prepared", "Actions", "Pens"]);
+    }
+    fn visible_in(locale: &str, labels: [&str; 6]) {
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale(locale);
         fn text_rect(shape: &egui::Shape, label: &str) -> Option<Rect> {
             match shape {
                 egui::Shape::Text(t) if t.galley.text() == label => Some(Rect::from_min_size(t.pos, t.galley.size())),
@@ -578,9 +611,9 @@ mod tests {
                 _ => None,
             }
         }
-        fn has_heat(shape: &egui::Shape, heat: &egui::Mesh) -> bool {
+        fn has_heat(shape: &egui::Shape, heat: egui::TextureId) -> bool {
             match shape {
-                egui::Shape::Mesh(mesh) => mesh == heat && !mesh.indices.is_empty(),
+                egui::Shape::Mesh(mesh) => mesh.texture_id == heat && !mesh.indices.is_empty(),
                 egui::Shape::Vec(v) => v.iter().any(|s| has_heat(s, heat)),
                 _ => false,
             }
@@ -597,7 +630,7 @@ mod tests {
             app.rendered.layers = app.doc.layers();
             let plan = output::prepare(&app.rendered.layers, &app.doc.paper, &app.doc.pens, &app.doc.plot, &app.doc.output).unwrap();
             let (tx, rx) = mpsc::channel(); tx.send(Ok(plan)).unwrap();
-            app.output_ui.job = Some((Key { rev: app.rev, settings: app.doc.output.clone() }, rx));
+            app.output_ui.job = Some(Job { key: Key { rev: app.rev, settings: app.doc.output.clone() }, cancel: Arc::new(AtomicBool::new(false)), rx });
             let screen = Rect::from_min_size(Pos2::ZERO, size);
             let mut result = None;
             for _ in 0..3 {
@@ -606,7 +639,7 @@ mod tests {
                     show(&mut app, ctx);
                 }));
             }
-            for label in ["Guardar plan con esperas…", "Exportar SVG de la ruta…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas"] {
+            for label in labels {
                 let (clip, rect) = result.as_ref().unwrap().shapes.iter()
                     .find_map(|s| text_rect(&s.shape, label).map(|r| (s.clip_rect, r))).expect(label);
                 assert!(screen.contains_rect(rect) && clip.contains_rect(rect), "{label} fuera de {size:?}: {rect:?}, clip {clip:?}");
@@ -621,10 +654,30 @@ mod tests {
                 });
                 show(&mut app, ctx);
             });
-            let heat = &app.output_ui.heat_view.as_ref().unwrap().3;
+            let heat = app.output_ui.heat_textures[0].id();
             assert!(changed.shapes.iter().any(|s| has_heat(&s.shape, heat)), "El mapa debe seguir pintado al cambiar de tema");
             app.doc.output.dry_seconds += 1.0;
             assert!(!app.output_ui.ready(app.rev, &app.doc.output), "No se puede exportar el plan con ajustes anteriores");
         }
+        rust_i18n::set_locale("es");
+    }
+    #[test]
+    fn rapid_changes_wait_before_recalculating_and_cancel_the_stale_job() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::default();
+        let rendered = Rendered::default();
+        let plan = output::prepare(&[], &doc.paper, &doc.pens, &doc.plot, &doc.output).unwrap();
+        let mut ui = OutputUi { plan: Some(Arc::new(plan)), key: Some(Key { rev: rendered.rev, settings: doc.output.clone() }), ..Default::default() };
+        let mut sim = Sim { progress: 0.4, ..Sim::default() };
+        doc.output.dry_seconds += 5.0;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        assert!(ui.job.is_none() && ui.pending.is_some(), "un cambio con plan previo espera antes de calcular");
+        // Un cálculo en curso con valores antiguos se interrumpe al llegar otros nuevos.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (_tx, rx) = mpsc::channel();
+        ui.job = Some(Job { key: Key { rev: rendered.rev, settings: OutputSettings::default() }, cancel: cancel.clone(), rx });
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        assert!(cancel.load(Ordering::Relaxed) && ui.job.is_none());
+        assert_eq!(sim.progress, 0.4);
     }
 }

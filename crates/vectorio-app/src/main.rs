@@ -1,12 +1,21 @@
 //! Vectorio · aplicación de escritorio.
 
+rust_i18n::i18n!("locales", fallback = "es");
+
+#[macro_use]
+mod i18n;
+
 mod app;
+mod fmt;
 mod canvas;
 mod colorpanel;
 mod commands;
 mod inspector;
 mod macos;
 mod output;
+mod paths;
+mod prefs;
+mod prefs_ui;
 mod styles;
 mod theme;
 mod vectorize_ui;
@@ -37,3 +46,4 @@ fn main() -> eframe::Result<()> {
     };
     eframe::run_native("Vectorio", options, Box::new(|cc| Ok(Box::new(app::VectorioApp::new(cc)))))
 }
+
