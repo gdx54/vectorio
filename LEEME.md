@@ -37,7 +37,8 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
   - Al añadirlo, el dibujo queda seleccionado entero para moverlo o borrarlo de una vez.
 - **Selección múltiple**: arrastrar en vacío selecciona con un recuadro; ⇧ o ⌘ clic añade o quita. Se mueven, duplican, borran y editan juntos.
 - **Menú nativo de macOS** con todas las órdenes y la hoja de atajos (⌘/).
-- **Salida** (⌘2): espacio dedicado a preparar el EasyDraw, sin driver ni conexión todavía. Usa el mismo lienzo y paneles de vidrio que Diseño: inspector a la derecha con resumen, ajustes y exportación, controles de vista sobre el papel y simulación en el panel inferior.
+- **Crear** (⌘2): generadores con vista previa y cálculo en segundo plano. Manzanas combina bloques, torres, tramas y sombras; Espirógrafo dibuja curvas continuas por capa. Ajusta parámetros, bloquea los que quieras conservar y usa Aleatorio (N cuando no estás escribiendo). Colocar añade un grupo con una parte por objeto; cada parte conserva su propia tinta. «Editar en Crear…» en Capas permite actualizar la receta conservando tintas, posición, escala, visibilidad y bloqueo. El último generador y sus parámetros se recuerdan entre sesiones.
+- **Salida** (⌘3): espacio dedicado a preparar el EasyDraw, sin driver ni conexión todavía. Usa el mismo lienzo y paneles de vidrio que Diseño: inspector a la derecha con resumen, ajustes y exportación, controles de vista sobre el papel y simulación en el panel inferior.
   - **Mapa de tinta total**, con el criterio y la escala de Linear: gris (1 pasada), amarillo (2), naranja (3), rojo (4–5), carmín (6–9) y morado (10 o más). Cuenta la huella física de cada rotulador más el empape ajustable; permanecer dentro de una celda no multiplica las pasadas. Los focos conservan su máximo al alejar la vista.
   - **Mapas de humedad estimada**, antes y después del plan: muestran el máximo de pasadas aún húmedas por zona. Esperar no reduce la tinta total depositada.
   - **Protección de secado**: tiempo de secado y límite de pasadas húmedas ajustables. El plan busca otros trazos dentro de la misma tinta y espera con la pluma levantada cuando hace falta. Divide trazos largos o que se pisan repetidamente, sin simplificar su geometría; mantiene el orden de las tintas de la paleta.
@@ -84,7 +85,8 @@ La lista completa está en la app con ⌘/.
 | ⌘, | Ajustes |
 | ⌘S · ⇧⌘S · ⌘O · ⌘E · ⇧⌘E · ⌘N | Guardar · Guardar como · Abrir · Exportar SVG · uno por rotulador · Nuevo |
 | Flechas (⇧) | Mover 1 mm (10 mm) |
-| ⌘1 · ⌘2 | Diseño · Salida |
+| ⌘1 · ⌘2 · ⌘3 | Diseño · Crear · Salida |
+| N (en Crear, fuera de campos de texto) | Parámetros y semilla aleatorios, respetando candados |
 | ⌘= · ⌘− · Pellizco · ⌘ + rueda | Zoom |
 | Espacio + arrastrar | Desplazar (en Salida, Espacio reproduce la simulación) |
 | ⌘0 · ⇧⌘0 | Ajustar a la ventana · Tamaño real |
@@ -119,8 +121,9 @@ La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan 
   - optimización;
   - mapa de acumulación y plan de salida con secado (`output`);
   - SVG;
-  - documento.
-- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `inspector`, `vectorize_ui`, `output` (preparación de salida), `prefs` y `prefs_ui` (ajustes), `colorpanel` (editor integrado), `theme`).
+  - documento y grupos generados (`generate`);
+  - motor de escenas (`scene`).
+- `crates/vectorio-app`: interfaz eframe/egui (`app`, `canvas`, `commands`, `create` (generadores), `inspector`, `vectorize_ui`, `output` (preparación de salida), `prefs` y `prefs_ui` (ajustes), `colorpanel` (editor integrado), `theme`).
 - `crates/vectorio-core/fonts`: tipografías SVG de un solo trazo.
 
 ## Próximos pasos

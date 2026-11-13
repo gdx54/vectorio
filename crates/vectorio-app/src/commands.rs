@@ -63,7 +63,8 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::R, Command::Reseed),
     (Modifiers::COMMAND, Key::Comma, Command::Preferences),
     (Modifiers::COMMAND, Key::Num1, Command::Mode(ViewMode::Design)),
-    (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Output)),
+    (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Create)),
+    (Modifiers::COMMAND, Key::Num3, Command::Mode(ViewMode::Output)),
     (Modifiers::COMMAND, Key::Equals, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Plus, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Minus, Command::ZoomOut),
@@ -111,7 +112,7 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         tm!("Vista"),
-        &[("⌘1 · ⌘2", tm!("Diseño · Salida")), ("⌘= · ⌘−", tm!("Acercar · Alejar")), ("⌘0 · ⇧⌘0", tm!("Ajustar · Tamaño real")), (tm!("Espacio"), tm!("Simular (Salida) · arrastrar para desplazar")), (tm!("Pellizco · ⌘ rueda"), tm!("Zoom"))],
+        &[("⌘1 · ⌘2 · ⌘3", tm!("Diseño · Crear · Salida")), ("N", tm!("Otra semilla en Crear")), ("⌘= · ⌘−", tm!("Acercar · Alejar")), ("⌘0 · ⇧⌘0", tm!("Ajustar · Tamaño real")), (tm!("Espacio"), tm!("Simular (Salida) · arrastrar para desplazar")), (tm!("Pellizco · ⌘ rueda"), tm!("Zoom"))],
     ),
 ];
 
@@ -154,7 +155,7 @@ impl VectorioApp {
         if act(Modifiers::NONE, Key::Escape) {
             self.escape(ctx);
         }
-        if typing {
+        if typing || self.mode == ViewMode::Create {
             return;
         }
         for &(k, cmd) in PLAIN_KEYS {
@@ -194,6 +195,7 @@ impl VectorioApp {
             self.prefs_ui.open = false;
             return;
         }
+        if self.mode == ViewMode::Create { self.create_ui.cancel(); self.mode = ViewMode::Design; return; }
         match std::mem::take(&mut self.interaction) {
             Interaction::None | Interaction::Pan => {}
             Interaction::Move { orig, .. } | Interaction::Scale { orig, .. } | Interaction::Rotate { orig, .. } => {
@@ -471,7 +473,8 @@ impl NativeMenu {
             true,
             &[
                 &item(&tr!("Diseño"), Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
-                &item(&tr!("Salida"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Output)),
+                &item(&tr!("Crear"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Create)),
+                &item(&tr!("Salida"), Some("CmdOrCtrl+3"), Command::Mode(ViewMode::Output)),
                 &appearance,
                 &item(&tr!("Simular o pausar la salida"), None, Command::PlayPause),
                 &sep(),

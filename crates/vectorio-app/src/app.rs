@@ -24,6 +24,7 @@ pub enum Tool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ViewMode {
     Design,
+    Create,
     Output,
 }
 
@@ -86,6 +87,7 @@ pub struct VectorioApp {
     pub view: View,
     pub mode: ViewMode,
     pub sim: Sim,
+    pub create_ui: crate::create::CreateUi,
     pub output_ui: crate::output::OutputUi,
     pub prefs: crate::prefs::Preferences,
     prefs_dirty: bool,
@@ -155,6 +157,7 @@ impl VectorioApp {
             mode: ViewMode::Design,
             sim: Sim::default(),
             output_ui: Default::default(),
+            create_ui: Default::default(),
             prefs: Default::default(),
             prefs_dirty: false,
             prefs_ui: Default::default(),
@@ -485,6 +488,7 @@ impl VectorioApp {
     // ── Archivos ────────────────────────────────────────────────────────────────
 
     pub fn new_document(&mut self) {
+        self.create_ui.cancel();
         self.finish_rename(false);
         self.color_edit = None;
         self.color_original = None;
@@ -509,6 +513,7 @@ impl VectorioApp {
     }
 
     pub fn open_path(&mut self, ctx: &egui::Context, path: &Path) {
+        self.create_ui.cancel();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         match ext.as_str() {
             "vectorio" | "json" => match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| Document::from_json(&s)) {
@@ -708,7 +713,7 @@ impl VectorioApp {
                     }
                 });
                 } else {
-                    ui.label(egui::RichText::new(tr!("Preparación · %{plotter}", plotter = self.prefs.plotter())).color(pal.secondary));
+                    ui.label(egui::RichText::new(if self.mode == ViewMode::Create { tr!("Generadores de dibujo") } else { tr!("Preparación · %{plotter}", plotter = self.prefs.plotter()) }).color(pal.secondary));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -744,7 +749,7 @@ impl VectorioApp {
                     });
                     ui.add_space(8.0);
                     capsule(ui, pal, |ui| {
-                        for (mode, label) in [(ViewMode::Output, tr!("Salida")), (ViewMode::Design, tr!("Diseño"))] {
+                        for (mode, label) in [(ViewMode::Output, tr!("Salida")), (ViewMode::Create, tr!("Crear")), (ViewMode::Design, tr!("Diseño"))] {
                             let sel = self.mode == mode;
                             if text_segment(ui, pal, &label, sel).clicked() {
                                 self.mode = mode;
@@ -898,6 +903,8 @@ impl eframe::App for VectorioApp {
         self.toolbar(ctx, &pal);
         if self.mode == ViewMode::Output {
             crate::output::show(self, ctx);
+        } else if self.mode == ViewMode::Create {
+            crate::create::show(self, ctx);
         } else {
             egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
                 theme::paint_canvas(ui.painter(), ui.max_rect(), &pal);
@@ -1117,5 +1124,25 @@ fn help_groups(ui: &mut egui::Ui, pal: &Palette, groups: &[(&str, &[(&str, &str)
             }
         });
         ui.add_space(8.0);
+    }
+}
+
+#[cfg(test)]
+mod generated_history_tests {
+    use super::*;
+    use vectorio_core::{p, BBox, generate::{self, Detail, GenContext, GeneratedGroup, Params}};
+    #[test]
+    fn placing_and_updating_a_recipe_each_take_one_undo_step(){
+        let ctx=egui::Context::default();let mut app=VectorioApp::blank(&ctx);
+        let context=GenContext{area:BBox{min:p(15.0,15.0),max:p(195.0,282.0)},seed:1,pen_mm:0.4,detail:Detail::Final};
+        let generator=generate::find("spiro").unwrap();let params=Params::default().normalized(&generator.params());
+        let recipe=GeneratedGroup::new("Prueba".into(),"spiro".into(),params.clone(),1,context.area);
+        let ids=app.doc.put_generated(recipe.clone(),generator.generate(&params,&context).unwrap(),None);
+        app.set_selection(ids);app.track_changes(&ctx);let first=app.doc.clone();assert_eq!(app.history.len(),1);
+        let mut context=context;context.seed=2;let mut recipe=recipe;recipe.seed=2;
+        app.doc.put_generated(recipe,generator.generate(&params,&context).unwrap(),Some(first.generated[0].id));
+        app.track_changes(&ctx);let updated=app.doc.clone();assert_eq!(app.history.len(),2);
+        app.undo();assert_eq!(app.doc,first);app.undo();assert!(app.doc.generated.is_empty());
+        app.redo();assert_eq!(app.doc,first);app.redo();assert_eq!(app.doc,updated);
     }
 }

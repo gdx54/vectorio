@@ -142,7 +142,7 @@ pub struct Item {
     pub fill: Fill,
     pub visible: bool,
     pub locked: bool,
-    /// Foto viva a la que pertenece (sus tintas se agrupan en Capas).
+    /// Foto viva o receta generada a la que pertenece (se agrupa en Capas).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<u64>,
 }
@@ -271,11 +271,13 @@ pub struct Document {
     /// Fotos vivas (imagen y ajustes de separación) de los grupos de tintas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub photos: Vec<crate::photo::Photo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated: Vec<crate::generate::GeneratedGroup>,
 }
 
 impl Default for Document {
     fn default() -> Self {
-        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), output: Default::default(), next_id: 1, photos: vec![] }
+        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), output: Default::default(), next_id: 1, photos: vec![], generated: vec![] }
     }
 }
 
@@ -352,6 +354,7 @@ impl Document {
             it.stroke = it.stroke.map(fix);
             it.fill.pen = fix(it.fill.pen);
         }
+        for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
     }
 
     /// Intercambia dos plumillas manteniendo los colores de cada objeto.
@@ -365,6 +368,7 @@ impl Document {
             it.stroke = it.stroke.map(fix);
             it.fill.pen = fix(it.fill.pen);
         }
+        for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
     }
 
     /// Reordena las tintas para el plotter sin alterar el orden visual de los objetos.
@@ -387,6 +391,7 @@ impl Document {
             it.stroke = it.stroke.map(fix);
             it.fill.pen = fix(it.fill.pen);
         }
+        for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
         new_of
     }
 
@@ -464,6 +469,7 @@ impl Document {
             it.stroke = it.stroke.map(|p| new_of.get(p).copied().unwrap_or(p));
             it.fill.pen = new_of.get(it.fill.pen).copied().unwrap_or(it.fill.pen);
         }
+        for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(|p| new_of.get(p).copied().unwrap_or(p)); } }
         // Dentro de sus posiciones, los objetos quedan en el orden de las pasadas.
         let places: Vec<usize> = (0..self.items.len()).filter(|i| ids.contains(&self.items[*i].id)).collect();
         let mut moving: Vec<Item> = places.iter().map(|i| self.items[*i].clone()).collect();
@@ -640,7 +646,19 @@ impl Document {
                         g
                     }),
                 };
-                it.group = group;
+                it.group = group.or_else(|| {
+                    let mut recipe = self.generated_group(old)?.clone();
+                    let g = self.next_id; self.next_id += 1; recipe.id = g;
+                    recipe.name = format!("{} copia", recipe.name);
+                    recipe.parts.clear(); self.generated.push(recipe); groups.push((old, g)); Some(g)
+                });
+                if let Some(g) = it.group {
+                    let name = self.generated_group(old).and_then(|recipe| recipe.parts.iter().find(|(_, value)| **value == *id)).map(|(name, _)| name.clone());
+                    if let Some(name) = name {
+                        let next = self.next_id;
+                        if let Some(recipe) = self.generated.iter_mut().find(|recipe| recipe.id == g) { recipe.parts.insert(name, next); }
+                    }
+                }
             }
             new.push(self.add(it));
         }

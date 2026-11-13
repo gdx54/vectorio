@@ -171,8 +171,6 @@ _version: 2
   en: "Move 1 mm (10 mm)"
 "Vista":
   en: "View"
-"Diseño · Salida":
-  en: "Design · Output"
 "Acercar · Alejar":
   en: "Zoom in · Zoom out"
 "Ajustar · Tamaño real":
@@ -1295,3 +1293,139 @@ _version: 2
   en: "Magenta"
 "Marrón":
   en: "Brown"
+"%{meters} m · %{ms} ms":
+  en: "%{meters} m · %{ms} ms"
+"Activado":
+  en: "Enabled"
+"Actualizar grupo":
+  en: "Update group"
+"Aleatorio":
+  en: "Randomize"
+"Bloquear este parámetro en Aleatorio":
+  en: "Lock this parameter when randomizing"
+"Colocar en el lienzo":
+  en: "Place on canvas"
+"Crear":
+  en: "Create"
+"Diseño · Crear · Salida":
+  en: "Design · Create · Output"
+"Editar en Crear…":
+  en: "Edit in Create…"
+"El papel puede saturarse: más de 80 m.":
+  en: "The paper may become saturated: over 80 m."
+"GENERADORES":
+  en: "GENERATORS"
+"Generadores de dibujo":
+  en: "Drawing generators"
+"Grupo generado: clic para seleccionar sus partes":
+  en: "Generated group: click to select its parts"
+"Longitud por parte":
+  en: "Length by part"
+"Más de 40 m: dibujo denso.":
+  en: "Over 40 m: dense drawing."
+"N · nuevos parámetros y semilla":
+  en: "N · new parameters and seed"
+"Otra semilla en Crear":
+  en: "New seed in Create"
+"Preparando trazos finales…":
+  en: "Preparing final paths…"
+"Preparando vista previa…":
+  en: "Preparing preview…"
+"Semilla":
+  en: "Seed"
+"Manzanas":
+  en: "City blocks"
+"Escenas":
+  en: "Scenes"
+"Bloques, plazas y torres bajo el sol.":
+  en: "Blocks, squares and towers in the sun."
+"Distribución":
+  en: "Layout"
+"Filas":
+  en: "Rows"
+"Columnas":
+  en: "Columns"
+"Altura mínima":
+  en: "Minimum height"
+"Altura máxima":
+  en: "Maximum height"
+"Probabilidad de plaza":
+  en: "Square probability"
+"Ancho de calle":
+  en: "Street width"
+"Torres":
+  en: "Towers"
+"Cámara y luz":
+  en: "Camera and light"
+"Frontal":
+  en: "Front"
+"Lateral":
+  en: "Side"
+"Posterior":
+  en: "Back"
+"Elevación":
+  en: "Elevation"
+"Isométrica":
+  en: "Isometric"
+"Dimétrica":
+  en: "Dimetric"
+"Ángulo del sol":
+  en: "Sun angle"
+"Separación de trama":
+  en: "Hatch spacing"
+"Curvas cerradas de engranajes, una pasada por capa.":
+  en: "Closed gear curves, one continuous stroke per layer."
+"Engranajes":
+  en: "Gears"
+"Hipotrocoide":
+  en: "Hypotrochoid"
+"Epitrocoide":
+  en: "Epitrochoid"
+"Radio fijo":
+  en: "Fixed radius"
+"Radio móvil":
+  en: "Rolling radius"
+"Distancia del lápiz":
+  en: "Pen distance"
+"Capas":
+  en: "Layers"
+"Número de capas":
+  en: "Number of layers"
+"Desfase":
+  en: "Phase offset"
+"Giro adicional de cada capa.":
+  en: "Additional rotation per layer."
+"contorno":
+  en: "outline"
+"tejados":
+  en: "roofs"
+"trama clara":
+  en: "light hatching"
+"trama media":
+  en: "medium hatching"
+"trama oscura":
+  en: "dark hatching"
+"sombra":
+  en: "shadow"
+"Capa %{n}":
+  en: "Layer %{n}"
+"Área o rotulador no válido":
+  en: "Invalid drawing area or pen"
+"No se encuentra el generador":
+  en: "Generator not found"
+"El generador falló. Cambia los parámetros o prueba otra semilla.":
+  en: "The generator failed. Change the parameters or try another seed."
+"Usa radios distintos para la hipotrocoide.":
+  en: "Use different radii for the hypotrochoid."
+"Escribe una semilla entera entre 0 y 18446744073709551615.":
+  en: "Enter a whole seed between 0 and 18446744073709551615."
+"1 parte":
+  en: "1 part"
+"%{n} partes":
+  en: "%{n} parts"
+"Mostrar sus partes":
+  en: "Show its parts"
+"Ocultar sus partes":
+  en: "Hide its parts"
+"Seleccionar sus partes":
+  en: "Select its parts"

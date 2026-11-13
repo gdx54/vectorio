@@ -128,6 +128,15 @@ mod tests {
         for (text, marker) in [(pens, "Pen::new(\""), (papers, "mk(\"")] {
             for part in text.split(marker).skip(1) { keys.insert(part.split('"').next().unwrap().to_string()); }
         }
+        for generator in vectorio_core::generate::all() {
+            for text in [generator.name(), generator.category(), generator.description()] { keys.insert(text.to_owned()); }
+            for spec in generator.params() {
+                keys.insert(spec.label().into()); if let Some(hint) = spec.hint() { keys.insert(hint.into()); }
+                if let vectorio_core::generate::ParamSpec::Choice { options, .. } = spec {
+                    for (_, label) in options { keys.insert((*label).into()); }
+                }
+            }
+        }
         keys
     }
 

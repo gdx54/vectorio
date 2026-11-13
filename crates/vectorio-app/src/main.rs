@@ -10,6 +10,7 @@ mod fmt;
 mod canvas;
 mod colorpanel;
 mod commands;
+mod create;
 mod inspector;
 mod macos;
 mod output;

@@ -133,7 +133,7 @@ pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
     // Las tintas de una foto viva cuelgan de una fila de grupo que se puede plegar.
     let mut groups: Vec<(u64, bool)> = Vec::new();
     for id in ids {
-        let group = app.doc.get(id).and_then(|it| it.group).filter(|g| app.doc.photo(*g).is_some());
+        let group = app.doc.get(id).and_then(|it| it.group).filter(|g| app.doc.photo(*g).is_some() || app.doc.generated_group(*g).is_some());
         let Some(g) = group else {
             object_row(app, ui, id, &mut drop);
             continue;
@@ -401,7 +401,7 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
     let members = app.doc.group_items(group);
     let closed_id = egui::Id::new(("photo-group-closed", group));
     let mut closed = ui.data_mut(|d| *d.get_persisted_mut_or_default::<bool>(closed_id));
-    let name = app.doc.photo(group).map(|ph| ph.name.clone()).unwrap_or_default();
+    let name = app.doc.photo(group).map(|ph| ph.name.clone()).or_else(||app.doc.generated_group(group).map(|g|g.name.clone())).unwrap_or_default();
     let all = !members.is_empty() && members.iter().all(|id| app.is_selected(*id));
     let full = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 30.0));
     let response = ui.interact(full, egui::Id::new(("photo-group-row", group)), egui::Sense::click());
@@ -422,15 +422,19 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
             vec![c + egui::vec2(-4.5, -2.5), c + egui::vec2(4.5, -2.5), c + egui::vec2(0.0, 3.5)]
         };
         ui.painter().add(egui::Shape::convex_polygon(points, if arrow.hovered() { pal.text } else { pal.secondary }, egui::Stroke::NONE));
-        toggle = arrow.on_hover_text(if closed { ts!("Mostrar sus tintas") } else { ts!("Ocultar sus tintas") }).clicked();
+        toggle = arrow.on_hover_text(if app.doc.generated_group(group).is_some() {
+            if closed { ts!("Mostrar sus partes") } else { ts!("Ocultar sus partes") }
+        } else if closed { ts!("Mostrar sus tintas") } else { ts!("Ocultar sus tintas") }).clicked();
         // Muestras solapadas de las tintas de la foto.
-        let colors: Vec<[u8; 3]> = members.iter().rev().filter_map(|id| app.doc.get(*id)).filter_map(|it| app.doc.pens.get(it.fill.pen)).map(|p| p.color).take(6).collect();
+        let colors: Vec<[u8; 3]> = members.iter().rev().filter_map(|id| app.doc.get(*id)).filter_map(|it| app.doc.pens.get(if app.doc.generated_group(group).is_some() { it.stroke.unwrap_or(0) } else { it.fill.pen })).map(|p| p.color).take(6).collect();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0 + 8.0 * colors.len().saturating_sub(1) as f32, 30.0), egui::Sense::hover());
         for (i, color) in colors.iter().enumerate() {
             let center = egui::pos2(rect.left() + 5.0 + 8.0 * i as f32, rect.center().y);
             ui.painter().circle(center, 5.5, theme::pen_color(*color), egui::Stroke::new(1.5f32, pal.bar.to_opaque()));
         }
-        let count = if members.len() == 1 { tr!("1 tinta") } else { tr!("%{n} tintas", n = members.len()) };
+        let count = if app.doc.generated_group(group).is_some() {
+            if members.len() == 1 { tr!("1 parte") } else { tr!("%{n} partes", n=members.len()) }
+        } else if members.len() == 1 { tr!("1 tinta") } else { tr!("%{n} tintas", n = members.len()) };
         let width = (ui.available_width() - 60.0).max(30.0);
         ui.allocate_ui_with_layout(egui::vec2(width, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(width);
@@ -449,9 +453,11 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
             app.set_selection(members.clone());
         }
     }
-    response.on_hover_text(ts!("Foto viva: clic para seleccionar todas sus tintas")).context_menu(|ui| {
-        if ui.button(ts!("Seleccionar sus tintas")).clicked() { app.set_selection(members.clone()); app.pen_focus = false; ui.close_menu(); }
-        if ui.button(ts!("Volver a separar colores…")).clicked() { reopen_photo(app, ui.ctx(), group); ui.close_menu(); }
+    response.on_hover_text(if app.doc.generated_group(group).is_some() { ts!("Grupo generado: clic para seleccionar sus partes") } else { ts!("Foto viva: clic para seleccionar todas sus tintas") }).context_menu(|ui| {
+        if ui.button(if app.doc.generated_group(group).is_some() { ts!("Seleccionar sus partes") } else { ts!("Seleccionar sus tintas") }).clicked() { app.set_selection(members.clone()); app.pen_focus = false; ui.close_menu(); }
+        if app.doc.generated_group(group).is_some() {
+            if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); ui.close_menu(); }
+        } else if ui.button(ts!("Volver a separar colores…")).clicked() { reopen_photo(app, ui.ctx(), group); ui.close_menu(); }
     });
     !closed
 }
@@ -982,10 +988,12 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
         let it = app.doc.get_mut(id).unwrap();
         ui.add(egui::TextEdit::singleline(&mut it.name).font(egui::TextStyle::Heading).frame(false).desired_width(f32::INFINITY));
         ui.add_space(2.0);
-        it.group.filter(|g| app.doc.photo(*g).is_some())
+        it.group
     };
     if let Some(group) = group {
-        photo_section(app, ui, group);
+        if app.doc.generated_group(group).is_some() {
+            if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); }
+        } else if app.doc.photo(group).is_some() { photo_section(app, ui, group); }
     }
     styles_section(app, ui, &[id]);
     let it = app.doc.get_mut(id).unwrap();
@@ -1450,8 +1458,8 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let pal = theme::current(ui.ctx());
     // Si la selección es una foto viva entera, se titula con su nombre.
     let group = ids.first().and_then(|id| app.doc.get(*id)).and_then(|it| it.group)
-        .filter(|g| app.doc.photo(*g).is_some() && ids.iter().all(|id| app.doc.get(*id).is_some_and(|it| it.group == Some(*g))));
-    let title = group.and_then(|g| app.doc.photo(g)).map(|ph| ph.name.clone()).unwrap_or_else(|| tr!("%{n} objetos", n = ids.len()));
+        .filter(|g| (app.doc.photo(*g).is_some() || app.doc.generated_group(*g).is_some()) && ids.iter().all(|id| app.doc.get(*id).is_some_and(|it| it.group == Some(*g))));
+    let title = group.and_then(|g| app.doc.photo(g).map(|ph|ph.name.clone()).or_else(||app.doc.generated_group(g).map(|r|r.name.clone()))).unwrap_or_else(|| tr!("%{n} objetos", n = ids.len()));
     ui.label(RichText::new(title).heading());
     ui.label(RichText::new(ts!("Lo que cambies aquí se aplica a todos. Arrástralos para moverlos juntos.")).small().color(pal.tertiary));
     let first = ids.iter().filter_map(|id| app.doc.get(*id)).find(|it| !it.is_screened()).cloned();
@@ -1463,7 +1471,9 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     ui.separator();
     group_layout_section(app, ui, &ids);
     if let Some(group) = group {
-        photo_section(app, ui, group);
+        if app.doc.generated_group(group).is_some() {
+            if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); }
+        } else if app.doc.photo(group).is_some() { photo_section(app, ui, group); }
     }
     let traced: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.traced().is_some())).collect();
     styles_section(app, ui, &traced);
@@ -1597,6 +1607,13 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     });
     if let Some(fill) = edit_all { app.edit_items_color(&ids, fill); }
     else if let Some(id) = edit_ink { app.edit_item_color(id, true); }
+}
+
+
+fn edit_generated(app: &mut VectorioApp, group: u64) {
+    if let Some(group) = app.doc.generated_group(group).cloned() {
+        app.create_ui.edit(&group); app.mode = crate::app::ViewMode::Create;
+    }
 }
 
 #[cfg(test)]
