@@ -30,6 +30,18 @@ export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 
 ## Install on macOS
 
+### Download the installer
+
+Download `Vectorio-<version>-arm64.dmg` from [Releases](https://github.com/gdx54/vectorio/releases), open it and drag **Vectorio** onto **Applications**. It requires a Mac with Apple silicon and macOS 11 or later.
+
+The app is not notarized by Apple, so the first launch is blocked. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Vectorio.app
+```
+
+### Build from source
+
 ```sh
 python3 scripts/install-macos.py
 ```
@@ -37,6 +49,8 @@ python3 scripts/install-macos.py
 This installs or updates `/Applications/Vectorio.app`. The installed app runs its binary directly: it does not need to read the source project or rebuild at startup. An open window keeps its current version until the next launch. If the build fails, the installer preserves the previously installed version.
 
 The generated app uses a local ad hoc signature. An Apple-notarized installer is not available yet.
+
+To build the `.dmg` yourself, run `python3 scripts/build-dmg.py`; it is written to `target/dist/`.
 
 ## Disk usage
 

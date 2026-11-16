@@ -41,6 +41,59 @@ def run(command, env):
     subprocess.run([str(arg) for arg in command], cwd=str(PROJECT), env=env, check=True)
 
 
+def rust_env():
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join([
+        "/opt/homebrew/opt/rustup/bin", "/opt/homebrew/bin",
+        str(Path.home() / ".cargo/bin"), env.get("PATH", "/usr/bin:/bin")])
+    cargo = shutil.which("cargo", path=env["PATH"])
+    if not cargo:
+        raise RuntimeError("No se encuentra Rust. La versión instalada se conserva.")
+    return env, cargo
+
+
+def target_directory(cargo, env):
+    metadata = subprocess.check_output(
+        [cargo, "metadata", "--no-deps", "--format-version", "1", "--locked"],
+        cwd=str(PROJECT), env=env)
+    return Path(json.loads(metadata)["target_directory"])
+
+
+def project_version():
+    manifest = (PROJECT / "Cargo.toml").read_text()
+    return re.search(r'(?m)^version\s*=\s*"([^"]+)"', manifest).group(1)
+
+
+def write_bundle(stage, binary, build_info, env):
+    """Crea y firma (ad hoc) Vectorio.app en `stage` a partir del binario compilado."""
+    icon = PROJECT / "packaging/macos/Vectorio.icns"
+    if not icon.is_file():
+        raise RuntimeError("Falta packaging/macos/Vectorio.icns.")
+    version = project_version()
+    macos = stage / "Contents/MacOS"
+    resources = stage / "Contents/Resources"
+    macos.mkdir(parents=True)
+    resources.mkdir(parents=True)
+    shutil.copy2(binary, macos / "vectorio")
+    shutil.copy2(icon, resources / "Vectorio.icns")
+    shutil.copy2(PROJECT / "packaging/macos/VOLUMETRIC_NOTICES.txt", resources / "VOLUMETRIC_NOTICES.txt")
+    (resources / "build.json").write_text(json.dumps(
+        dict(build_info, version=version), indent=2) + "\n")
+    info = {
+        "CFBundleName": "Vectorio", "CFBundleDisplayName": "Vectorio",
+        "CFBundleIdentifier": BUNDLE_ID, "CFBundleExecutable": "vectorio",
+        "CFBundleIconFile": "Vectorio.icns", "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version, "CFBundleVersion": version,
+        "LSMinimumSystemVersion": "11.0",
+        "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
+        "NSHumanReadableCopyright": "Vectorio · MIT",
+    }
+    with (stage / "Contents/Info.plist").open("wb") as handle:
+        plistlib.dump(info, handle)
+    run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--identifier", BUNDLE_ID, stage], env)
+    run(["/usr/bin/codesign", "--verify", "--deep", "--strict", stage], env)
+
+
 def install(destination, if_needed):
     destination = destination.expanduser().absolute()
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -65,51 +118,15 @@ def install(destination, if_needed):
         if info.get("CFBundleIdentifier") != BUNDLE_ID:
             raise RuntimeError("La aplicación de destino no es esta instalación de Vectorio; no se reemplaza.")
 
-    env = os.environ.copy()
-    env["PATH"] = os.pathsep.join([
-        "/opt/homebrew/opt/rustup/bin", "/opt/homebrew/bin",
-        str(Path.home() / ".cargo/bin"), env.get("PATH", "/usr/bin:/bin")])
-    cargo = shutil.which("cargo", path=env["PATH"])
-    if not cargo:
-        raise RuntimeError("No se encuentra Rust. La versión instalada se conserva.")
-    icon = PROJECT / "packaging/macos/Vectorio.icns"
-    if not icon.is_file():
-        raise RuntimeError("Falta packaging/macos/Vectorio.icns.")
-
+    env, cargo = rust_env()
     print("Compilando Vectorio…", flush=True)
     run([cargo, "build", "--release", "--locked", "-p", "vectorio-app"], env)
-    metadata = subprocess.check_output(
-        [cargo, "metadata", "--no-deps", "--format-version", "1", "--locked"],
-        cwd=str(PROJECT), env=env)
-    binary = Path(json.loads(metadata)["target_directory"]) / "release/vectorio"
-    manifest = (PROJECT / "Cargo.toml").read_text()
-    version = re.search(r'(?m)^version\s*=\s*"([^"]+)"', manifest).group(1)
+    binary = target_directory(cargo, env) / "release/vectorio"
 
     # Se prepara y firma la aplicación completa antes de tocar la versión instalada.
     with tempfile.TemporaryDirectory(prefix=".Vectorio-stage-", dir=str(destination.parent)) as temporary:
         stage = Path(temporary) / "Vectorio.app"
-        macos = stage / "Contents/MacOS"
-        resources = stage / "Contents/Resources"
-        macos.mkdir(parents=True)
-        resources.mkdir(parents=True)
-        shutil.copy2(binary, macos / "vectorio")
-        shutil.copy2(icon, resources / "Vectorio.icns")
-        shutil.copy2(PROJECT / "packaging/macos/VOLUMETRIC_NOTICES.txt", resources / "VOLUMETRIC_NOTICES.txt")
-        (resources / "build.json").write_text(json.dumps({
-            "project": str(PROJECT), "source_hash": source_hash, "version": version,
-        }, indent=2) + "\n")
-        info = {
-            "CFBundleName": "Vectorio", "CFBundleDisplayName": "Vectorio",
-            "CFBundleIdentifier": BUNDLE_ID, "CFBundleExecutable": "vectorio",
-            "CFBundleIconFile": "Vectorio.icns", "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": version, "CFBundleVersion": version,
-            "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
-            "NSHumanReadableCopyright": "Vectorio · MIT",
-        }
-        with (stage / "Contents/Info.plist").open("wb") as handle:
-            plistlib.dump(info, handle)
-        run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--identifier", BUNDLE_ID, stage], env)
-        run(["/usr/bin/codesign", "--verify", "--deep", "--strict", stage], env)
+        write_bundle(stage, binary, {"project": str(PROJECT), "source_hash": source_hash}, env)
         backup = Path(temporary) / "previous.app"
         if destination.exists():
             destination.rename(backup)
