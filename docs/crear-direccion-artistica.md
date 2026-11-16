@@ -1,82 +1,51 @@
-# Crear · dirección artística y arquitectura procedural
+# Create · Art direction and procedural architecture
 
-14 de noviembre de 2026.
+14 of November of 2026.
 
-## Resultado
+## Results
 
-El registro de Crear pasa de cinco a siete generadores. **Megastructuras** ofrece
-Torre estratificada, Patio interior y Gran pórtico. **Puerto y ciudadela** ofrece
-Pesquero, Almacenes y Ciudadela. Las recetas conservan semilla, parámetros,
-candados, objetos e identidad de tintas al guardarse en el documento.
+The Create record goes from five to seven generators. **Megastructures** offers a stratified tower, inner courtyard and large portico. **Port and Citadel** offers Fishery, Stores and Citadel. Recipes retain seed, parameters, locks, objects and ink identity when stored in the document.
 
-`generate/composition.rs` aporta semillas por parcela, ritmos agrupados con
-pausas y una envolvente de altura relativa a la cámara. El puerto deja libres
-la plaza y la calle transversal, agrupa casas y amarres y reserva el lugar de
-las torres. Megastructuras alterna bandas de alturas desiguales, retranqueos,
-galerías, lamas y huecos. Manzanas recibe cubiertas y una jerarquía de alturas;
-la ciudad organiza mejor la sucesión de alturas vecinas.
+`generate/composition.rs` provides seeds per plot, rhythms grouped with pauses and a height wrapper relative to the camera. The port frees the square and the transverse street, groups houses and moorings and reserves the place of the towers. Megastructures alternate bands of unequal heights, enclosures, galleries, slabs and gaps. City blocks receives covers and a height hierarchy; the city better organizes the succession of neighbouring heights.
 
-## Motor y materiales
+## Motor and materials
 
-`generate/massing.rs` construye una masa por celdas, con relleno y vaciado.
-Extrae su piel en seis direcciones y fusiona celdas coplanarias del mismo
-material en rectángulos. Las aristas se calculan antes de fusionar las caras:
-las juntas en T y las celdas interiores no producen una cuadrícula de líneas.
-Los tramos contiguos se unen antes de pasar por la ocultación analítica del
-motor existente. La sombra es la unión de las sombras de la piel, conservando
-los vacíos del edificio; no se sustituye por la envolvente de toda la torre.
+`generate/massing.rs` builds a cell mass, with filling and emptying. It extracts its skin in six directions and fuses coplanar cells from the same material into rectangles. The edges are calculated before the faces merge: T-joints and inner cells do not produce a grid of lines. The adjacent sections are joined before going through the analytical concealment of the existing engine. The shadow is the union of the shadows of the skin, preserving the voids of the building; it is not replaced by the envelope of the entire tower.
 
-El estilo compartido añade **Intensidad de tinta**, de 0 a 1,5. Aumenta la
-presencia de cubiertas, vegetación y sombras; adapta la trama principal a un
-mínimo de 1,45 veces el ancho del rotulador. Los faldones oscuros reciben una
-segunda familia más abierta. Las caras al sol conservan papel blanco.
-Las cubiertas horizontales también reciben color y las ventanas siguen
-apartando la trama del muro.
+The shared style adds **Ink Intensity**, from 0 to 1.5. Increases the presence of covers, vegetation and shadows; adapts the main hatching to a minimum of 1.45 times the width of the pen. The dark skirts receive a second, more open family. Faces in the sun keep white paper. The horizontal covers also get color and the windows keep the hatching away from the wall.
 
-Las escenas densas reservan el tejado al papel cálido de la gente y la sombra
-al papel frío del agua, en lugar de devolver ambos a la misma trama.
-Los juegos clásicos de bolígrafo siguen usando negro, azul, rojo y verde,
-con amarillo opcional. Las escenas sencillas nuevas ofrecen cinco tintas de
-serie. La elección y los cambios de tintas del usuario se siguen conservando.
+The dense scenes reserve the roof to the warm paper of the people and the shade to the cold paper of the water, instead of returning both to the same hatching. Classic pen games continue to use black, blue, red and green, with optional yellow. The new simple scenes offer five serial inks. The user's choice and changes of inks are still preserved.
 
-Referencia técnica estudiada: [SVGeometric, de jarvisar](https://github.com/jarvisar/geometric),
-especialmente el motor ortográfico, la masa por rejilla y la composición por
-bandas y familias de detalles. La implementación añadida aquí es Rust propio;
-no incorpora archivos ni una traducción literal del código JavaScript.
+Technical reference studied: [SVGeometric, from jarvisar](https://github.com/jarvisar/geometric), especially the orthographic engine, grid mass and composition by bands and families of details. The implementation added here is Rust proper; it does not incorporate files or a literal translation of JavaScript code.
 
-## Validación
+## Validation
 
-- `cargo test --workspace --release`: 223 pruebas superadas; ocho pruebas de
-  comprobación manual ignoradas por defecto.
-- Barrido explícito de 500 semillas por cada uno de los siete generadores:
-  3.500 dibujos, finitos, dentro del área y por debajo de 80 m. Peores tiempos
-  en ese barrido: Megastructuras 35,76 ms y Puerto 13,66 ms.
-- Casos adicionales de las seis composiciones nuevas, las cuatro vistas,
-  papeles verticales y apaisados y rotuladores de 0,25 y 0,7 mm. Se comprueba
-  la recuperación de geometría, partes y tintas después de guardar.
-- Prueba de masa unida: nueve aristas en un bloque sin juntas internas;
-  el vaciado de una esquina revela geometría adicional y es determinista.
-- Prueba de riqueza: más longitud de tinta que a intensidad cero y colores
-  diferentes para cubierta y sombra en los juegos de serie.
-- Todos los ejemplos compilados en release. Clippy finaliza con avisos
-  existentes fuera de los módulos añadidos.
-- Nueve láminas revisadas en `target/art-direction`; SVG y PNG con las tintas
-  y anchos reales del juego. El ejemplo `muestra_receta` admite `palette=`
-  y `pens=`. Capturas del propio egui para Megastructuras en 980 y 1440 px
-  en `target/phase5`, sin tocar la sesión abierta del usuario.
+- `cargo test --workspace --release`: 223 tests passed; eight tests of
+  Manual checks ignored by default.
+- Explicit drilling of 500 seeds by each of the seven generators:
+  3,500 drawings, finite, within the area and below 80 m. Worst times
+  in that sweep: Megastructures 35.76 ms and Port 13.66 ms.
+- Additional cases of the six new compositions, the four views,
+  Vertical and flat sheets and pens of 0.25 and 0.7 mm. It is verified
+  the recovery of geometry, parts and inks after saving.
+- Combined mass test: nine edges in a block without internal joints;
+  Emptying a corner reveals additional geometry and is deterministic.
+- Richness test: more ink length than zero intensity and colours
+  Different for cover and shadow in series games.
+- All examples compiled in release. Clippy ends with announcements
+  existing outside the modules added.
+- Nine sheets reviewed in `target/art-direction`; SVG and PNG with inks
+  And real game widths. The example `muestra_receta` supports `palette=`
+  and `pens=`. Captures of the egui itself for Megastructures in 980 and 1440 px
+  in `target/phase5`, without touching the user's open session.
 
-En la muestra cuadrada de Pueblo blanco, semilla 4, se pasa de 22,37 m antes
-del cambio a 30,62 m, con más presencia de tejados y sombras. No es una medida
-universal: longitud y encuadre cambian con el papel y los parámetros.
+In the square sample of White village, seed 4, is changed from 22.37 m before the change to 30.62 m, with more presence of roofs and shadows. It's not a universal measurement: length and frame change with paper and parameters.
 
-## Instalación
+## Installation
 
-Se ejecutó `python3 scripts/install-macos.py`. La compilación release terminó
-correctamente, pero la creación de la carpeta de preparación en `/Applications`
-fue bloqueada por los permisos del entorno (`Operation not permitted`).
-La aplicación anterior no se reemplazó y no se cerraron ventanas.
+`python3 scripts/install-macos.py` has been executed. The release compilation ended correctly, but the creation of the preparation folder in `/Applications` was blocked by the environment permissions (`Operation not permitted`). The previous application was not replaced and no windows were closed.
 
-Para completar la instalación desde Terminal en el Mac:
+To complete the installation from Terminal on the Mac:
 
 ```sh
 python3 /Users/raullorenzo/Documents/Vectorio/scripts/install-macos.py

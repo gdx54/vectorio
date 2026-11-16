@@ -1,203 +1,203 @@
-# Encargo: panel «Crear», fase 2 (correcciones del motor, generadores y panel)
+# Task: Create panel, Phase 2 (engine, generator, and panel corrections)
 
-Eres un agente de programación trabajando en **Vectorio**, una aplicación de escritorio en Rust para dibujar con plotter (núcleo en `crates/vectorio-core`, interfaz egui en `crates/vectorio-app`). En la fase 1 se hizo el motor de escenas `crates/vectorio-core/src/scene/`: cámara ortográfica, sólidos, eliminación exacta de líneas ocultas, tramas, tonos y sombras. Se ha revisado: la ocultación es correcta, está bien probada y es rápida (unos 15 ms con 5.000 caras). Esta fase tiene dos partes:
+You 're a programming agent working on **Vector**, a Rust desktop application for drawing with plotter (core on `crates/vectorio-core`, interface egui on `crates/vectorio-app`). In the 1 phase the `crates/vectorio-core/src/scene/` scene engine was made: orthographic camera, solid, exact removal of hidden lines, hatching patterns, tones and shadows. It has been reviewed: the concealment is correct, it is well-tested and it is fast (some 15 more expensive with 5,000). This phase has two parts:
 
-1. **Paso 0:** corregir lo que salió en la revisión del motor.
-2. **Pasos 1–5:** montar la infraestructura de generadores, su sitio en el documento y el modo **Crear** de la app, con dos generadores sencillos que demuestren que todo funciona.
+1. **Step 0:** correct what came out in the engine review.
+2. **Steps 1  –  5:** assemble the generator infrastructure, its site in the document and the **mode Create** from the app, with two simple generators that prove everything works.
 
-Después revisaré tu trabajo con otro agente, así que deja el código claro, probado y bien explicado.
+Then I'll review your work with another agent, so leave the code clear, proven and well explained.
 
-## Reglas
+## The rules
 
-- Lee `AGENTS.md` y `crates/vectorio-core/src/scene/README.md` antes de empezar.
-- La interfaz va en **español**, con su traducción al inglés en `crates/vectorio-app/locales/app.yml` (usa `tr!`/`ts!` como el resto de la app). Se mantiene la separación entre **objetos/capas** y **tintas**.
-- **Trabajo original.** La idea se inspira en SVGeometric (`jarvisar/geometric`), que **no tiene licencia**. No abras, copies ni traduzcas su código ni calques sus diseños.
-- Identificadores en inglés, como el resto del código. Comentarios y documentación en español, en el tono del código existente.
-- **No ejecutes `cargo fmt`**: el proyecto usa líneas densas a propósito (hasta unos 150 caracteres).
-- Sin dependencias nuevas salvo que sean imprescindibles; si añades una, justifícala en el resumen.
-- Si `cargo` no está disponible: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
-- Sigue en la rama `feat/crear-motor-escena`. No hagas commit salvo que el usuario lo pida.
-- **No cierres ni reinicies la Vectorio que esté abierta.** La versión abierta sigue hasta el siguiente inicio.
-- Archivos antiguos: un documento guardado antes de esta fase tiene que abrirse igual que antes (campos nuevos con `#[serde(default)]` y sin escribirse cuando están vacíos).
-
----
-
-## Paso 0 · Correcciones del motor (`crates/vectorio-core/src/scene/`)
-
-Hazlas por este orden. Cada una con su prueba.
-
-### 0.1 Tramas continuas sobre superficies curvas (lo más importante)
-Hoy, para tramar un cilindro, un cono o una cúpula hay que llamar a `hatch_face` faceta por faceta. El resultado son cientos de rayitas sueltas, cada una con su propia dirección, en lugar de líneas continuas (en el bodegón: 938 trazos en la trama oscura). Hay que añadir:
-
-- `hatch_surface(faces: &[Vec<V3>], angle_deg: f64, spacing_mm: f64)`: trama **varias caras como una sola región**, con un ángulo fijo en la hoja (grados de papel, el mismo criterio que `begin_shadows`) y fase global, como las sombras.
-  - Por cada línea de trama, recorta contra cada cara que mire a la cámara.
-  - Las caras de una superficie convexa vista de frente no se solapan en la hoja, así que basta con ordenar los intervalos y **unir los consecutivos en una sola polilínea**.
-  - Cada vértice lleva la profundidad del plano de la cara en la que está; en las aristas compartidas es continua.
-  - Las caras que no miran a la cámara se ignoran.
-- Prueba: un cilindro suave tramado a 0° da exactamente **un trazo por línea de trama**, de silueta a silueta, sin cortes en las aristas entre facetas.
-- Actualiza `examples/muestra_escena.rs`:
-  - en los sólidos de revolución, agrupa las facetas por tono y trama cada grupo con `hatch_surface`;
-  - en las cajas, mantén `hatch_face`;
-  - ajusta el encuadre para que el bodegón ocupe la hoja (ahora queda arriba, con media página vacía).
-
-### 0.2 Ninguna entrada generada puede tumbar la app
-Los generadores producirán geometría con parámetros aleatorios. Un `assert!` que salte con datos degenerados cerraría Vectorio. La regla es: **los métodos públicos de `Scene` y `Camera` no entran en pánico en release por culpa de los datos**. Los datos degenerados se descartan sin dibujar nada:
-
-- cajas de tamaño cero o negativo;
-- caras degeneradas o no planas;
-- perfiles de torno imposibles;
-- extrusiones tangentes;
-- valores NaN o infinitos.
-
-Además:
-
-- Una dirección de trama no tangente se proyecta sobre el plano de la cara.
-- Pedir sombras sin sol simplemente no produce sombras.
-- Abrir un grupo de sombras con otro abierto trama el anterior o lo descarta (documenta cuál).
-- Deja `debug_assert!` donde ayude a detectar errores de programación en las pruebas.
-- Prueba: una batería de entradas degeneradas que no entra en pánico y no produce NaN en la salida.
-
-### 0.3 Rendimiento con líneas largas
-Las consultas a la rejilla (en `Grid::hidden` y en `remove_overlaps`) recorren **todas las celdas de la caja del segmento**. Para una línea diagonal larga, como una trama de sombra que cruza la hoja, eso son miles de celdas y muchas caras candidatas que no tocan el segmento. La medición actual solo usa segmentos cortos (de 7 a 11 mm), así que no lo detecta.
-
-- Recorre solo las celdas que atraviesa el segmento (DDA o recorrido de celdas cubiertas).
-- Para las pasadas repetidas, puedes indexar en su lugar por dirección y desplazamiento cuantizados. Elige y justifica.
-- Añade una segunda medición realista: 500 cajas en A4 con trama por tono y sombras, más 2.000 líneas diagonales largas. Objetivo: `render` por debajo de 100 ms en release. Indica las dos mediciones en el resumen.
-
-### 0.4 Caras casi de canto
-`Face::new` descarta las caras con área proyectada menor de `1e-10` mm². Es un umbral absoluto minúsculo: una cara casi de canto pasa el filtro y produce un gradiente de profundidad enorme e inestable. Usa un criterio relativo, por ejemplo una anchura proyectada (área entre arista más larga) menor de `1e-6` mm. Prueba: una cara casi de canto no produce cortes falsos.
-
-### 0.5 Sólidos de revolución no convexos
-`solid` orienta las caras con el centroide, lo que obliga a que los perfiles de torno sean convexos. Los perfiles con cuello (jarrones, cúpulas bulbosas, campanarios) son necesarios para las escenas.
-
-- `lathe` debe orientar sus caras **por construcción** (hacia fuera del eje, tapas arriba y abajo) y aceptar perfiles no convexos con alturas crecientes.
-- `solid` necesita poder respetar el giro que le dan (por ejemplo un parámetro o una variante `solid_oriented`).
-- La ocultación ya es general; la regla de aristas también vale.
-- Prueba: un jarrón con perfil `(1.0, 0) → (0.5, 1) → (1.0, 2)` se dibuja sin aristas falsas y con el cuello ocultando lo que debe.
-
-### 0.6 Caras traseras de sólidos convexos
-En un sólido **convexo y cerrado**, una cara que no mira a la cámara nunca oculta nada que no oculten ya sus caras delanteras. No las añadas como oclusores: es la mitad de caras para escenas grandes. Esto **no** vale para sólidos no convexos (0.5) ni para `occluder`. Prueba: el resultado es idéntico con y sin la optimización en una escena de sólidos convexos.
-
-### 0.7 Limpieza
-Quita del `README.md` del módulo la sección «Validación del 13-11-2026…» con tiempos de este equipo. Es información de la entrega, no documentación, y va en tu resumen. Actualiza el README con la API nueva.
+- Lee `AGENTS.md` and `crates/vectorio-core/src/scene/README.md` before we start.
+- The interface is in **Spanish**, with its English translation in `crates/vectorio-app/locales/app.yml` (use `tr!` / `ts!` like the rest of the app). The separation between **objects/layers** and **inks** is maintained.
+- **Original work.** The idea is inspired by SVGeometric (`jarvisar/geometric`), which **does not license**. Do not open, copy or translate its code or paste its designs.
+- English IDs, like the rest of the code. Comments and documentation in Spanish, in the tone of the existing code.
+- **Do not run `cargo fmt`**: the project uses dense lines on purpose (up to a few 150 characters).
+- No new dependencies unless they are essential; if you add one, justify it in the summary.
+- If `cargo` is not available: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
+- Stay on the `feat/crear-motor-escena` branch. Do not commit unless the user asks for it.
+- **Do not close or restart the Vector that is open.** The open version continues until the next start.
+- Old files: a document saved before this phase has to be opened the same as before (new fields with `#[serde(default)]` and not written when they are empty).
 
 ---
 
-## Paso 1 · Infraestructura de generadores (núcleo)
+## Step 0 · Engine corrections (`crates/vectorio-core/src/scene/`)
 
-Módulo nuevo `crates/vectorio-core/src/generate/` (regístralo en `lib.rs`). No depende de egui.
+Do it in this order. Each with its own proof.
 
-- **Parámetros declarativos.** `ParamSpec` con estas variantes:
-  - `Section { label }`: un encabezado, sin valor.
-  - `Range { id, label, min, max, step, default, random }`: `random` indica si entra en «Aleatorio» y opcionalmente un rango más estrecho.
+### 0.1 Continuous hatching patterns on curved surfaces (most important)
+Today, to weave a cylinder, a cone or a dome you have to call `hatch_face` facet by facet. The result is hundreds of loose rays, each with its own direction, instead of continuous lines (in the cadaver: 938 strokes in the dark hatching). It should be added:
+
+- `hatch_surface(faces: &[Vec<V3>], angle_deg: f64, spacing_mm: f64)`: hatching **several faces as a single** region, with a fixed angle on the sheet (paper degrees, the same criterion as `begin_shadows`) and global phase, like shadows.
+  - For every line of hatching, cut against every face that looks at the camera.
+  - The faces of a front-facing convex surface do not overlap on the leaf, so just sort the intervals and **join the sequences into a single** polyline.
+  - Each vertex carries the depth of the plane of the face in which it is; on the shared edges it is continuous.
+  - Faces that don't look at the camera are ignored.
+- Test: a soft cylinder hatching to 0° gives exactly **one stroke per hatching line**, silhouette to silhouette, without slices on the edges between facets.
+- Update `examples/muestra_escena.rs`:
+  - In revolutionary solids, group the facets by tone and hatching each group with `hatch_surface`;
+  - in boxes, keep `hatch_face`;
+  - Adjust the frame so that the carcass occupies the leaf (now it stays above, with half a blank page).
+
+### 0.2 No input generated can bring down the app
+The generators will produce geometry with random parameters. A `assert!` that jumps with degenerate data would close Vector. The rule is: **the public methods of `Scene` and `Camera` do not panic in release because of the** data. Degenerated data is discarded without drawing anything:
+
+- boxes of zero or negative size;
+- Degenerated or unflattened faces;
+- impossible rotation profiles;
+- tangent extrusions;
+- NaN or infinite values.
+
+In addition:
+
+- A non-tangent hatching direction is projected onto the face plane.
+- Asking for shadows without the sun just doesn't produce shadows.
+- Open a group of shadows with another open hatching the previous one or discard it (document which one).
+- Leave `debug_assert!` where I help detect programming errors in tests.
+- Test: a degenerate input suite that does not panic and does not produce NaN at the output.
+
+### 0.3 Performance with long lines
+The grid queries (in `Grid::hidden` and in `remove_overlaps`) run through all **box cells in the** segment. For a long diagonal line, like a hatching shadow that crosses the leaf, that's thousands of cells and lots of candidate faces that don't touch the segment. The current measurement uses only short segments (from 7 to 11 mm), so it does not detect it.
+
+- It only travels through the cells that cross the segment (DDA or covered cell route).
+- For repeated passes, you can index instead by quantified direction and displacement. Choose and justify.
+- Add a second realistic measurement: 500 boxes in A4 with hatching by tone and shadows, plus 2,000 long diagonal lines. Objective: `render` below 100 ms in release. Indicate the two measurements in the summary.
+
+### 0.4 Almost singing faces
+`Face::new` discards faces with a projected area less than `1e-10` mm2. It's a tiny absolute threshold: an almost angular face passes through the filter and produces a huge, unstable depth gradient. Use a relative criterion, e.g. a projected width (longer edge area) less than `1e-6` mm. Test: a face almost singing doesn't produce false slices.
+
+### 0.5 Non-convex revolutionary solids
+`solid` directs the faces with the centroid, which forces the rotor profiles to be convex. Profiles with neck (jars, bulbous domes, bell towers) are necessary for the scenes.
+
+- `lathe` must orient its **faces by** construction (outside the shaft, top and bottom caps) and accept non-convex profiles with increasing heights.
+- `solid` needs to be able to respect the spin given to it (e.g. a parameter or a `solid_oriented` variant).
+- Occultation is already common; the edge rule applies as well.
+- Test: a vase with `(1.0, 0) → (0.5, 1) → (1.0, 2)` profile is drawn without false edges and with the neck hiding what it should.
+
+### 0.6 Rear faces of convex solids
+In a solid **Convex and closed**A face that doesn't look at the camera never hides anything that doesn't already hide its front faces. Don't add them as occlusions: it's half the faces for big scenes. This **not** applies to non-convex solids (0.5) or to `occluder`. Test: the result is identical with and without optimization in a convex solid scene.
+
+### 0.7 Cleaning
+Remove from the `README.md` of the module the section  « Validation of the 13 - 11 - 2026... »  with time of this equipment. It's delivery information, not documentation, and it's in your resume. Update the README with the new API.
+
+---
+
+## Step 1 · Generator infrastructure (core)
+
+New module `crates/vectorio-core/src/generate/` (register it as `lib.rs`). It doesn 't depend on egui.
+
+- **Declarative parameters.** `ParamSpec` with the following variants:
+  - `Section { label }`: a headline, with no value.
+  - `Range { id, label, min, max, step, default, random }`: `random` indicates whether to enter  « Aleatorio »  and optionally a narrower range.
   - `Choice { id, label, options: [(valor, etiqueta)], default, random }`.
   - `Toggle { id, label, default, random: probabilidad }`.
-  - Un campo opcional para mostrar u ocultar el control según otros valores (`show`) y una ayuda opcional (`hint`).
+  - An optional field to display or hide control according to other values (`show`) and an optional aid (`hint`).
 
-  Las etiquetas son claves de texto en español que la app traduce.
-- **Valores.** `Params` como mapa ordenado `id → ParamValue` (número, texto o booleano), serializable. Al leerlo:
-  - las claves que faltan toman el valor por defecto;
-  - las desconocidas se ignoran;
-  - los números se recortan a su rango.
+  The tags are text keys in Spanish that the app translates.
+- **Values.** `Params` as an ordered map `id → ParamValue` (number, text or boolean), serializable. As I read it:
+  - the missing keys take the default value;
+  - The unknowns are ignored.
+  - the numbers are cut to their range.
 
-  Así sobreviven los cambios de versión. Incluye métodos tipados (`f64(id)`, `int(id)`, `choice(id)`, `flag(id)`).
-- **Trait `Generator`:**
-  - datos: `id()` (estable, nunca cambia), `name()`, `category()`, `description()`, `params() -> Vec<ParamSpec>`;
-  - `randomize(&self, rng, &mut Params, locks)`: tiene una implementación por defecto que usa la información `random` de cada `ParamSpec` y respeta los parámetros bloqueados;
+  That's how the version changes survive. Includes typed methods (`f64(id)`, `int(id)`, `choice(id)`, `flag(id)`).
+- **Treatment `Generator`:**
+  - data: `id()` (stable, never changing), `name()`, `category()`, `description()`, `params() -> Vec<ParamSpec>`;
+  - `randomize(&self, rng, &mut Params, locks)`: has a default implementation that uses the `random` information of each `ParamSpec` and respects blocked parameters;
   - `generate(&self, &Params, &GenContext) -> Result<GenOutput, String>`.
-- **`GenContext`:** el área de dibujo en mm (rectángulo del papel menos márgenes), la semilla, el grosor de rotulador de referencia y un nivel de detalle (`Preview` / `Final`), para que la vista previa pueda ser más ligera.
-- **`GenOutput`:** lista de partes `{ name, lines: Vec<Polyline> }` en mm de hoja, más un aviso opcional. Las escenas la obtienen directamente de `SceneOutput`; los generadores 2D la construyen a mano. Añade un ayudante que calcule los metros de línea por parte.
-- **Registro:** `generate::all() -> &'static [&'static dyn Generator]` y `generate::find(id)`.
-- **Determinismo:** con la misma semilla y los mismos parámetros, salida idéntica. Usa solo `geom::Rng` (o un ruido determinista propio si hace falta), nunca aleatoriedad del sistema.
+- **`GenContext`:** the drawing area in mm (rectangle of paper minus margins), the seed, the thickness of the reference pen and a level of detail (`Preview` / `Final`), so that the preview can be lighter.
+- **`GenOutput`:** list of `{ name, lines: Vec<Polyline> }` parts in sheet mm, plus an optional notice. Scenes get it directly from `SceneOutput`; 2D generators build it by hand. Add an assistant to calculate the line meters in part.
+- **Register:** `generate::all() -> &'static [&'static dyn Generator]` and `generate::find(id)`.
+- **Determinism:** with the same seed and parameters, identical output. Use only `geom::Rng` (or your own deterministic noise if needed), never system randomness.
 
-## Paso 2 · Grupos generados en el documento (núcleo)
+## Step 2 · Groups generated in the document (core)
 
-El modelo a imitar es la **foto viva**: `crates/vectorio-core/src/photo.rs`, `Document::photos`, `Item::group`, `Document::photo` y `Document::group_items` en `doc.rs`. Una foto guarda su imagen y sus ajustes, y sus tintas son objetos que apuntan a ella con `group`.
+The model to be imitated is the **live photo**: `crates/vectorio-core/src/photo.rs`, `Document::photos`, `Item::group`, `Document::photo` and `Document::group_items` in `doc.rs`. A photo keeps its image and its settings, and its inks are objects that point to it with `group`.
 
-- `Document::generated: Vec<GeneratedGroup>` con `{ id, name, generator: String, params: Params, seed: u64, area: BBox }`. Usa `#[serde(default, skip_serializing_if = "Vec::is_empty")]`.
-- **Una parte = un objeto** del documento:
-  - `Geometry::Path { closed: false }`, con `group = Some(id)` y nombre `«<grupo> · <parte>»`;
-  - contorno con el rotulador asignado y sin relleno.
-  - Así cada parte se mueve a otra tinta con las herramientas que ya existen.
-- **Asignación inicial de tintas:** cada parte va a un rotulador del documento. El generador puede sugerir un orden (por ejemplo contorno → tinta 1, sombras → la última); si no, se reparten por orden, dando la vuelta si hay más partes que tintas.
-- **Regenerar** (cambiar parámetros o semilla de un grupo existente):
-  - sustituye las líneas de cada objeto **por nombre de parte**;
-  - conserva su rotulador, su visibilidad, su bloqueo, su `Placement` y su posición en las capas;
-  - las partes nuevas crean objetos nuevos;
-  - las partes que desaparecen eliminan su objeto, pero recuerda su rotulador en el grupo por si vuelven.
-- Las líneas se guardan en coordenadas locales de modo que mover o escalar el grupo y luego regenerar mantenga la posición. Explica el criterio en el código.
-- Pruebas:
-  - un archivo antiguo se abre igual;
-  - ida y vuelta de serialización;
-  - regenerar conserva tintas y posiciones;
-  - una parte que desaparece y vuelve recupera su tinta.
+- `Document::generated: Vec<GeneratedGroup>` with `{ id, name, generator: String, params: Params, seed: u64, area: BBox }`. Use the `#[serde(default, skip_serializing_if = "Vec::is_empty")]`.
+- **One part = an object** of the document:
+  - `Geometry::Path { closed: false }`, with `group = Some(id)` and name `«<grupo> · <parte>»`;
+  - contour with the pen assigned and unfilled.
+  - So each part moves to another ink with the tools that already exist.
+- **Initial assignment of inks:** each part goes to a pen of the document. The generator may suggest an order (e.g. contour → ink 1, shadows → last); otherwise, they are distributed in order, spinning if there are more parts than inks.
+- **Regenerate** (change parameters or seed of an existing group):
+  - replace the lines of each object **with the part name**;
+  - retains its pen, visibility, lock, `Placement` and position in the layers;
+  - new parts create new objects;
+  - The missing parts remove your object, but remember your pen in the group in case they come back.
+- The lines are stored at local coordinates so that moving or climbing the group and then regenerating maintains the position. Explain the criterion in the code.
+- Tests:
+  - an old file is opened the same way;
+  - back and forth of serialization;
+  - regenerate preserves inks and positions;
+  - A part that disappears and comes back gets its ink.
 
-## Paso 3 · Modo «Crear» en la app
+## Step 3 · Mode  « Create »  in the app
 
-Puntos de partida:
-- `ViewMode` en `crates/vectorio-app/src/app.rs`;
-- el selector de modo de la barra (busca `ViewMode::Output, tr!("Salida")`);
-- los atajos y el menú en `commands.rs` (`⌘1` Diseño, `⌘2` Salida);
-- `output.rs::show`, como ejemplo de modo con panel propio;
-- `theme.rs` y `docs/plan-liquid-glass.md` para el estilo Liquid Glass actual.
+Starting points:
+- `ViewMode` in `crates/vectorio-app/src/app.rs`;
+- the bar mode selector (search for `ViewMode::Output, tr!("Salida")`);
+- the shortcuts and the menu in `commands.rs` (`⌘1` Design, `⌘2` Output);
+- `output.rs::show`, as an example in its own panel mode;
+- `theme.rs` and `docs/plan-liquid-glass.md` for the current Liquid Glass style.
 
-Debe quedar así:
+It should look like this:
 
-- **Tercer modo «Crear»**, con este orden en el selector y en el menú: Diseño · Crear · Salida. Atajos: `⌘1` Diseño, `⌘2` Crear, `⌘3` Salida (actualiza los atajos y textos existentes, y `LEEME.md`).
-- **Panel lateral**, con estos elementos:
-  - **Galería** de generadores por categoría, con nombre y descripción.
-  - **Controles construidos a partir de `params()`**: deslizador con campo numérico, desplegable, casilla y encabezados plegables. Respetan `show`, muestran `hint` como ayuda y tienen un **candado** por parámetro.
-  - **Semilla**: campo numérico y botón **Aleatorio** (nuevos parámetros, salvo los bloqueados, y nueva semilla). Un atajo de teclado para nueva semilla, solo cuando el foco no esté en un campo de texto.
-  - **Métricas**: metros de línea por parte y total, con aviso visual por encima de 40 m y más fuerte por encima de 80 m («el papel puede saturarse»), y el tiempo de cálculo.
-  - **Botones**: **Colocar en el lienzo** (crea el grupo con un paso de deshacer y vuelve a Diseño con el grupo seleccionado) o, si se está editando un grupo existente, **Actualizar grupo** y **Cancelar**.
-- **Vista previa** en la zona central: la hoja con su color y las partes dibujadas con el color de la tinta que les tocaría. Reutiliza el pintado existente del lienzo si puedes.
-- **Cálculo en segundo plano**, en un hilo con contador de versión:
-  - un resultado obsoleto se descarta;
-  - un cambio de control relanza el cálculo sin bloquear la interfaz;
-  - la vista previa usa `Preview` y la colocación `Final`.
-- **`generate` dentro de `std::panic::catch_unwind`** como última red. Un error o pánico se muestra en el panel como mensaje y nunca cierra la app.
-- **En Capas/inspector**, un grupo generado se muestra como fila de grupo, igual que el de una foto (`group_row` en `inspector.rs`), con la acción **«Editar en Crear…»**, que abre el modo Crear con sus parámetros y su semilla.
-- **Recordar** el último generador y sus parámetros entre sesiones, en las preferencias de la app.
+- **Third mode  « Create »**, with this order in the selector and menu: Design · Create · Output. Shortcuts: `⌘1` Design, `⌘2` Create, `⌘3` Output (updates existing shortcuts and texts, and `LEEME.md`).
+- **Side panel**, with the following elements:
+  - **Gallery** generators by category, with name and description.
+  - **Controls built from `params()`**: slider with numeric field, folding, box and folding headers. They respect `show`, show `hint` as an aid and have a **locked** by parameter.
+  - **Seed**: numeric field and button **Random** (new parameters, except blocked, and new seed). A keyboard shortcut for new seed, only when the focus isn't on a text field.
+  - **Metrics**: partial and total line meters, with visual notice above 40 m and stronger above 80 m (« the paper can saturate »), and calculation time.
+  - **** buttons:** Put on the **canvas (create the group with a undo step and go back to Design with the selected group) or, if an existing group is being edited,** Update group **and** Cancel **.
+- **Preview** in the center zone: the sheet with its color and the parts drawn with the ink color that would touch them. Reuse the existing paint on the canvas if you can.
+- **Second plane calculation**, in a thread with version counter:
+  - an outdated result is discarded;
+  - a change of control releases the calculation without blocking the interface;
+  - The preview uses `Preview` and the `Final` placement.
+- **`generate` within `std::panic::catch_unwind`** as the last network. An error or panic is displayed on the panel as a message and never closes the app.
+- **In Layers/inspector**, a generated group is displayed as a group row, similar to that of a photo (`group_row` in `inspector.rs`), with the action **« Edit in Create... »**, which opens the Create mode with its parameters and its seed.
+- **Remember** the latest generator and its parameters between sessions, in the app preferences.
 
-## Paso 4 · Dos generadores de demostración
+## Step 4 · Two demonstration generators
 
-Son para probar la infraestructura, no la dirección artística definitiva, pero deben verse limpios y trazarse bien en A4 con un rotulador de 0,3–0,5 mm, por debajo de medio segundo.
+They are to test the infrastructure, not the ultimate art direction, but they should look clean and chart well in A4 with a pen of 0.3  –  0.5 mm, below half a second.
 
-1. **«Manzanas»** (categoría Escenas): una cuadrícula isométrica de bloques sobre una base, usando el motor.
-   - Parámetros: filas, columnas, altura mínima y máxima, probabilidad de hueco (plaza), ancho de calle, giro de cámara (dos o tres vistas), elevación (isométrica/dimétrica), sol (ángulo), separación de trama.
-   - Cada bloque es una caja con trama por tono (`hatch_face`) y algunas torres cilíndricas con tejado cónico (`lathe` y `hatch_surface`), con sombras sobre el suelo.
-   - Partes: contorno, tejados, trama clara, trama media, trama oscura, sombra.
-   - La cámara se ajusta al área con `Camera::fit`. Usa `Scene::visible` para no dibujar detalles menores de 1 mm.
-2. **«Espirógrafo»** (categoría Curvas), generador 2D sin motor de escena.
-   - Hipotrocoide y epitrocoide con radios enteros (cierra la curva con el mcd), distancia del lápiz, número de capas con desfase y parte por capa.
-   - Debe salir en un solo trazo continuo por capa.
+1. **" City blocks "** (scene category): an isometric grid of blocks on a base, using the engine.
+   - Parameters: rows, columns, minimum and maximum height, probability of gap (place), street width, camera rotation (two or three views), elevation (isometric/dimetric), sun (angle), hatching separation.
+   - Each block is a box with hatching per tone (`hatch_face`) and some cylindrical towers with a conical roof (`lathe` and `hatch_surface`), with shadows on the floor.
+   - Parts: contour, roofs, clear hatching, medium hatching, dark hatching, shade.
+   - The camera fits the area with `Camera::fit`. Use `Scene::visible` to not draw minor details of 1 mm.
+2. **« Spirograph »** (Curves category), 2D generator without scene engine.
+   - Hypotrocoid and epitrocoid with entire radii (close the curve with the mcd), pencil distance, number of layers with gap and part per layer.
+   - It must come out in a single continuous stroke per layer.
 
-## Paso 5 · Pruebas y comprobaciones
+## Step 5 · Tests and checks
 
-- Pruebas del núcleo:
-  - `Params`: valores por defecto, recorte a rango, claves desconocidas y `show`;
-  - determinismo de cada generador;
-  - **500 semillas aleatorias** por generador con `randomize`: ninguna falla, ninguna produce NaN, todas quedan dentro del área y del límite de 80 m, y la mayor tarda menos de 1 s en release (informa del máximo).
-- Pruebas del documento del paso 2.
-- Antes de entregar:
+- Core tests:
+  - `Params`: default values, range cuts, unknown keys and `show`;
+  - determinism of each generator;
+  - **500 random seeds** per generator with `randomize`: no failure, none produces NaN, all remain within the area and limit of 80 m, and the largest takes less than 1 s in release (maximum report).
+- Proof of the 2 pass document.
+- Before delivery:
   1. `cargo test --workspace`
-  2. `cargo clippy --workspace --all-targets` sin avisos nuevos.
-  3. `cargo run -p vectorio-core --example muestra_escena --release -- muestra_escena.svg --dimetric`: revisa que las superficies curvas tengan trama continua.
+  2. `cargo clippy --workspace --all-targets` without any new announcements.
+  3. `cargo run -p vectorio-core --example muestra_escena --release -- muestra_escena.svg --dimetric`: check that curved surfaces have continuous hatching.
   4. `python3 scripts/install-macos.py`.
-  5. Comprobación visual en `/Applications/Vectorio.app`. Solo si **no** hay una Vectorio abierta: ábrela, prueba Crear → Manzanas → Aleatorio varias veces → Colocar → mover una parte a otra tinta → Editar en Crear → Actualizar → Deshacer, y Salida con el grupo. Si ya hay una abierta, no la cierres: indica en el resumen qué no pudiste comprobar.
-- Actualiza `LEEME.md` con el modo Crear y los atajos nuevos.
+  5. Visual check on `/Applications/Vectorio.app`. Only if **not** there is an open vector: open it, test Create → City blocks → Random multiple times → Place → move one part to another ink → Edit in Create → Update → Deshacer, and Output with the group. If one is already open, do not close it: indicate in the summary what you could not check.
+- Update `LEEME.md` with Create mode and the new shortcuts.
 
-## Fuera de esta fase
+## Outside this phase
 
-El kit de piezas (muros, ventanas, tejados, árboles, figuras…), las escenas con dirección artística (pueblo, castillo, estadio…) y más generadores 2D. Llegarán en la fase 3.
+The piece kit (walls, windows, roofs, trees, figures...), the scenes with artistic direction (town, castle, stadium...) and more 2D generators. They 'll arrive at the 3 phase.
 
-## Qué entregar
+## What to deliver
 
-Un resumen breve en español con:
+A brief summary in Spanish with:
 
-- lo hecho en cada paso y los ficheros tocados;
-- la API pública nueva (firmas);
-- las decisiones donde este documento deja margen, y por qué;
-- las dos mediciones del motor y el peor tiempo de los generadores;
-- capturas o descripción de la comprobación visual, o qué no se pudo comprobar;
-- lo pendiente o lo que no te convenza.
+- what is done at each step and the files touched;
+- the new public API (firms);
+- the decisions where this document leaves room, and why;
+- the two engine measurements and the worst time of the generators;
+- captures or description of the visual verification, or what could not be verified;
+- The pending or the unconvincing.

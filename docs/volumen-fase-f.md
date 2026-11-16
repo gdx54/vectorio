@@ -1,40 +1,40 @@
-# Volumen · Fase F
+# Volume · Phase F
 
-16 de noviembre de 2026. Continuidad entre Crear, Volumen y Diseño, hoja multivista y perspectiva.
+16 of November of 2026. Continuity between Create, Volume and Design, multiview sheet and perspective.
 
-## Uso
+## Use
 
-- **Colocar en el lienzo** guarda un objeto 3D junto a sus trazos, con modelo, receta, pasadas y tintas. En Diseño, hacer doble clic sobre sus trazos o elegir **Editar en Volumen…** en el inspector o en el menú de su grupo en Capas.
-- **Actualizar objeto 3D** sustituye los trazos en su posición de la pila y conserva la transformación aplicada en Diseño. Reabrir no modifica el documento. Las tintas retocadas en Diseño se incorporan a la receta; los objetos bloqueados deben desbloquearse antes de actualizar. Colocar y actualizar tienen un paso propio de deshacer/rehacer.
-- En **Crear → Abrir en Volumen**, las seis escenas 3D se convierten en una malla real, incluidas las caras traseras. La preparación ocurre en un trabajador. El generador 2D de espirógrafos no ofrece esta acción. Se importa la geometría construida por la escena, sin intentar reconstruir volumen desde su dibujo 2D; los detalles que solo son líneas y las tramas de Crear no se convierten en superficies.
-- En **Escena → Papel → Vistas en la hoja**, elegir una vista, planta/alzado/perfil/isométrica o un giro completo de 2 a 12 vistas. La separación se expresa en milímetros. Cada celda tiene cámara, recorte, pasadas y reparto de tintas; la salida sigue siendo una sola hoja vectorial. Las cuatro vistas técnicas usan proyección ortográfica.
-- En **Escena → Cámara → Perspectiva**, ajustar distancia focal y plano cercano. Las distancias son relativas al tamaño del modelo. La vista única y el giro admiten perspectiva; las recetas anteriores siguen siendo ortográficas.
+- **Put on the canvas** keeps a 3D object next to its strokes, with model, recipe, passes and inks. In Design, double-click your strokes or choose **Edit in Volume...** in the inspector or in your group menu in Layers.
+- **Upgrade 3D object** replaces the strokes in their position of the stack and retains the transformation applied in Design. Reopening does not alter the document. The inks retouched in Design are incorporated into the recipe; blocked objects must be unlocked before updating. Placing and updating have their own step of undo/re-do.
+- In **Create → Open in Volume**, the six 3D scenes become a real mesh, including the rear faces. Preparation takes place in a worker. The 2D spirograph generator doesn't offer this action. It imports the geometry constructed by the scene, without attempting to reconstruct volume from its 2D drawing; details that are only lines and the hatching patterns of Create do not become surfaces.
+- In **Scene → Paper → Views on the** sheet, choose a view, top view/elevation/profile/isometric or a full turn from 2 to 12 views. The separation is expressed in millimeters. Each cell has a camera, cut, pass and ink distribution; the output remains a single vector sheet. The four technical views use orthographic projection.
+- In **Scene → Camera → Perspective**, adjust the focal length and near plane. Distances are relative to the size of the model. The unique view and the turn support perspective; the previous recipes remain orthographic.
 
-## Documento y recuperación
+## Document and recovery
 
-`Document.volumes` guarda las recetas y los vínculos entre pasadas, familias de tinta y objetos. Duplicar crea un grupo independiente; reordenar o eliminar tintas remapea las recetas. Guardar elimina los metadatos de grupos sin trazos, y cargar valida recetas, identificadores y transformaciones. El proyecto sigue siendo compatible con documentos anteriores sin objetos 3D.
+`Document.volumes` keeps recipes and links between passes, ink families and objects. Duplicate creates a separate group; reorder or delete inks remakes recipes. Save eliminates metadata from groups without strokes, and upload valid recipes, identifiers, and transformations. The project is still compatible with previous documents without 3D objects.
 
-La aplicación guarda copias automáticas atómicas en segundo plano, en `~/Library/Application Support/Vectorio/Recuperacion`, separadas del archivo del usuario y con un archivo por sesión. Al volver a iniciar, ofrece recuperar una sesión interrumpida, descartar su copia o dejarla para más tarde. No ofrece copias pertenecientes a procesos que siguen abiertos. Guardar o salir de forma confirmada limpia la copia de esa sesión. Las pruebas usan una carpeta temporal y no alteran las copias del usuario.
+The application saves atomic automatic copies in second plane, in `~/Library/Application Support/Vectorio/Recuperacion`, separated from the user file and with one file per session. When restarting, offer to recover an interrupted session, discard your copy or leave it for later. It does not offer copies belonging to processes that are still open. Save or exit confirmed clears the copy of that session. The tests use a temporary folder and do not alter the user's copies.
 
-## Proyección y composición
+## Projection and composition
 
-`volumetric/camera.rs` define la cámara propia de Volumen y su adaptación al motor analítico compartido. La perspectiva usa profundidad proyectiva, recorta polígonos y segmentos contra el plano cercano antes de dividir y corrige los pesos de interpolación de los mapas de lectura. La conversión de unidades del motor conserva también distancia focal y plano cercano. Los generadores de Crear mantienen su cámara ortográfica y sus salidas anteriores.
+`volumetric/camera.rs` defines Volume's own camera and its adaptation to the shared analytical engine. The perspective uses projective depth, cuts polygons and segments against the near plane before dividing and corrects the interpolation weights of the reading maps. The conversion of engine units also retains focal length and close plane. Create's generators keep their orthographic camera and their previous outputs.
 
-`volumetric/continuity.rs` compone las vistas con cachés por cámara y conserva las familias de tinta. La captura de las superficies completas de Crear se activa solo durante la conversión; los renders normales no almacenan esa geometría adicional. Los cambios de cámara, composición y perspectiva se guardan en la receta v2 y en el historial de Volumen.
+`volumetric/continuity.rs` composes the views with camera caches and preserves the ink families. The capture of the full Create surfaces is activated only during conversion; normal renders do not store that additional geometry. The camera changes, composition and perspective are stored in the v2 recipe and in the volume history.
 
-## Comprobaciones
+## Checks and inspections
 
-- `cargo test`: **393 superadas, 9 ignoradas, ningún fallo**. Las once referencias SVG históricas siguen siendo idénticas byte a byte, incluida la receta v1 real.
-- Persistencia del objeto 3D, actualización en la misma posición, transformación de Diseño, tintas, duplicación, bloqueo, eliminación y deshacer/rehacer.
-- Recuperación automática con receta 3D completa y rechazo de proyectos inválidos sin borrarlos.
-- Conversión de los seis generadores 3D; prueba de un cubo con las doce caras trianguladas y sin bordes abiertos, conservando idéntico el render habitual.
-- Puntos de fuga, proyección/inversa, profundidad proyectiva, oclusión y plano cercano; los siete algoritmos históricos con perspectiva producen trazos finitos y recortados.
-- Hojas técnicas y de giro, color, recorte físico, determinismo, persistencia y cancelación.
-- Capturas revisadas a 1.440 × 900 y 980 × 620: `VECTORIO_QA_CONTINUITY=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`. Archivos `target/volumetric/continuity-*.png`. Corregido el ancho de la hoja flotante del giro completo.
-- Detector de interfaz sin hallazgos y `git diff --check` sin errores.
+- `cargo test`: **393 exceeded, 9 ignored, no** failures. The eleven historical SVG references remain identical byte to byte, including the actual v1 recipe.
+- Persistence of the 3D object, updating in the same position, design transformation, inks, duplication, blocking, removal and undo/re-do.
+- Automatic recovery with full 3D recipe and rejecting invalid projects without deleting them.
+- Conversion of the six 3D generators; proof of a cube with the twelve sides triangulated and without open edges, keeping the usual rendering identical.
+- Leakage points, projection/reverse, projective depth, occlusion and close plane; the seven historical algorithms with perspective produce finite and cut strokes.
+- Technical and turntable sheets, color, physical clipping, determinism, persistence and cancellation.
+- Revised seizures of 1,440 × 900 and 980 × 620: `VECTORIO_QA_CONTINUITY=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`. `target/volumetric/continuity-*.png` files. Corrected the width of the floating blade of the complete turn.
+- Interface detector with no finds and `git diff --check` with no errors.
 
-Instalación con `python3 scripts/install-macos.py` en `/Applications/Vectorio.app`, conservando la sesión abierta. La versión nueva se usa al siguiente inicio.
+Installation with `python3 scripts/install-macos.py` on `/Applications/Vectorio.app`, keeping the session open. The new version is used at the next start.
 
-## Pendiente
+## Suspended
 
-Las fases A–F del plan están implementadas. Las ampliaciones de G sobre mezcla óptica e isolíneas escalares se completan en [Ampliación de G](volumen-ampliacion-g.md). Campos de curvatura para líneas de flujo, contornos sugestivos y GLB/glTF siguen siendo ampliaciones posteriores del plan.
+The A – F phases of the plan are being implemented. G extensions over optical mixture and isolines scales are completed in [G] Expansion (volumen-ampliacion-g.md). Curvature fields for flow lines, suggestive contours and GLB/glTF remain later extensions of the plan.

@@ -1,129 +1,125 @@
-# Entrega: panel «Crear», fase 4
+# Create · Phase 4 delivery
 
-Encargo en [plan-crear-fase4.md](plan-crear-fase4.md); cada paso lleva allí su nota
-«Hecho» con el detalle. Aquí va el resumen, la API nueva, los tiempos y una
-valoración sincera de la hoja de contactos.
+I order in [plan-create-phase4.md](plan-crear-fase4.md); each step carries there its note  «  Done »  with the detail. Here's the summary, the new API, the timing and a sincere evaluation of the contact sheet.
 
-Aviso: `village.rs` y buena parte del kit siguen sin confirmar en git (la receta de
-la fase 3 tampoco llegó a guardarse). La versión de la receta del Pueblo blanco
-sigue en 1.
+Warning: `village.rs` and much of the kit remain unconfirmed on git (the 3 phase recipe was also not saved). The recipe version of the White village is still in 1.
 
-## Lo hecho
+## I did it.
 
-- **Paso 0 · Correcciones de la fase 3.**
-  - El encuadre de la maqueta itera hasta que la salida cabe con medio margen.
-  - El tejado vuela sobre la fachada de la calle y la chimenea se apoya en el faldón.
-  - Los huecos oscuros se rellenan de trama.
-  - La versión de escena va en un `ParamSpec::Version`.
-  - `Scene::lathe_parts` y las pruebas de cada pieza del kit.
-- **Paso 1 · Sin costuras.**
-  - Un sólido no dibuja aristas entre caras coplanarias suyas.
-  - `Scene::polyhedron` y `Scene::prism` construyen piezas de un solo sólido: casas, escaleras, tapias, bancos y pérgolas.
-  - `Scene::hatch_faces` trama una cara partida de un solo trazo.
-  - El detector `Scene::seams` (solo en pruebas) recorre 20 piezas.
-- **Paso 2 · Dirección artística.**
-  - Sol relativo a la vista: la fachada de la calle queda en blanco y la otra cara visible en tono medio, con trama a 2,2 veces.
-  - Casas de 4 a 9 m en hileras adosadas con saltos de altura; casas con patio y huertos tapiados.
-  - Puerta a la calle y ritmo de huecos por casa.
-  - Iglesia 1:2,2–1:2,8 con campanario en una esquina de los pies.
-  - Chimeneas solo en tejados inclinados.
-  - Estratos comunes, irregulares, ondulados y con lentes, solo en las caras exteriores; muros de contención con albardilla.
-  - Cipreses en parejas o en hilera en los bordes; olivos agrupados.
-- **Paso 3 · Comprobaciones.**
-  - La prueba de encuadre pasa a 500 semillas en tres áreas (cuadrada, vertical y apaisada) para Pueblo blanco en maqueta y Manzanas.
-  - Se ejecutaron `cargo test --workspace`, clippy, los ejemplos y la instalación.
+- **Step 0 · Phase corrections 3.**
+  - The framing of the model iterates until the exit fits by half a margin.
+  - The roof flies over the facade of the street and the fireplace rests on the skirt.
+  - Dark holes are filled with hatching.
+  - The stage version goes on a `ParamSpec::Version`.
+  - `Scene::lathe_parts` and the tests on each piece of the kit.
+- **Step 1 · Seamless.**
+  - A solid doesn't draw edges between its coplanar faces.
+  - `Scene::polyhedron` and `Scene::prism` build parts from a single solid: houses, stairs, carpets, benches and pergolas.
+  - `Scene::hatch_faces` hatching a broken face with a single stroke.
+  - The `Scene::seams` detector (tested only) runs through 20 parts.
+- **Step 2 · Art direction**
+  - Sol relative to sight: the street façade becomes white and the other face visible in mid-tone, with hatching to 2.2 times.
+  - Homes from 4 to 9 m in rows of townhouses with high jumps; houses with courtyards and upholstered gardens.
+  - Door to the street and rhythm of holes in the house.
+  - Church 1: 2.2  –  1: 2.8 with bell tower in a corner of the feet.
+  - Chimneys only on sloping roofs.
+  - Common, irregular, undulating and lensed strata, only on the outer faces; containment walls with coping.
+  - Cypresses in pairs or in rows at the edges; clustered olives.
+- **step 3 · Checks.**
+  - The framing test passes to 500 seeds in three areas (square, vertical and tempered) for White village in model and City blocks.
+  - `cargo test --workspace`, clippy, examples and installation were executed.
 
-## API nueva
+## New API
 
 ```text
 // generate::kit
-Church { width, length, height, tower: Option<(bool /*izquierda*/, TowerTop)> }
-Church::ahead(&self, scene: &Scene, style: Style) -> f64     // cuánto avanza la torre
+Church { width, length, height, tower: Option<(bool /*left*/, TowerTop)> }
+Church::ahead(&self, scene: &Scene, style: Style) -> f64     // how far the tower projects forward
 church(scene, style, front: V3, plan: Church, rng)
-Cut { exterior: [bool; 4] /*delantera, derecha, trasera, izquierda*/, wall_from: Option<f64> }
+Cut { exterior: [bool; 4] /*front, right, back, left*/, wall_from: Option<f64> }
 Cut::block() -> Cut
 Strata::new(scene, style, bottom, top, min: V3, max: V3, rng) -> Strata
 terrace(scene, style, min, max, cut: Cut, strata: &Strata)
-pick(rng, &[T]) -> T                                          // ahora público
+pick(rng, &[T]) -> T                                          // now public
 
-// scene (paso 1)
+// scene (step 1)
 Scene::polyhedron(&mut self, faces: &[Vec<V3>]) -> Vec<Vec<Vec<V3>>>
 Scene::prism(&mut self, profile: &[V3], vector: V3) -> Vec<Vec<Vec<V3>>>
 Scene::hatch_faces(&mut self, pieces: &[Vec<V3>], direction: V3, spacing_mm: f64)
 Scene::lathe_parts(...) -> Lathe
-// solo en pruebas: Scene::seams, Scene::lit_wall_fraction(part, step_mm)
+// tests only: Scene::seams, Scene::lit_wall_fraction(part, step_mm)
 
-// Pueblo blanco: parámetro «Giro del sol» (sun, −90…90°, relativo a la luz de serie)
+// White village: "Sun rotation" parameter (sun, −90…90°, relative to the default light)
 ```
 
-## Tiempos
+## The times
 
-Release en este Mac. Las pruebas se ejecutaron de una en una (`--test-threads=1`).
+Release on this Mac. The tests were run one at a time (`--test-threads=1`).
 
-| Medida | Resultado | Límite |
+|Measure|Results|The limit|
 |---|---|---|
-| Pueblo blanco de serie, vista previa (mediana de 7) | 85 ms | 100 ms |
-| Pueblo blanco de serie, dibujo final (mediana de 7) | 86 ms | 300 ms |
-| 500 semillas, peor Pueblo blanco | 287 ms | 1 s |
-| 500 semillas, peor Manzanas / Espirógrafo | 12 ms / 1 ms | 1 s |
-| Encuadre, 500 semillas × 3 áreas, distancia mínima al borde | 0,54 mm | ≥ medio margen |
-| Cobertura de cal, cuatro vistas, a sangre y maqueta | 47–65 % | ≥ 40 % |
-| Hoja de contactos, Pueblo blanco por semilla | 19–58 ms | — |
+|Standard White village, preview (median of 7)|85 MS|100 MS|
+|Serial White village, final drawing (medium of 7)|86 MS|300 MS|
+|500 seeds, worse White village|287 MS|1 S.|
+|500 seeds, worse City blocks / Spirograph|12 Ms / 1 MS|1 S.|
+|Frame, 500 seeds × 3 areas, minimum distance to the edge|0.54 mm|≥ half the margin|
+|Lime cover, four views, full bleed and model|47–65 %|≥ 40 %|
+|Contacts sheet, White village by seed|19–58 MS|—|
 
-## Comparación
+## Comparison
 
-En `target/phase4/`:
-- `contactos_fase3.svg`: copia de la hoja de la fase 3, generada antes de empezar esta fase;
-- `contactos_fase4.svg`: la hoja nueva;
-- `*_pueblo.svg(.png)`: solo la fila del Pueblo blanco;
-- `paso2/`: muestras en A4, en maqueta y a sangre.
+In `target/phase4/`:
+- `contactos_fase3.svg`: copy of the 3 phase sheet, generated before the start of this phase;
+- `contactos_fase4.svg`: the new leaf;
+- `*_pueblo.svg(.png)`: only the row of White village;
+- `paso2/`: samples in A4, in model and full bleed.
 
-Las dos hojas usan las mismas 12 semillas. La fase 3 encuadraba de serie en maqueta y la 4 a sangre, así que la comparación de composición no es directa. Lo que sí se compara bien es el tono, la proporción de las casas y la organización.
+Both leaves use the same 12 seeds. The 3 phase framed by series in model and the 4 full bleed, so the composition comparison is not direct. What compares well is the tone, the proportion of the houses and the organization.
 
-**Antes:**
-- casi todas las caras estaban tramadas, así que el pueblo se leía gris;
-- casas de 3 m de fachada que parecían torres;
-- iglesias en medio de la masa;
-- estratos como un rayado uniforme.
+**Previously:**
+- Almost all the faces were plotted, so the people were grey.
+- 3 m facade houses that looked like towers;
+- Churches in the midst of the crowd;
+- Strata like a uniform strip.
 
-**Ahora:**
-- las fachadas de la calle quedan en blanco;
-- hileras a lo largo de calles claras;
-- plaza con iglesia, campanario y cipreses;
-- un caserío que se deshace en huertas.
+**Now:**
+- The facades of the street are empty.
+- lines along clear streets;
+- square with church, bell tower and cypresses;
+- A farmhouse that gets dismantled in the orchards.
 
-## Valoración semilla a semilla (hoja nueva, área de 190 × 190 mm, a sangre)
+## Valuation from seed to seed (new leaf, area of 190 × 190 mm, full bleed)
 
-| Semilla | ¿La plotearía? | Por qué |
+|Seed|Would you plough it?|Why? Why?|
 |---|---|---|
-| 0 (serie) | Sí | Buen equilibrio: plaza e iglesia arriba, dos hileras claras, huertos en los bordes. Unas pocas casas de azotea se leen aún algo cúbicas. |
-| 1 | Con dudas | La iglesia con aguja y la calle leen bien, pero a la izquierda asoman bloques altos de azotea que parecen torres. |
-| 2 | No | Demasiadas casas, apretadas, y la iglesia se pierde entre ellas; con los campos, la hoja resulta muy cargada (28 m). |
-| 3 | Sí | Pueblo disperso con muchos huertos tapiados; se lee bien. Los cubos de azotea abundan un poco. |
-| 4 | Con dudas | La plaza está bien, pero predominan las azoteas con pretil y el conjunto se lee como bloques. |
-| 5 | Sí | Varias calles con escalones, buena variedad de cubiertas y plaza abierta. |
-| 6 | Sí, la mejor | Calles largas de casas de una planta con tejado, iglesia con aguja y cipreses: es justo la idea. |
-| 7 | Con dudas | Solo se ve parcialmente en la miniatura; hileras correctas, pero sin un foco claro. |
-| 8 | Con dudas | El pueblo queda en una diagonal estrecha y la plaza se lee poco; demasiado olivo suelto alrededor. |
-| 9 | Sí | Densa pero ordenada, con plaza en el centro y una buena mezcla de tejados. |
-| 10 | Con dudas | La iglesia está bien, pero las casas de azotea de la derecha forman una masa de cajas. |
-| 11 | Sin juzgar | No la he revisado con detalle. |
+|0 (seriously)|Yes, I did.|Good balance: square and church upstairs, two clear rows, orchards on the edges. A few rooftop houses are still somewhat cubic.|
+|1|I doubt it.|The church with the needle and the street read well, but on the left are tall blocks of roof that look like towers.|
+|2|I 'm not.|Too many houses, tight, and the church is lost between them; with the fields, the leaf is very loaded (28 m).|
+|3|Yes, I did.|Scattered village with many cobbled gardens; it reads well. The roof cubes are a bit plentiful.|
+|4|I doubt it.|The square is fine, but it's dominated by brick roofs and the whole thing reads like blocks.|
+|5|Yes, I did.|Several streets with steps, a good variety of decks and open square.|
+|6|Yes, the best.|Long streets of top-view houses with roofs, church with needles and cypress trees: that's just the idea.|
+|7|I doubt it.|It's only partially visible in the miniature; correct rows, but without a clear focus.|
+|8|I doubt it.|The village stands on a narrow diagonal and the square is read little; too much olive loose around.|
+|9|Yes, I did.|Dense but tidy, with space in the center and a good mix of roofs.|
+|10|I doubt it.|The church is fine, but the roof houses on the right form a mass of boxes.|
+|11|Without judging|I haven't reviewed it in detail.|
 
-En resumen: plotearía 0, 3, 5, 6 y 9; con ajustes, 1, 4, 7, 8 y 10; descartaría la 2.
+In summary: it would plough 0, 3, 5, 6 and 9; with adjustments, 1, 4, 7, 8 and 10; it would discard the 2.
 
-## Lo que no me convence
+## What doesn't convince me
 
-- **Las azoteas con pretil siguen pareciendo cajas** cuando son mayoría (semillas 1, 4 y 10). Aunque tienen proporción de casa, el pretil alto y la falta de tejado las vuelven volúmenes abstractos. Bajaría su probabilidad o les pondría siempre algo encima.
-- **El campo pesa demasiado a sangre en áreas pequeñas.** En 190 × 190 mm los surcos y olivos ocupan más de la mitad de la hoja y suben los metros (22–30 m frente a 8–21 m de antes). El pueblo debería ocupar más hoja o el campo debería aclararse con la distancia.
-- **Hay demasiadas hileras de cipreses** dispersas por los campos todavía en algunas semillas (3 y 5). Reduje su frecuencia, pero siguen siendo frecuentes en el campo abierto.
-- **La vista previa apenas es más rápida que el dibujo final** (85 frente a 86 ms). Cumple, pero sin margen, y en paralelo con otras pruebas llegó a pasar de 100 ms. Probablemente lo que pesa son las pasadas del encuadre y no la trama; no lo he medido por partes.
-- **Las pruebas de tiempo dependen de la carga.** En paralelo, `benchmark_long_diagonals_and_shaded_boxes` y la del pueblo fallaron una vez. Habría que marcarlas para ejecutarlas solas o medir con más tolerancia.
-- **Las hojas de contactos de 12 MB y 21 MB** tardan minutos en rasterizarse con Quick Look; para revisar conviene la fila del Pueblo blanco por separado.
-- **No hice una comprobación visual en la app instalada**, porque Vectorio estaba abierta con trabajo del usuario; solo revisé las muestras SVG.
+- **Precyl roofs still look like** boxes when they are majority (seeds 1, 4 and 10). Although they have house proportions, the high railing and lack of roofing make them abstract volumes. I'd lower their odds or I'd always put something on them.
+- **The field weighs too much full bleed in small areas.** In 190 × 190 mm the grooves and olives occupy more than half of the leaf and rise the meters (22 - 30 m versus 8 - 21 m before). The village should take up more leaf or the field should clear with the distance.
+- **There are too many rows of** cypresses scattered through the fields still in some seeds (3 and 5). I've reduced their frequency, but they're still common in the open field.
+- **The preview is barely faster than the final drawing** (85 versus 86 ms). Comply, but without margin, and in parallel with other tests it came to pass 100 ms. Probably what weighs are the framing passes and not the hatching; I haven't measured it in parts.
+- **Time tests depend on the load.** In parallel, `benchmark_long_diagonals_and_shaded_boxes` And the village one failed once. You'd have to mark them to run them alone or measure them with more tolerance.
+- **The contact sheets of 12 MB and 21 MB** take minutes to raster with Quick Look; to check the row of the White village separately is appropriate.
+- **I didn't do a visual check on the app installed**, because Vectorio was open with user work; I just checked the SVG samples.
 
-## Ajuste posterior
+## Subsequent adjustment
 
-Tras la valoración se rebajó el peso del campo y de las azoteas:
-- azoteas con pretil 0,3 (antes 0,5), dos aguas 0,4 y cuatro aguas 0,15;
-- un tercio de los olivares se deja en blanco y el resto va más abierto (paso 4,2 m);
-- resultado en release: Pueblo blanco de serie a 38 ms en vista previa y 39 ms en final, peor caso de 500 semillas 129 ms, encuadre a 0,53 mm del borde, y las 12 semillas de la hoja pasan a 19–29 m (antes 22–30 m).
+After the evaluation, the weight of the field and the roofs was reduced:
+- 0.3 (formerly 0.5), two 0.4 and four 0.15 roofs;
+- one third of the olive groves is left blank and the rest is more open (step 4.2 m);
+- result in release: White village serial to 38 ms in preview and 39 ms at the end, worst case of 500 seeds 129 ms, frames to 0.53 mm from the edge, and 12 seeds from the leaf pass to 19 - 29 m (formerly 22 - 30 m).

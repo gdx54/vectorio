@@ -1,37 +1,37 @@
-# Crear · entrega de la fase 2
+# Create · Phase 2 delivery
 
-## Implementación
+## Implementation
 
-- **Paso 0 — motor:** `scene/{mod,camera,solids,hidden,hatch,shadow,tests}.rs` y
-  su `README.md`. Tramas de superficie con vértices de profundidad por faceta;
-  rechazo de entradas degeneradas, direcciones proyectadas al plano y sombras
-  opcionales; recorrido DDA con supercobertura; filtro relativo para caras de
-  canto; torno con orientación exterior por construcción y perfiles con cuello;
-  eliminación de oclusores traseros solo en sólidos convexos. El ejemplo
-  `examples/muestra_escena.rs` agrupa los tornos por tono y encuadra los trazos
-  reales en una segunda pasada, manteniendo la separación física de trama.
-- **Pasos 1 y 4 — generadores:** `generate/{mod,blocks,spiro,tests}.rs`, registrados
-  en `lib.rs`. Esquemas declarativos, valores serializables saneados, condiciones
-  de visibilidad, bloqueos, semilla y contexto, registro y dos generadores.
-  Manzanas entrega seis partes; Espirógrafo, una curva cerrada por capa.
-- **Paso 2 — documento:** `generate/document.rs` y `doc.rs`. Recetas persistentes,
-  una parte por objeto abierto sin relleno, regeneración por identidad de parte,
-  memoria de tintas ausentes, duplicación independiente y remapeo de tintas al
-  borrar o reordenar la paleta. Los documentos antiguos siguen omitiendo el campo
-  `generated` cuando está vacío.
-- **Paso 3 — aplicación:** `create.rs`, `app.rs`, `commands.rs`, `inspector.rs`,
-  `main.rs`, `prefs.rs`, `i18n.rs` y `locales/app.yml`. Selector y menú Diseño ·
-  Crear · Salida; ⌘1/⌘2/⌘3. Galería, controles, candados, semilla de 64 bits,
-  Aleatorio/N, métricas, vista previa por tinta, colocación/actualización y
-  cancelación, edición desde Capas, preferencias y traducción al inglés.
-  `LEEME.md` recoge el modo y los atajos.
-- **Paso 5 — validación:** pruebas del motor, migración de parámetros, grupos,
-  identidad/transformaciones/tintas, deshacer/rehacer, resultados obsoletos,
-  captura de pánico, traducciones y disposición en 980 × 620 en ambos idiomas.
-  Las dos mediciones del motor y las 500 semillas por generador son pruebas
-  ignoradas por defecto que se ejecutaron expresamente en release.
+- **Step 0  —  engine:** `scene/{mod,camera,solids,hidden,hatch,shadow,tests}.rs` and
+  Your `README.md`. Hatching surface patterns with depth vertices per facet;
+  Degenerate input rejection, plane-projected directions and shadows
+  Optional; DDA route with overhead coverage; relative filter for faces
+  The manufacturer shall ensure that the manufacturer is able to provide the manufacturer with the following information:
+  removal of rear occlusers only in convex solids. The Example
+  `examples/muestra_escena.rs` groups the turns by tone and frames the strokes
+  real in a second pass, maintaining the physical separation of hatching.
+- **Steps 1 and 4  —  Generators:** `generate/{mod,blocks,spiro,tests}.rs`, registered
+  In `lib.rs`. Declaration schemes, sound serial values, conditions
+  of visibility, blocks, seed and context, recording and two generators.
+  City blocks delivers six parts; Spirograph, one closed curve per layer.
+- **Step 2  —  document:** `generate/document.rs` and `doc.rs`. Persistent recipes,
+  a part for unfilled open object, regeneration by party identity,
+  Memory of missing inks, independent duplication and re-painting of inks
+  erase or reorder the pallet. Ancient documents still omit the field
+  `generated` when it's empty.
+- **Step 3  —  application:** `create.rs`, `app.rs`, `commands.rs`, `inspector.rs`,
+  `main.rs`, `prefs.rs`, `i18n.rs` and `locales/app.yml`. Selector and menu Design ·
+  Creating · Output; ⌘1/⌘2/⌘3. Gallery, controls, locks, seed of 64 bits,
+  Random/N, metrics, ink preview, placement/updating and
+  Cancellation, editing from Layers, preferences and English translation.
+  `LEEME.md` collects the mode and shortcuts.
+- **Step 5  —  validation:** engine tests, migration of parameters, groups,
+  identity/transformations/inks, undo/re-do, outdated results,
+  panic capture, translations and layout in 980 × 620 in both languages.
+  The two engine measurements and the 500 seeds per generator are tests.
+  Default ignored which were executed expressly on release.
 
-## API pública añadida
+## Added public API
 
 ```text
 Scene::hatch_surface(&mut self, faces: &[Vec<V3>], angle_deg: f64, spacing_mm: f64)
@@ -69,72 +69,55 @@ Document::generated_group(&self, id: u64) -> Option<&GeneratedGroup>
 Document::put_generated(&mut self, group: GeneratedGroup, output: GenOutput, replacing: Option<u64>) -> Vec<u64>
 ```
 
-Las variantes de `ParamSpec` están descritas por sus campos en `generate/mod.rs`.
-Los nuevos campos de `GeneratedGroup` incluyen tablas `parts` (nombre → objeto),
-`inks` (nombre → tinta opcional) y `placement` de referencia.
+Variants of `ParamSpec` are described by their fields in `generate/mod.rs`. The new `GeneratedGroup` fields include `parts` (object name →), `inks` (optional ink name →) and reference `placement` tables.
 
-## Criterios elegidos
+## Criteria selected
 
-- La orientación explícita de `solid_oriented` conserva todos los oclusores. La
-  variante convexa sigue orientando por centroide y solo guarda caras delanteras.
-- Abrir otro grupo de sombras **descarta** el pendiente; no dibuja pasadas
-  inesperadas. Sin sol no se abre un grupo. Las caras no planas o cóncavas se
-  descartan. Los perfiles de torno pueden cambiar de convexidad, conservando
-  alturas estrictamente crecientes y radios nulos solo en extremos.
-- DDA se usa tanto para consultar oclusores como para indexar/consultar pasadas
-  coincidentes; conserva sellos por consulta y cubre fronteras y esquinas.
-  Evita cuantizar direcciones y separar por error líneas casi iguales.
-- La entrada de la interfaz es un entero textual de 64 bits, evitando pérdidas
-  de precisión al convertir semillas grandes a un control numérico flotante.
-- `Params::normalized` aplica el esquema al usarse: rellena ausentes, elimina
-  desconocidos y sanea tipos/rangos. `random: None` excluye un parámetro; en
-  rangos, `Some((min,max))` permite una banda más estrecha. `show.equals` admite
-  texto, números o booleanos y el prefijo `!` para desigualdad.
-- Las alturas de Manzanas se interpretan como extremos de un intervalo, incluso
-  si se introducen en orden inverso. El espirógrafo cierra con el mcd; radios
-  iguales en una hipotrocoide se comunican como error porque producirían un
-  punto. Aleatorio evita ese caso respetando los candados.
-- El papel de la receta es su área original. Las líneas locales se calculan
-  restando `area.min`; cada objeto conserva su `Placement`. Los nuevos objetos
-  heredan la transformación de referencia del grupo. Los existentes mantienen
-  identificador, nombre, tinta, visibilidad, bloqueo, transformación y orden.
-- Un solo trabajador recibe pedidos versionados, descarta la cola obsoleta y
-  comprueba la versión después del cálculo. Preview usa menos detalle; Final
-  se calcula antes de modificar el documento. Los pánicos se convierten en
-  errores. El documento solo cambia al recibir el Final vigente, en un paso
-  de deshacer; Cancelar invalida resultados pendientes.
-- No se añadieron dependencias ni se consultó código de SVGeometric.
+- The explicit orientation of `solid_oriented` retains all the occlusors. The
+  The convex variant continues to orient centerwise and keeps only front faces.
+- Open another group of shadows **discards** slope; does not draw passes
+  unexpected. Without the sun, you can't open a group. Faces not flat or concave are
+  They're discarding it. Rotary profiles can change from convexity, retaining
+  Strictly increasing heights and zero radii only at extremes.
+- DDA is used both to consult occlusors and to index/consult passes
+  It keeps seals for consultation and covers borders and corners.
+  Avoid quantifying directions and mistakenly separating nearly equal lines.
+- The interface input is an entire text of 64 bits, avoiding losses
+  of precision by converting large seeds to a floating numerical control.
+- `Params::normalized` applies the scheme when used: fill in missing, remove
+  Unknown and hygienic types/ranges. `random: None` excludes a parameter; in
+  ranges, `Some((min,max))` allows for a narrower band. `show.equals` admits
+  text, numbers or booleans and the prefix `!` for inequality.
+- The heights of City blocks are interpreted as the ends of an interval, including
+  if they are introduced in reverse order. The spirograph closes with the mcd; radios
+  Equals in a hypotrocoid are communicated as an error because they would produce a
+  The point. Randomly avoiding that case by respecting the locks.
+- The recipe paper is his original area. Local lines are calculated
+  Subtracting `area.min`; each object retains its `Placement`. The new objects
+  They inherit the transformation of the group's benchmark. The existing ones maintain
+  identifier, name, ink, visibility, blocking, transformation and order.
+- A single worker receives versioned orders, discards the obsolete tail and
+  check the version after the calculation. Preview uses less detail; final
+  is calculated before the document is amended. Panic becomes
+  mistakes. The document changes only upon receipt of the current Final, in one step
+  Cancellation of outstanding results.
+- No dependencies were added or SVGeometric code consulted.
 
-## Mediciones y revisión visual
+## Measurements and visual inspection
 
-Mediciones release de esta entrega, con las pruebas ejecutadas secuencialmente:
+Release measurements of this delivery, with tests executed sequentially:
 
-| Carga | Tiempo |
+|Load|The time|
 |---|---:|
-| 5.000 caras / 20.000 segmentos cortos | 12,933 ms de mediana (7 renders) |
-| 500 cajas tramadas + sombras + 2.000 diagonales largas | 12,601 ms de mediana (5 renders) |
-| Manzanas, 500 semillas aleatorias | 3,084 ms máximo |
-| Espirógrafo, 500 semillas aleatorias | 1,120 ms máximo |
+|5,000 expensive / 20,000 short segments|12,933 ms of median (7 renders)|
+|500 framed boxes + shadows + 2,000 long diagonal boxes|12,601 ms of median (5 renders)|
+|City blocks, 500 random seeds|3,084 maximum|
+|Spirograph, 500 random seeds|1,120 maximum|
 
-Las 1.000 muestras generadas terminaron correctamente, con coordenadas finitas,
-dentro del área A4 y menos de 80 m por hoja. Los tiempos dependen del equipo.
+The 1,000 samples generated ended correctly, with finite coordinates, within area A4 and less than 80 m per sheet. Time depends on the team.
 
-Se abrió `/Applications/Vectorio.app` tras comprobar que no había una Vectorio
-abierta. Se probó Crear → Manzanas → Aleatorio varias veces → Colocar → seleccionar
-sombra → asignarle rojo desde la paleta → Editar en Crear → Aleatorio → Actualizar.
-La sombra conservó el rojo. Deshacer recuperó la geometría anterior en un paso.
-⌘3 calculó y mostró el recorrido del grupo en Salida; ⌘2 permitió revisar también
-el espirógrafo. Los dos SVG del bodegón se inspeccionaron con trama continua en
-cilindro, cono y cúpula.
+`/Applications/Vectorio.app` was opened after verifying that there was no open Vector. Tested Create → City blocks → Random multiple times → Put → select shade → assign red from the → palette Edit in Create → Random → Update. The shadow kept the red. Deshacer recovered the previous geometry in one step. ⌘3 calculated and showed the group's path in Salida; ⌘2 allowed to check the spirograph as well. The two SVGs of the carcass were inspected with continuous hatching in cylinder, cone and dome.
 
-La captura detectó que el panel Crear invadía la barra superior. Se corrigió la
-reserva de espacio y se añadió una prueba de posición del encabezado y del pie
-para ambos idiomas. Esta última corrección, el campo de semilla exacto y los
-rótulos de partes se instalan para el siguiente inicio: la ventana de prueba se
-conserva abierta, sin reiniciarla. Esa revisión final de aspecto nativo queda
-pendiente del siguiente inicio; la disposición corregida está comprobada con
-el renderizado de egui en pruebas.
+The capture detected that the Create panel was invading the top bar. The space reserve was corrected and a header and foot position test was added for both languages. This last correction, the exact seed field and part labels are installed for the following start: the test window is kept open, without restarting. That final native-looking review is pending at the next start; the corrected arrangement is verified with the rendering of egui in tests.
 
-Fuera de alcance: el kit de piezas y los generadores con dirección artística de
-la fase 3. La protección de recursos del motor limita resoluciones extremas;
-no se garantiza un tiempo máximo para geometría arbitraria o toda superpuesta.
+Out of range: the 3 stage art direction parts kit and generators. The protection of engine resources limits extreme resolutions; no maximum time is guaranteed for arbitrary or overlapping geometry.

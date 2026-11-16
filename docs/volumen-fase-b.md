@@ -1,37 +1,37 @@
-# Volumen · Fase B
+# Volume · Phase B
 
-16 de noviembre de 2026. Implementación del §9 de `plan-volumen-rediseno.md`, manteniendo los algoritmos y los estilos de la Fase A. No incorpora máscaras tonales, tramas nuevas ni perspectiva.
+16 of November of 2026. Implementation of § 9 of `plan-volumen-rediseno.md`, maintaining the algorithms and styles of Phase A. It doesn't incorporate tonal masks, new hatching patterns or perspective.
 
-## Interfaz
+## Interface
 
-- Papel como vista inicial, con recuadro 3D de 92 × 72 pt en un espacio reservado debajo: no tapa el papel. Doble clic en el recuadro alterna la vista dividida. Se conserva la órbita que ya existía.
-- Escena de 176 pt y Pasadas de 220 pt. Por debajo de 1.100 pt, Escena se convierte en una barra de iconos accesibles y Pasadas se abre como hoja flotante. Escena también se puede plegar manualmente.
-- Chips para los siete estilos, con nombres en español y miniaturas vectoriales del modelo actual al pasar el ratón. Las miniaturas se generan a menor resolución en un trabajador cancelable. Guardar estilo está visible al final; los estilos propios se conservan en `estilos-volumen.json`, separados de los estilos de fotografías.
-- Lista de pasadas con activación, muestra de tinta, nombre, asa para ordenar, añadir, duplicar y eliminar. También se pueden subir y bajar desde Acciones. La selección abre sus parámetros y atenúa el resto de trazos del papel; Ver todas retira ese resaltado. La exportación conserva los trazados completos y sus anchos físicos.
-- Parámetros esenciales visibles y un único Avanzado por pasada. Modelo › Avanzado es el único segundo nivel plegable de Escena; no hay terceros niveles.
-- Sin descripciones extensas de modos ni nombres en clave. El espacio y los objetos colocados se llaman Volumen. Los textos están en `locales/app.yml`, con traducción al inglés.
-- Cálculo e importación indicados con una barra fina e indeterminada sobre el papel. Errores con acción Recalcular. Pie con trazos, tintas, minutos estimados y tiempo de cálculo; exportación secundaria y Colocar en el lienzo como único botón de acento en Volumen. El exportador global también es secundario en este espacio.
+- Paper as initial view, with 3D box of 92 × 72 pt in a reserved space below: do not cover the paper. Double-click the box to alternate the split view. It preserves the orbit that already existed.
+- Scene of 176 pt and Passes of 220 pt. Below 1,100 pt, Scene becomes an accessible icon bar and Passes is opened as a floating sheet. Scene can also be folded manually.
+- Chips for all seven styles, with names in Spanish and vector miniatures of the current model as the mouse passes. Miniatures are generated at lower resolution on a cancellable worker. Save style is visible at the end; own styles are retained in `estilos-volumen.json`, separate from photographic styles.
+- List of activated passes, ink sample, name, string to sort, add, duplicate and delete. You can also go up and down from Stocks. The selection opens its parameters and attenuates the rest of the strokes on the paper; viewing them all removes that highlight. Exports retain their full trajectories and their physical widths.
+- Essential parameters visible and a single Advanced per pass. Model › Advanced is the only folding second level of Scene; there are no third levels.
+- No extensive descriptions of modes or code names. The space and the objects placed are called volume. The texts are in `locales/app.yml`, with English translation.
+- Calculation and import indicated with a fine, indeterminate bar on the paper. Errors with recalculation action. Foot with strokes, inks, estimated minutes and calculation time; secondary export and Placing on canvas as single accent button in Volume. The global exporter is also secondary in this space.
 
-## Estado, persistencia y cálculo
+## State, persistence and calculation
 
-`volumetric_ui.rs` conserva el estado, la importación, el trabajador y las acciones. La interfaz se reparte en `volumetric_scene_panel.rs`, `volumetric_passes_panel.rs`, `volumetric_styles.rs`, `volumetric_preview.rs` y `volumetric_stats.rs`. Se retiran los controles antiguos y los tres papeles fijos (`role_active`, `valid_pens`).
+`volumetric_ui.rs` retains the status, imports, worker and shares. The interface is distributed in `volumetric_scene_panel.rs`, `volumetric_passes_panel.rs`, `volumetric_styles.rs`, `volumetric_preview.rs` and `volumetric_stats.rs`. The old controls and the three fixed papers (`role_active`, `valid_pens`) are removed.
 
-Cada pasada tiene una identidad estable en la app. Las solicitudes geométricas se ordenan por identidad y excluyen nombre, tinta, orden y activación. La vista aplica estos datos después, utilizando la respuesta geométrica que corresponda; no confunde resultados anteriores con una pila recién cambiada. Se conservan también las pasadas apagadas para activarlas sin otro cálculo. Cambiar parámetros o cámara usa las cachés del núcleo y el descarte de respuestas obsoletas.
+Each pass has a stable identity in the app. Geometric requests are sorted by identity and exclude name, ink, order and activation. The view applies this data later, using the corresponding geometric response; it does not confuse previous results with a newly changed stack. The deactivated passes are also kept for activation without further calculation. Changing parameters or camera uses core caches and discarding outdated answers.
 
-Deshacer y Rehacer conservan la pila y sus identidades. La barra global, el menú y ⌘Z/⇧⌘Z actúan sobre la pila en Volumen, y sobre el campo activo cuando se edita texto. No deshacen accidentalmente el documento de Diseño.
+Deshacer and Re-Make retain the stack and their identities. The global bar, menu and ⌘Z/⇧⌘Z act on the stack in Volume, and on the active field when editing text. They don't accidentally undo the Design document.
 
-Guardar, abrir, exportar y colocar utilizan las pasadas reales, incluidas combinaciones personalizadas y más de tres tintas. Las recetas v1 siguen migrándose por el núcleo. Los estilos conservan su paleta y la reutilizan o añaden al aplicarse.
+Save, open, export and place using the actual passes, including custom combinations and more than three inks. The v1 recipes continue to migrate through the core. Styles retain their palette and reuse or add to it when applied.
 
-La estimación de tiempo usa `output::prepare_cancellable` con las tintas, velocidades y ajustes reales de Salida, en un trabajador separado y cancelable. No bloquea la interfaz ni entra en la clave geométrica.
+The time estimate uses `output::prepare_cancellable` with the actual ink, speeds and settings of the output, in a separate, cancellable worker. It doesn't block the interface or enter the geometric key.
 
-Al combinar sombra y otros generadores se comparte un encuadre estable, elegido sin depender del orden de pasadas. La proyección usa esa misma cámara; los estilos históricos mantienen sus SVG. Una prueba específica cubre la alineación de sombra y aristas y el reordenamiento sin nuevo cálculo.
+By combining shadow and other generators, a stable frame is shared, chosen without depending on the order of passes. The projection uses that same camera; historical styles keep their SVGs. A specific test covers shadow and edge alignment and rearrangement without new calculation.
 
-## Verificación
+## Verification
 
-- `cargo test`: 314 pruebas superadas, 9 ignoradas, ningún fallo; incluye las once referencias SVG de Fase A, idénticas byte a byte.
-- Pruebas de recetas v2 personalizadas en la app, seis tintas de malla, metadatos sin invalidación geométrica, identidad estable, deshacer, almacenamiento de estilos y estimación con distintas velocidades y respuestas obsoletas.
-- Capturas del renderizador de egui a 980 × 620 y 1.440 × 900: temas claro y oscuro, error, cálculo, importación, pasada seleccionada y hoja flotante. Comprobación de acciones en ambos idiomas.
-- Revisión de la aplicación instalada en `/Applications/Vectorio.app`: selección y edición, octava tinta, añadir Ondas, ordenar por arrastre, deshacer, exportar SVG físico y colocar trazados. El documento de prueba se devolvió a blanco.
-- Detector de diseño sin incidencias y comprobación de formato/espacios de los archivos modificados.
+- `cargo test`: 314 passed tests, 9 ignored, no failures; includes the eleven SVG references of Phase A, identical byte to byte.
+- Custom v2 recipe tests in the app, six mesh inks, metadata without geometrical invalidation, stable identity, undo, style storage and estimation with varying speeds and outdated responses.
+- Captures of the renderer from egui to 980 × 620 and 1,440 × 900: light and dark themes, error, calculation, import, selected pass and floating sheet. Action checks in both languages.
+- Review of the application installed in `/Applications/Vectorio.app`: selection and editing, octave ink, adding Waves, sort by drag, undo, exporting physical SVG and placing traces. The evidence document was returned blank.
+- Unimpaired design detector and format/space verification of the modified files.
 
-Pendiente: gizmo de luz y manipulación del dibujo sobre el papel de Fase C; máscaras y mejoras tonales de D, efectos y continuidad de las fases siguientes. El resaltado solicitado en el §9 queda resuelto en B.
+Hanging: lighting and drawing manipulation on Phase C paper; D-tone masks and improvements, effects and continuity of subsequent phases. The emphasis requested in § 9 is resolved in B.

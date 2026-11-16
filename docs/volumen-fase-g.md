@@ -1,74 +1,74 @@
-# Volumen · Fase G · Mapas de lectura
+# Volume · Phase G · Reading maps
 
-16 de noviembre de 2026. La fase G se ejecuta después de D, antes de E y F, según el orden del plan actualizado.
+16 of November of 2026. Phase G is executed after D, before E and F, in the order of the updated plan.
 
-## Medida, codificación y rampa
+## Measurement, coding and ramp
 
-Una pasada puede conservar su generador de líneas y añadir un **Mapa de lectura** desde **Acciones**. También hay pasadas y estilos de lectura en la galería y en **Añadir pasada › Añadir mapa de lectura**.
+A pass can retain its line generator and add a **Reading map** from **Actions**. There are also passes and reading styles in the gallery and in **Add pass › Add reading map**.
 
-Las medidas disponibles son altura, profundidad de cámara, distancia geodésica, luz con sombras entre componentes, curvatura media, curvatura gaussiana, pendiente, orientación de pendiente, oclusión ambiental, espesor y objetos. Se calculan sobre la malla de trabajo transformada y se cachean sin asignación de tintas.
+The available measures are height, chamber depth, geodesic distance, light with shadows between components, medium curvature, Gaussian curvature, slope, slope orientation, environmental occlusion, thickness and objects. They are calculated on the transformed work mesh and cached without assigning inks.
 
-- Curvatura media firmada: Laplace–Beltrami cotangente, masa baricéntrica y normales coherentes; positivo indica convexo y negativo cóncavo.
-- Curvatura gaussiana: defecto angular dividido por área. Distingue regiones convexas y sillas; no equivale al signo de la curvatura media.
-- Pendiente: ángulo de la normal con la vertical, entre 0° y 90°; orientación: azimut horario desde +Y, con continuidad circular en el paso 360°/0°.
-- Oclusión ambiental: entre 8 y 128 rayos hemisféricos de distribución coseno, deterministas, contra un BVH de triángulos. Cero significa abierto al cielo y uno cubierto.
-- Espesor: primera intersección de un rayo hacia dentro siguiendo la normal; cero significa que no encontró otra superficie.
-- Distancia geodésica: aproximación por caminos de aristas, desde el extremo superior de cada componente.
+- Signed mean curvature: Laplace – Beltrami cotangent, baricentric and normal mass coherent; positive indicates convex and negative concave.
+- Gaussian curvature: angular defect divided by area. It distinguishes convex regions and chairs; it does not correspond to the mean curvature sign.
+- Hanging: angle of the normal with the vertical, between 0 ° and 90 °; orientation: timetable azimuth from +Y, with circular continuity in the passage 360 °/ 0 °.
+- Environmental occlusion: between 8 and 128 hemispheric rays of cosine distribution, deterministic, against a BVH of triangles. Zero means open to the sky and one covered.
+- Thickness: first intersection of a beam inward following normal; zero means it did not find another surface.
+- Geodesic distance: approach by edge paths, from the upper end of each component.
 
-Las codificaciones de esta fase son **Fronteras exactas**, **Transición difuminada** y **Densidad de trazos**. La primera interpola el campo sobre cada segmento y lo corta en los umbrales. La segunda reparte dos tintas contiguas por índice de trazo, mediante una secuencia ordenada reproducible. La tercera adelgaza la familia de líneas con 16 niveles de cobertura y una sola tinta; el espaciado base sigue perteneciendo al generador.
+The codes for this phase are **Accurate boundaries**, **Differential Transition** and **Stroke density**. The first interpolates the field over each segment and cuts it into the thresholds. The second allocates two adjacent inks by stroke index, using a reproducible orderly sequence. The third thins the line family with 16 coverage levels and a single ink; the base spacing still belongs to the generator.
 
-La rampa secuencial ordena las tintas seleccionadas de oscuro a claro por L de OKLab. La divergente conserva el orden elegido y reserva papel alrededor de cero, con rango simétrico. La categórica solo se ofrece para objetos: usa su pertenencia por cara, sin interpolar identificadores. **Tintas** abre el selector de familias; la muestra de rampa permanece visible en el editor y en la lista.
+The sequential ramp orders the inks selected from dark to light by OKLab L. The divergent retains the order chosen and reserves paper around zero, with symmetrical range. The category is only offered for objects: use your belonging by face, without interpolating identifiers. **Inks** opens the family selector; the ramp sample remains visible in the editor and in the list.
 
-En Avanzado están la combinación ponderada de dos medidas, inversión, umbral, rango manual y ecualización de histograma. En mezclas de luz con otra medida, el rango automático toma los valores de los vértices; las regiones de sombra recortadas pueden saturar el extremo del rango. Puede fijarse un rango manual. La cartela identifica las mezclas mediante sus dos medidas y pesos.
+In Advanced are the weighted combination of two measurements, inversion, threshold, manual range and histogram equalization. In light blends with another measurement, the automatic range takes the values of the vertices; cut shadow regions can saturate the end of the range. You can set a manual range. The legend identifies the mixes by their two measures and weights.
 
-## Cartela vectorial
+## Vector legend
 
-**Cartela en el papel** reserva una franja de 26 mm por cartela dentro del área imprimible. Contiene rampa real, valores o categorías, medida/unidades, modelo, fecha, cámara/luz y escala gráfica. La tipografía es de trazo único del motor existente: el SVG no lleva texto ni imágenes raster incrustadas.
+**Legend on paper** reserves a band of 26 mm per legend within the printable area. It contains actual ramp, values or categories, measurement/units, model, date, camera/light and graphic scale. The typography is unique stroke of the existing engine: the SVG carries no embedded text or raster images.
 
-La fecha se fija al activar la cartela, en UTC, es editable y se guarda en la receta. No cambia al reabrir el dibujo. La escala del desarrollo corresponde a su empaquetado físico; el par estereoscópico tiene su propia escala reducida. Los horizontes son una deformación artística: su escala se interpreta en horizontal.
+The date is set by activating the legend, in UTC, is editable and is saved in the recipe. It doesn't change when you reopen the drawing. The scale of development corresponds to its physical packaging; the stereoscopic pair has its own reduced scale. Horizons are an artistic deformation: their scale is interpreted horizontally.
 
-Mover o escalar la composición conserva la cartela en su franja. El zoom usa el encuadre efectivo del modelo y mantiene el punto señalado. Ocultar una pasada conserva la reserva de su cartela para no mover las demás; desactivar la opción Cartela libera el espacio.
+Moving or climbing the composition keeps the legend in its stripe. The zoom uses the model's actual frame and keeps the point marked. Hiding one pass retains the reserve of its legend so as not to move the others; disabling the Legend option frees up space.
 
-## Efectos de lectura
+## Effects of reading
 
-- **Hachuras de relieve**: dirección de máxima pendiente, con longitud y densidad crecientes en las zonas inclinadas.
-- **Mapa de agujas**: rejilla física de pequeños trazos orientados por la normal proyectada.
-- **Líneas de horizonte**: perfiles de profundidad y envolventes superior/inferior de horizonte flotante, con cruces analíticos. Los tramos contiguos se unen para evitar levantamientos innecesarios.
-- **Crestas y valles**: aristas de extremos discretos de curvatura media, separadas por signo y umbral. No es una implementación de crestas de curvatura principal continuas.
-- **Anaglifo**: cámaras separadas entre 0,5° y 8°, con estilo rojo/cian y variante de par estereoscópico.
-- **Desarrollo**: bosque de caras desplegadas isométricamente, priorizando las uniones coplanarias y cortando uniones que producirían solape. Empaqueta las islas a una escala común, conserva pliegues de monte/valle en tintas distintas y añade pestañas y números de unión.
-- **Estela de giro**: entre dos y doce cámaras, con tintas repartidas según el momento de la vista.
-- **Sección técnica**: semiespacio recortado, tapa rayada con huecos, contorno, líneas ocultas discontinuas y dimensiones XYZ de la envolvente resultante.
+- **Relief holes**: direction of maximum slope, with increasing length and density in sloping areas.
+- **Map of needles**: physical grid of small strokes oriented by the projected normal.
+- **Horizontal lines**: depth profiles and upper/lower floating horizon envelopes, with analytical crossings. Adjacent sections are joined together to prevent unnecessary riots.
+- **Crests and valleys**: edges of discrete ends of medium curvature, separated by sign and threshold. It's not an implementation of continuous main curvature ridges.
+- **Anaglifo**: cameras separated between 0.5 ° and 8 °, with red/cian style and stereoscopic torque variant.
+- **Development**: forest of isometrically unfolded faces, prioritizing coplanar joints and cutting out joints that would produce solape. Pack the islands at a common scale, store mountain/valley folds in different inks and add tabs and binding numbers.
+- **Rotation trail**: between two and twelve cameras, with inks distributed according to the time of vision.
+- **Technical Section**: cropped half-space, stripped lid with gaps, contour, discontinuous hidden lines and XYZ dimensions of the resulting envelope.
 
-La galería incorpora 14 estilos de lectura. La rampa rojo/cian del estilo Anaglifo reutiliza o añade esas tintas al documento; las tintas de los objetos existentes se conservan.
+The gallery incorporates 14 reading styles. The Anaglifo-style red/cyan ramp reuses or adds these inks to the document; the inks of existing objects are preserved.
 
-## Contratos y límites
+## Contracts and limits
 
-`reading/fields.rs`, `rays.rs`, `surface.rs`, `encode.rs`, `effects.rs`, `unfold.rs`, `section.rs` y `legend.rs` separan medidas, consultas geométricas y salida física. `Pass.reading` es opcional; las recetas v2 anteriores se abren sin este campo, y la migración v1 continúa funcionando.
+`reading/fields.rs`, `rays.rs`, `surface.rs`, `encode.rs`, `effects.rs`, `unfold.rs`, `section.rs` and `legend.rs` separate measurements, geometric queries and physical output. `Pass.reading` is optional; the previous v2 recipes open without this field, and the v1 migration continues to work.
 
-`DrawingPart` conserva una parte editable por pasada y expone sus familias de tinta. Exportación, colocación, miniaturas, selección y estimación usan esas familias. Cambiar asignaciones de tinta no solicita geometría; la ordenación por luminosidad se aplica al materializar la salida con la paleta real. Cambiar la cantidad de familias sí cambia los umbrales.
+`DrawingPart` retains an editable portion by pass and exposes its ink families. Export, placement, thumbnails, selection and estimation use those families. Changing ink assignments does not require geometry; luminosity sorting is applied when materializing the output with the actual palette. Changing the number of families does change thresholds.
 
-La lectura de líneas utiliza el campo de la superficie visible proyectada, igual que las máscaras de D. En una pasada con líneas ocultas o todas las líneas, ese campo sigue siendo el de la superficie visible. Las vistas que cambian la proyección (horizontes, anaglifo, giro, desarrollo y sección) no admiten la máscara tonal de la cámara principal; la interfaz la oculta y las recetas incompatibles se rechazan. Las pasadas de lectura propias generan regiones visibles; la selección visible/oculta/todo se conserva en las pasadas de líneas 3D.
+Line reading uses the field of the projected visible surface, as do D masks. In a pass with hidden lines or all lines, that field remains that of the visible surface. Views that change the projection (horizons, anaglyph, turn, development and section) do not support the tonal mask of the main chamber; the hidden interface and incompatible recipes are rejected. The own reading passes generate visible regions; the visible/hidden/everything selection is retained in the 3D line passes.
 
-Las magnitudes se expresan en unidades del modelo normalizado (**u**), no se interpretan las unidades OBJ como milímetros. Los trazos, guiones, separación, pestañas y cartelas sí se miden en milímetros de papel. Las curvaturas dependen de la calidad de la triangulación; en fronteras o aristas no manifold se dejan a cero para no interpretar la curvatura del borde como curvatura superficial. Espesor en mallas abiertas y AO con pocas muestras son aproximaciones.
+The magnitudes are expressed in units of the standard model (**or**), the OBJ units are not interpreted as millimetres. Strokes, scripts, separation, tabs and legends are all measured in millimeters of paper. Curvatures depend on the quality of the triangulation; on non-manifold borders or edges they are left to zero so as not to interpret the curvature of the edge as a surface curvature. Thickness in open mesh and AO with few samples are approximations.
 
-El horizonte ordena los perfiles por profundidad media; no sustituye a un renderizador general de volúmenes con voladizos. El desarrollo admite parámetros de hasta 512 facetas y un máximo efectivo de 1.024 caras; requiere una malla manifold y puede producir varias islas. No optimiza el corte ni el pegado como una aplicación de papercraft especializada. La lectura admite hasta 100.000 caras y 200.000 vértices de trabajo, y la salida hasta 250.000 trazos; los excesos se rechazan con un mensaje. Hay cancelación y cachés acotadas.
+The horizon orders profiles by average depth; it does not replace a general volume renderer with folds. The development supports parameters of up to 512 facets and an effective maximum of expensive 1,024; it requires a mesh manifold and can produce several islands. It doesn't optimize slicing or gluing like a specialized papercraft application. Reading supports up to 100,000 expensive and 200,000 working vertices, and output up to 250,000 strokes; excesses are rejected with a message. There's cancellation and hidden caches.
 
-## Comprobaciones
+## Checks and inspections
 
-- `cargo test`: **365 pruebas superadas, 9 ignoradas y ningún fallo**.
-- Se conservan las once referencias SVG históricas byte a byte, incluida la receta v1 real.
-- Curvatura y escala de una esfera, integral de Gauss–Bonnet, signos en un toroide, plano abierto, AO bajo una cubierta y espesor de una esfera.
-- Fronteras exactas sin pérdida de longitud, coberturas reproducibles, continuidad de orientación 360°/0°, rampa OKLab y cero divergente como papel.
-- Todos los estilos generan geometría finita, recortada y reproducible, con receta v2 y exportación vectorial. Se prueban cachés, cancelación, paletas personalizadas y referencias de tinta al guardar estilos/deshacer.
-- Desarrollo de cubo sin diagonales de corte artificiales; triángulos coincidentes frente a pliegues compartidos; hueco del toroide en la sección; cámaras estereoscópicas separadas; horizonte flotante con cruces exactos.
-- Cartela que conserva el dibujo y no pierde el anclaje del zoom; controles y acciones de salida a 980 × 620 y 1.440 × 900 en español e inglés.
-- Capturas: `VECTORIO_QA_READING=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`; resultados `target/volumetric/lecture-*.png`.
-- `git diff --check`, formato Rust y detector de interfaz sin errores.
-- En la instalación de Aplicaciones: selección de mapa térmico, cuatro tintas, cartela y ⌘Z/⇧⌘Z. Escape cierra primero los menús de Volumen; se añade una prueba de regresión para conservar el espacio activo.
+- `cargo test`: **365 Tests passed, 9 ignored and no** failed.
+- The eleven historical SVG references byte to byte are preserved, including the actual v1 recipe.
+- Curvature and scale of a sphere, integral of Gauss – Bonnet, signs in a toroid, open plane, AO under a cover and thickness of a sphere.
+- Accurate boundaries without loss of length, reproducible covers, orientation continuity 360 °/ 0 °, OKLab ramp and divergent zero as paper.
+- All styles generate finite, cut and reproducible geometry, with v2 recipe and vector export. Caches, cancellations, custom pallets and ink references are tested when storing styles/deshacer.
+- Development of a cube without artificial slice diagonals; matching triangles opposite shared folds; hole of the toroid in the section; separate stereoscopic cameras; floating horizon with exact crosses.
+- Legend that retains the drawing and does not lose zoom anchorage; controls and output actions to 980 × 620 and 1,440 × 900 in Spanish and English.
+- Captures: `VECTORIO_QA_READING=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`; results from `target/volumetric/lecture-*.png`.
+- `git diff --check`, Rust format and error-free interface detector.
+- In the installation of Applications: heat map selection, four inks, legend and ⌘Z/⇧⌘Z. Escape closes the Volume menus first; a regression test is added to preserve the active space.
 
-Referencias de las fórmulas: [libigl, cantidades geométricas discretas](https://libigl.github.io/tutorial/#chapter-2-discrete-geometric-quantities-and-operators) y [OKLab, formulación de su autor](https://bottosson.github.io/posts/oklab/). Se implementan las operaciones en Rust; no se incorpora otra biblioteca geométrica.
+References to the formulas: [libigl, discrete geometric quantities](https://libigl.github.io/tutorial/#chapter-2-discrete-geometric-quantities-and-operators) and [OKLab, wording by its author](https://bottosson.github.io/posts/oklab/).) Operations are implemented in Rust; no other geometric library is incorporated.
 
-## Pendiente
+## Suspended
 
-E y F se entregaron posteriormente. La mezcla óptica, los juegos de tintas y las isolíneas de los nuevos campos se completan en [Ampliación de G](volumen-ampliacion-g.md). Siguen pendientes los campos de curvatura principal continuos y las líneas de flujo.
+E and F surrendered later. The optical mix, ink sets and isolines of the new fields are completed in [G] Expansion (volumen-ampliacion-g.md). Continuous main curvature fields and flow lines remain on the slope.

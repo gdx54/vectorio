@@ -1,25 +1,25 @@
-# Vectorio · 36 combinaciones de color
+# Vectorio · 36 color combinations
 
-Exploraciones generadas con la herramienta integrada `image_gen`, tomando `vectorio-icon.png` como referencia. Pendientes de elección; el icono instalado conserva su versión anterior. Las imágenes son muestras visuales; los códigos de color siguientes son la especificación para preparar la opción elegida.
+Explorations generated with the integrated tool `image_gen`, taking `vectorio-icon.png` as a reference. Choice pendants; the icon installed retains its previous version. The images are visual samples; the following color codes are the specification for preparing the chosen option.
 
-## A · Amarillos
+## A · Yellow
 
-Imagen: `paletas-a-amarillos.png`.
+`paletas-a-amarillos.png`.
 
-| Código | Fondo / figura | Fondo | V |
+|Code of conduct|Fund / figure|Funding|V|
 | --- | --- | --- | --- |
-| A01 | Mantequilla / ciruela | #FFF0AC | #512749 |
-| A02 | Limón suave / índigo | #F6F095 | #35216C |
-| A03 | Limón / carbón | #F5EB35 | #252527 |
-| A04 | Ácido / petróleo | #E9F54A | #06484B |
-| A05 | Lima / berenjena | #D9E954 | #4D244D |
-| A06 | Sol / cobalto | #FFD541 | #1748BA |
-| A07 | Oro / burdeos | #E9B72E | #6E233C |
-| A08 | Miel / noche | #F2C363 | #202E50 |
-| A09 | Ocre / crema | #C69B38 | #FFF6DC |
-| A10 | Azafrán / bosque | #F6BB24 | #214D38 |
-| A11 | Arena / azul tinta | #EAD99A | #263F65 |
-| A12 | Vainilla / óxido | #FFF3C7 | #984529 |
+|A01|Cockroach / plum|#FFF0AC|#512749|
+|A02|Soft lemon or indigo|#F6F095|#35216C|
+|Manufacture from materials of any heading|Lemon / coal|#F5EB35|#252527|
+|A04|Acid / oil|#E9F54A|#06484B|
+|A05|Lime and eggplant|#D9E954|#4D244D|
+|A06|Sol / cobalt|#FFD541|#1748BA|
+|This Regulation shall enter into force on the date of its publication.|Gold / curbs|#E9B72E|#6E233C|
+|A08|Honey / night|#F2C363|#202E50|
+|A09|Ocre / cream|#C69B38|#FFF6DC|
+|A10|Saffron / forest|#F6BB24|#14D38|
+|A11|Sand / blue ink|#EAD99A|#263F65|
+|A12|Vanilla / oxide|#FFF3C7|#984529|
 
 ### Prompt
 
@@ -42,24 +42,24 @@ A12 · Vainilla / óxido — background #FFF3C7, V #984529
 Only these twelve labels; no other text, no title. No new symbols, no reinterpreted logo, no decorative props. Particularly maintain genuine differences in background hue/saturation/lightness. For dark tiles the V must stay the specified light color. Retain the reference V contour design faithfully in every tile.
 ```
 
-## B · Fondos de color
+## B · Colour background
 
-Imagen: `paletas-b-color.png`.
+`paletas-b-color.png`.
 
-| Código | Fondo / figura | Fondo | V |
+|Code of conduct|Fund / figure|Funding|V|
 | --- | --- | --- | --- |
-| B01 | Menta / bosque | #BEE9D1 | #184839 |
-| B02 | Salvia / ciruela | #C4CFAB | #573655 |
-| B03 | Hielo / cobalto | #D5EAF4 | #1645B4 |
-| B04 | Pervinca / noche | #ACBCEB | #232B55 |
-| B05 | Lavanda / burdeos | #D8C7ED | #702D48 |
-| B06 | Lila / violeta | #E7D7F4 | #5B2790 |
-| B07 | Rosa / vino | #F3CBDA | #722A43 |
-| B08 | Coral / berenjena | #FA9D93 | #48264E |
-| B09 | Melocotón / petróleo | #F8CCAA | #164C50 |
-| B10 | Terracota / crema | #BC6049 | #FFF0D2 |
-| B11 | Naranja / azul tinta | #FF7B36 | #172F5C |
-| B12 | Ultramar / marfil | #304BC6 | #FFF5D8 |
+|B01|Lies / forest|#BEE9D1|#184839|
+|B02|Salvia and plums|#C4CFAB|#573655|
+|B03|Ice and cobalt|#D5EAF4|#1645B4|
+|B04|Pervinca / night|#ACBCEB|#232B55|
+|B05|Lavender and broths|#D8C7ED|#702D48|
+|B06|Purple or violet|#E7D7F4|#B2790|
+|B07|Rose / wine|#F3CBDA|#722A43|
+|B08|Coral / eggplant|#FA9D93|#48264E|
+|B09|Melocotone / oil|#F8CCAA|#164C50|
+|B10|Terracotta / cream|#BC6049|#FFF0D2|
+|B11|Orange / blue ink|#FF7B36|#172F5C|
+|B12|Overseas / ivory|#304BC6|#FFF5D8|
 
 ### Prompt
 
@@ -82,24 +82,24 @@ B12 · Ultramar / marfil — background #304BC6, V #FFF5D8
 Only these twelve labels; no other text, no title. No new symbols, no reinterpreted logo, no decorative props. Particularly maintain genuine differences in background hue/saturation/lightness. For dark tiles the V must stay the specified light color. Retain the reference V contour design faithfully in every tile.
 ```
 
-## C · Fondos oscuros
+## C · Dark depths
 
-Imagen: `paletas-c-oscuros.png`.
+`paletas-c-oscuros.png`.
 
-| Código | Fondo / figura | Fondo | V |
+|Code of conduct|Fund / figure|Funding|V|
 | --- | --- | --- | --- |
-| C01 | Noche / mantequilla | #202B49 | #FFE9A0 |
-| C02 | Índigo / albaricoque | #34216A | #FFBD8B |
-| C03 | Ciruela / lima | #482342 | #E5EF7F |
-| C04 | Petróleo / menta | #123F47 | #AEE5C5 |
-| C05 | Bosque / oro | #214D3D | #F5CF5E |
-| C06 | Burdeos / rosa | #60233A | #F6BDCD |
-| C07 | Cacao / vainilla | #48352E | #F9E8BF |
-| C08 | Grafito / ácido | #292C2E | #EAF56A |
-| C09 | Cobalto / hielo | #1743AF | #E4F2F6 |
-| C10 | Violeta / limón | #5B2C97 | #F4EB7C |
-| C11 | Carbón / coral | #222327 | #FF9F85 |
-| C12 | Pizarra / celeste | #34485B | #BFE3F0 |
+|C01|Night / butter|#202B49|#FFE9A0|
+|C02|Indigo and apricot|#34216A|#FFBD8B|
+|C03|Plum / lime|#482342|#E5EF7F|
+|C04|Oil / mint|#123F47|#AEE5C5|
+|C05|Forest / gold|#14D3D|#F5CF5E|
+|C06|Bordeaux / pink|#60233A|#F6BDCD|
+|C07|Cocoa / vanilla|#48352E|#F9E8BF|
+|C08|Graphite / acid|#292C2E|#EAF56A|
+|C09|Cobalt / ice|#1743AF|#E4F2F6|
+|C10|Purple / lemon|#B2C97|#F4EB7C|
+|C11|Coal / coral|#222327|#FF9F85|
+|C12|Scratch / sky|#34485B|#BFE3F0|
 
 ### Prompt
 

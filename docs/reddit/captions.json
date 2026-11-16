@@ -1,0 +1,184 @@
+[
+  {
+    "file": "01-design-dark.jpg",
+    "group": "Design",
+    "title": "Design overview",
+    "caption": "Editable shapes, pen-based fills, single-line lettering, and object layers in dark mode.",
+    "theme": "Dark"
+  },
+  {
+    "file": "02-design-light.jpg",
+    "group": "Design",
+    "title": "Design overview \u00b7 light",
+    "caption": "The same drawing in light mode: hatching, crosshatching, concentric fills, stippling, waves, spirograph, Lissajous, and polar rose.",
+    "theme": "Light"
+  },
+  {
+    "file": "03-handwritten-text-light.jpg",
+    "group": "Design",
+    "title": "Single-line text",
+    "caption": "Editable handwriting, typeface and size controls, paragraph settings, page breaks, and SVG page export.",
+    "theme": "Light"
+  },
+  {
+    "file": "04-ink-editor-light.jpg",
+    "group": "Design",
+    "title": "Independent ink editing",
+    "caption": "Outline and fill colors can be edited independently, with hexadecimal and RGB controls and a before/after preview.",
+    "theme": "Light"
+  },
+  {
+    "file": "05-total-ink-light.jpg",
+    "group": "Output",
+    "title": "Ink accumulation",
+    "caption": "A heat map shows overlapping physical pen footprints; the timeline separates drawing, travel, drying, and pen changes.",
+    "theme": "Light"
+  },
+  {
+    "file": "06-drying-plan-light.jpg",
+    "group": "Output",
+    "title": "Drying protection",
+    "caption": "The prepared route reduces simultaneous wet passes. Times and moisture are estimates to calibrate with real pens and paper.",
+    "theme": "Light"
+  },
+  {
+    "file": "07-route-simulation-light.jpg",
+    "group": "Output",
+    "title": "Route simulation",
+    "caption": "A shared time cursor previews the route and active ink, with explicit drying waits and manual pen-change pauses.",
+    "theme": "Light"
+  },
+  {
+    "file": "08-create-village-light.jpg",
+    "group": "Create",
+    "title": "White village",
+    "caption": "A seeded architectural scene with adjustable framing, density, ink set, and pen count.",
+    "theme": "Light"
+  },
+  {
+    "file": "09-scene-catalog-light.jpg",
+    "group": "Create",
+    "title": "Scene catalog",
+    "caption": "The categorized selector groups scenes and curves, with a search field and editable generator parameters.",
+    "theme": "Light"
+  },
+  {
+    "file": "10-create-city-light.jpg",
+    "group": "Create",
+    "title": "Festival city \u00b7 light",
+    "caption": "A procedural city with a square, streets, people, buildings, waterfront, and separate ink families.",
+    "theme": "Light"
+  },
+  {
+    "file": "11-create-city-dark.jpg",
+    "group": "Create",
+    "title": "Festival city \u00b7 dark",
+    "caption": "The same city and palette in dark mode; the paper preview stays readable.",
+    "theme": "Dark"
+  },
+  {
+    "file": "12-create-domes-dark.jpg",
+    "group": "Create",
+    "title": "Worlds under domes",
+    "caption": "A seeded scene of connected, inhabited domes with controls for the world, people, background, and main attraction.",
+    "theme": "Dark"
+  },
+  {
+    "file": "13-spider-contours-dark.jpg",
+    "group": "Volume",
+    "title": "STL to vector contours",
+    "caption": "The supplied spider STL in split view: shaded 3D reference alongside the actual vector paths on paper.",
+    "theme": "Dark"
+  },
+  {
+    "file": "14-spider-contours-light.jpg",
+    "group": "Volume",
+    "title": "Spider contour lines \u00b7 light",
+    "caption": "The same imported spider rendered as contour passes with separate inks.",
+    "theme": "Light"
+  },
+  {
+    "file": "15-spider-engraving-light.jpg",
+    "group": "Volume",
+    "title": "Form-following engraving",
+    "caption": "Tonal hatching follows the spider surface, preserving clear highlights and building shadows from lines.",
+    "theme": "Light"
+  },
+  {
+    "file": "16-spider-curvature-light.jpg",
+    "group": "Volume",
+    "title": "Curvature reading map",
+    "caption": "A diverging ink ramp encodes mean curvature, with editable map parameters and a vector legend.",
+    "theme": "Light"
+  },
+  {
+    "file": "17-spider-optical-mix-light.jpg",
+    "group": "Volume",
+    "title": "Optical mixing \u00b7 light",
+    "caption": "A height field becomes a thermal colormap separated into four process inks, with a physical screen scale.",
+    "theme": "Light"
+  },
+  {
+    "file": "18-spider-optical-mix-dark.jpg",
+    "group": "Volume",
+    "title": "Optical mixing \u00b7 dark",
+    "caption": "The same four-ink spider in dark mode; the output consists of vector strokes.",
+    "theme": "Dark"
+  },
+  {
+    "file": "19-spider-section-dark.jpg",
+    "group": "Volume",
+    "title": "Technical section",
+    "caption": "A plane cuts the spider, retaining section hatching and hidden lines. Show XYZ dimensions is turned off.",
+    "theme": "Dark"
+  },
+  {
+    "file": "20-spider-multiview-dark.jpg",
+    "group": "Volume",
+    "title": "Multiview sheet",
+    "caption": "Top, front, side, and isometric views arranged on one sheet, with adjustable view spacing.",
+    "theme": "Dark"
+  },
+  {
+    "file": "21-spider-perspective-dark.jpg",
+    "group": "Volume",
+    "title": "Perspective camera",
+    "caption": "The technical section under perspective projection, with focal-distance and near-plane controls.",
+    "theme": "Dark"
+  },
+  {
+    "file": "22-photo-colors-dark.jpg",
+    "group": "Photo",
+    "title": "Image to color hatching",
+    "caption": "The NASA Earth image reduced to pen colors and actual hatched vector regions.",
+    "theme": "Dark"
+  },
+  {
+    "file": "23-photo-original-dark.jpg",
+    "group": "Photo",
+    "title": "Original image comparison",
+    "caption": "The source image can be compared with Drawing and Overlay using the same framing.",
+    "theme": "Dark"
+  },
+  {
+    "file": "24-photo-flow-dark.jpg",
+    "group": "Photo",
+    "title": "Form-following image strokes",
+    "caption": "The Portrait mode follows image structure with curved strokes and extra crossed passes in shadows.",
+    "theme": "Dark"
+  },
+  {
+    "file": "25-photo-topography-dark.jpg",
+    "group": "Photo",
+    "title": "Image topography",
+    "caption": "Fast Marching converts brightness-guided travel times into contour lines, with an adjustable origin.",
+    "theme": "Dark"
+  },
+  {
+    "file": "26-photo-optical-mix-dark.jpg",
+    "group": "Photo",
+    "title": "Image optical mixing",
+    "caption": "CMYK pen separation and overlapping vector hatching, with controls for spacing, length, variation, and vibration.",
+    "theme": "Dark"
+  }
+]

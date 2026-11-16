@@ -1,39 +1,39 @@
-# Volumen · Fase E
+# Volume · Phase E
 
-16 de noviembre de 2026. Acabado artístico vectorial por pasada.
+16 of November of 2026. Finished vector art by pass.
 
-## Uso
+## Use
 
-La galería incorpora **Ondas con halo**, **Eco de contorno**, **Trazo a mano** y **Ondas con gradiente**. Elegirlos sustituye la pila y permite deshacer.
+The gallery incorporates **Waves with halo**, **Eco contour**, **Stroke by hand** and **Waves with gradient**. Choosing them replaces the stack and allows undoing.
 
-El editor de la pasada contiene **Acabado artístico**, al mismo nivel que sus otros apartados:
+The pass editor contains **Artistic finish**, at the same level as its other sections:
 
-- **Halo al ocultarse (mm)**: abre espacio en el trazo posterior junto a una silueta más cercana. Conserva el trazo delantero y mantiene la distancia al atravesar vértices. Disponible para contorno, aristas, campo, ondas y malla con líneas visibles.
-- **Ecos de contorno** y **Desplazamiento del eco (mm)**: hasta doce copias; desplazamiento positivo hacia fuera y negativo hacia dentro. Una copia a 0,2 mm permite engrosar el contorno. En contornos cerrados se respeta la orientación de exteriores y huecos; en perfiles abiertos el desplazamiento es lateral. Con gradiente, los ecos usan la tinta base elegida y el original conserva su reparto de color.
-- **Temblor de mano**, suavidad, longitud irregular y pequeños huecos: ruido suave en milímetros y variación reproducible mediante la semilla de escena y una semilla propia de la pasada. Cambiar tintas, nombres u orden conserva el resultado.
+- **Halo by concealing (mm)**: opens up space in the later stroke next to a nearer silhouette. It keeps the front stroke and keeps the distance when crossing vertices. Available for contour, edges, field, waves and mesh with visible lines.
+- **Contour echoes** and **Echo movement (mm)**: up to twelve copies; positive outward and negative inward displacement. A copy to 0.2 mm allows the contour to thicken. In closed contours the orientation of outer and hollow areas is respected; in open profiles the displacement is lateral. With gradient, echoes use the chosen base ink and the original retains its color distribution.
+- **Handshake**, softness, irregular length and small gaps: soft noise in millimeters and reproducible variation by scene seed and a pass-specific seed. Changing inks, names or order retains the result.
 
-En **Acciones → Aplicar gradiente de tintas**, elegir altura, profundidad o luz. Reutiliza los mapas de lectura de G con transición difuminada por alternancia vectorial; el editor del mapa permite ajustar las tintas, incluida una rampa de dos o tres. Se aplica a trazos sobre la superficie visible. Las vistas especializadas con medida propia conservan sus controles específicos.
+In **Actions → Apply ink gradient**, choose height, depth or light. It reuses the reading maps of G with transition blurred by vector alternation; the map editor allows the inks to be adjusted, including a two- or three-ramp. It is applied to strokes on the visible surface. Specialized, custom-made views retain their specific controls.
 
-Los halos no se ofrecen en secciones desplazadas, tramas 2D, suelo ni vistas de lectura compuestas. Los ecos son desplazamientos artísticos: un desplazamiento grande sobre una silueta cóncava puede producir cruces.
+The halos are not offered in displaced sections, 2D hatching patterns, floor or composite reading views. Echoes are artistic displacements: a large displacement over a concave silhouette can produce crosses.
 
-## Núcleo y persistencia
+## Core and persistence
 
-`volumetric/finishing/` contiene el acabado, los ecos y la variación sembrada. El halo amplía los intervalos analíticos de oclusión por longitud de trazo, también en curvas cerradas. El resto del acabado actúa después de las máscaras y el reparto de tintas, con recorte al área imprimible. Las leyendas conservan su geometría y los ecos fuera del papel se eliminan.
+`volumetric/finishing/` contains the finish, the echoes and the sown variation. The halo expands the occlusion analytical intervals by stroke length, also in closed curves. The rest of the finish works after the masks and the ink distribution, with a cut to the printable area. Legends retain their geometry and echoes outside the paper are eliminated.
 
-La caché de acabado reutiliza la geometría al cambiar metadatos y evita repetir los cálculos anteriores al modificar temblor o ecos. Se mantienen límites de trazos/puntos y cancelación. Toda la salida sigue siendo vectorial.
+The finishing cache reuses geometry by changing metadata and avoids repeating previous calculations by modifying tremor or echoes. Stroke/point and cancellation limits are maintained. The entire output is still vectoral.
 
-La receta sigue siendo **v2**: añade ajustes de acabado con valores predeterminados desactivados. Carga recetas v2 anteriores sin estos campos y mantiene la migración v1. Guardar estilos, recetas y deshacer/rehacer conserva los ajustes.
+The recipe is still **v2**: adds finishing settings with default values disabled. It loads previous v2 recipes without these fields and maintains v1 migration. Save styles, recipes and undo/re-do retains the settings.
 
-## Comprobaciones
+## Checks and inspections
 
-- `cargo test`: **379 superadas, 9 ignoradas, ningún fallo**. Las once referencias SVG históricas siguen siendo idénticas byte a byte, incluida la migración de una receta v1 real.
-- Pruebas de profundidad y distancia del halo, continuidad entre vértices y cierre, ecos exteriores/interiores y huecos, doble contorno a 0,2 mm, ruido acotado y reproducible, huecos, semillas independientes, cachés, leyendas, recorte físico y exportación finita.
-- Pruebas de persistencia, deshacer/rehacer, reasignación de tintas y acceso a los cuatro estilos en español e inglés a 980 y 1.440 px.
-- Capturas revisadas de los cuatro estilos y del panel estrecho: `VECTORIO_QA_FINISH=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`. Archivos `target/volumetric/finish-*.png`.
-- Detector de interfaz sin hallazgos y `git diff --check` sin errores.
+- `cargo test`: **379 exceeded, 9 ignored, no** failures. The eleven historical SVG references remain identical byte to byte, including the migration of an actual v1 recipe.
+- Proofs of the depth and distance of the halo, continuity between vertices and closures, external/interior echoes and gaps, double contour to 0.2 mm, shallow and reproducible noise, gaps, independent seeds, caches, legends, physical clipping and finite export.
+- Persistence testing, undo/rework, ink reassignment and access to all four styles in Spanish and English to 980 and 1,440 px.
+- Revised footage of the four styles and narrow panel: `VECTORIO_QA_FINISH=1 cargo test -p vectorio-app render_volumetric_workspace -- --ignored --nocapture`. `target/volumetric/finish-*.png` files.
+- Interface detector with no finds and `git diff --check` with no errors.
 
-Instalación mediante `python3 scripts/install-macos.py` en `/Applications/Vectorio.app`. La sesión abierta se conserva; la nueva versión se usa en el siguiente inicio.
+Installation by `python3 scripts/install-macos.py` at `/Applications/Vectorio.app`. The open session is retained; the new version is used at the next start.
 
-## Pendiente
+## Suspended
 
-**F · Continuidad**: objeto 3D reeditable en el documento, «Abrir en Volumen» desde Crear, hoja multivista y perspectiva. Las ampliaciones de G sobre mezcla óptica y nuevas isolíneas escalares continúan pendientes según su entrega; no forman parte de E.
+**F · Continuity**: Reeditable 3D object in the document,  « Open in Volume »  from Create, multiview sheet and perspective. Optical mixing extensions of G and new isolines scalars remain pending upon delivery; they are not part of E.

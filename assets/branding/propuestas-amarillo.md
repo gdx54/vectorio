@@ -1,8 +1,8 @@
-# Vectorio · exploración sobre amarillo
+# Vectorio · Yellow palette exploration
 
-Comparativa pendiente de elección. No sustituye al icono instalado.
+Comparison pending election. It doesn't replace the installed icon.
 
-Imagen: `propuestas-amarillo.png`. Generada con la herramienta integrada `image_gen`, tomando `vectorio-icon.png` como referencia. Colores orientativos en esta lámina; la selección se preparará como icono de producción.
+`propuestas-amarillo.png`. Generated with the integrated tool `image_gen`, taking `vectorio-icon.png` as a reference. Orientation colours on this sheet; selection will be prepared as a production icon.
 
 ## Prompt
 

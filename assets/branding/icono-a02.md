@@ -1,10 +1,10 @@
-# Icono elegido A02
+# Selected icon · A02
 
-Aplicado por petición del usuario. Conserva el concepto Relieve con fondo limón suave y contornos índigo. Generado con la herramienta integrada `image_gen`; convertido a PNG de 1024 px y a `.icns` multirresolución mediante `sips` e `iconutil`.
+Applied at the request of the user. It retains the concept of Relief with soft lemon background and indigo contours. Generated with the integrated tool `image_gen`; converted to 1024 px PNG and `.icns` multi-resolution by `sips` and `iconutil`.
 
-Activos: `vectorio-icon.png` y `../../packaging/macos/Vectorio.icns`. La versión marfil anterior se conserva en `vectorio-icon-relieve-marfil.png`.
+Assets: `vectorio-icon.png` and `../../packaging/macos/Vectorio.icns`. The previous ivory version is preserved in `vectorio-icon-relieve-marfil.png`.
 
-## Prompt de producción
+## Production speed
 
 ```text
 Use case: precise-object-edit. Asset type: final production macOS app icon for Vectorio. Edit the attached current icon into the approved A02 palette, "Limón suave / índigo".

@@ -1,10 +1,7 @@
 # FastMarchingTopoPlot
 
-Autor: Roland Blok. Origen: https://github.com/rolandblok/FastMarchingTopoPlot
+Written by Roland Blok. Origin: https://github.com/rolandblok/FastMarchingTopoPlot
 
-La adaptación del algoritmo Fast Marching a Rust está en
-`crates/vectorio-core/src/topo.rs`. No se incluye ni se ejecuta el JavaScript
-original dentro de la aplicación. Procedencia, diferencias y verificación:
-`docs/topografia.md`.
+The adaptation of the Fast Marching algorithm to Rust is in `crates/vectorio-core/src/topo.rs`. The original JavaScript is not included or run within the application. Origin, differences and verification: `docs/topografia.md`.
 
-La licencia original se conserva íntegra en `UNLICENSE`.
+The original license is retained in its entirety in `UNLICENSE`.

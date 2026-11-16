@@ -1,6 +1,6 @@
 [package]
 name = "vectorio-app"
-description = "Vectorio · aplicación de escritorio para dibujar con plotter"
+description = "Vectorio desktop application for pen plotters"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

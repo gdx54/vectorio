@@ -1,72 +1,43 @@
-# Topografía · Fast Marching en Rust
+# Topography · Fast Marching in Rust
 
-En **Foto → dibujo → Estilo → Topografía**, abre una foto, ajusta el número de
-curvas y elige dónde nace la onda con Origen X/Y o «Elegir origen en la imagen».
-Gamma alta concentra las curvas en los medios tonos oscuros. Velocidad mínima
-baja aprieta las sombras. «Suavizar foto» reduce el detalle fino antes de resolver
-el campo. «Simplificar» reduce puntos de las polilíneas, sin añadir rellenos.
+In **Photo → drawing → Style → Topography**, open a photo, adjust the number of curves and choose where the wave is born with Origin X/Y or  « Choose origin in the image ». High gamma concentrates the curves in the medium dark tones. Low minimum speed squeezes the shadows.  « Swapping photo »  reduces the fine detail before solving the field.  « Simplifying »  reduces points on the polylines, without adding fillers.
 
-El motor se ejecuta en el hilo de vectorización existente. No necesita navegador,
-JavaScript, Python, skfmm, d3 ni nuevas dependencias de Cargo para funcionar.
-Cada resultado es un objeto de trazos en una tinta; se puede recolorear, escalar,
-exportar a SVG y planificar desde Salida con las herramientas normales de Vectorio.
-El grosor indicado se aplica a las tintas nuevas; una tinta existente conserva el
-grosor físico que tenga en el documento, que también utiliza la vista previa.
+The engine shall run on the existing vectoring thread. You don't need a browser, JavaScript, Python, skfmm, d3 or new Load dependencies to work. Each result is an object of strokes in an ink; it can be repainted, scaled, exported to SVG and planned from Output with the normal Vectorio tools. The indicated thickness applies to new inks; an existing ink retains the physical thickness of the document, which also uses the preview.
 
-## Algoritmo y procedencia
+## Algorithm and origin
 
-Adaptación de [FastMarchingTopoPlot](https://github.com/rolandblok/FastMarchingTopoPlot)
-de Roland Blok. Consultado el 14 de noviembre de 2026:
+[adaptation FastMarchingTopoPlot](https://github.com/rolandblok/FastMarchingTopoPlot) by Roland Blok. Consulted the 14 of November of 2026:
 
-- `worker.js`, blob `71fd1c43dbeb48cbf0bdcf9d7bc30f363f5e946b`: gaussiano
-  separable, velocidad por brillo y resolución Fast Marching de la ecuación
-  eikonal `|∇T| F = 1` con cola de prioridad.
-- `script.js`, blob `63c641ecc7d58d29f60db1a07692834ad130d6ab`: composición del
-  alfa sobre blanco, gris Rec. 601, niveles uniformes en el intervalo de tiempos y
-  recorte de la salida a las zonas opacas.
-- Licencia **Unlicense**, conservada en
+- `worker.js`, blob `71fd1c43dbeb48cbf0bdcf9d7bc30f363f5e946b`: Gaussian
+  Separability, speed by brightness and Fast Marching resolution of the equation
+  eiconal `|∇T| F = 1` with priority line.
+- `script.js`, blob `63c641ecc7d58d29f60db1a07692834ad130d6ab`: composition of the
+  Alpha over white, gray Rec. 601, uniform levels in the time interval and
+  Cuts in the outlet to opaque areas.
+- License **Unlicense**, held at
   `third_party/FastMarchingTopoPlot/UNLICENSE`.
 
-Implementación en `crates/vectorio-core/src/topo.rs`, con `BinaryHeap`, mapas
-contiguos, gaussiano y extracción de curvas en paralelo con Rayon. Reutiliza el
-marching squares de `raster.rs` para evitar depender de d3. Las comprobaciones
-numéricas incluyen un mapa variable de tiempos calculado con el JavaScript
-original y un campo constante con simetría y velocidad conocidas.
+Implementation on `crates/vectorio-core/src/topo.rs`, with `BinaryHeap`, contiguous maps, Gaussian and parallel curve extraction with Rayon. Reuse the marching squares of `raster.rs` to avoid depending on d3. Numerical checks include a variable time map calculated with the original JavaScript and a constant field with known symmetry and speed.
 
-Se mantiene la condición upwind causal: si la solución cuadrática quedase antes
-del mayor vecino aceptado, se usa la actualización de un solo eje. Esto corrige
-el caso límite `1/F < |Tx−Ty| <= sqrt(2)/F` del original.
+The upwind causal condition is maintained: if the quadratic solution falls before the largest neighbour accepted, a single-axis update is used. This corrects the original `1/F < |Tx−Ty| <= sqrt(2)/F` limit case.
 
-Las curvas que llegan al borde quedan abiertas. No se añaden las aristas del
-rectángulo exterior que d3 utiliza para cerrar los polígonos de supernivel: así
-el plotter no repasa el mismo marco una vez por nivel.
+The curves that reach the edge remain open. The edges of the outer rectangle that d3 uses to close the super-level polygons are not added: thus the plotter does not review the same frame once per level.
 
-## Transparencia y proyectos
+## Transparency and projects
 
-El alfa se conserva al reducir la imagen. El color transparente se compone sobre
-blanco para calcular la velocidad, y la onda puede atravesar ese fondo. Si está
-activado «Omitir zonas transparentes», las curvas se recortan al alfa >= 0,5.
-El recorte se hace después de simplificar y examina también el interior de los
-segmentos, para que una línea larga no salte a través de un agujero transparente.
+The alpha is preserved by reducing the image. The transparent color is composed over white to calculate the velocity, and the wave can pass through that background. If activated  « Leave transparent zones », the curves are cut to alpha >= 0.5. The cut is made after simplifying and also examining the interior of the segments, so that a long line does not jump through a transparent hole.
 
-Las fotos con transparencia se guardan como PNG dentro de `.vectorio`; las opacas
-siguen usando JPEG. El lector reconoce ambos por su contenido y abre también
-los documentos anteriores. Los parámetros de Topografía y la foto se conservan
-en el grupo para regenerarlo con «Volver a separar colores…» desde Capas.
+Photos with transparency are saved as PNG within `.vectorio`; opaque still use JPEG. The reader recognizes both by their content and also opens the previous documents. The parameters of Topography and the photo are kept in the group to regenerate it with  « Volver to separate colors... »  from Layers.
 
-Los valores iniciales son 200 niveles, gamma 1, velocidad adicional 0,1 y origen
-en el centro. La resolución es la común del importador. Con muchos niveles,
-valores bajos de velocidad o un dibujo pequeño, conviene comprobar la huella
-real de la punta y el mapa de tinta en Salida.
+The initial values are 200 levels, gamma 1, additional speed 0.1 and origin in the center. The resolution is that of the importer. With many levels, low-speed values or a small drawing, it is convenient to check the actual tip footprint and the ink map in Output.
 
-## Muestra reproducible
+## Replicable sample
 
 ```sh
 cargo run -p vectorio-core --release --example muestra_topografia -- foto.png salida.svg
 ```
 
-El ejemplo escribe un SVG de 200 mm de lado mayor y una vista PNG de sus mismos
-trazos y grosores. Los argumentos opcionales son niveles, gamma y velocidad:
+The example writes a SVG of 200 mm on the upper side and a PNG view of its same strokes and thicknesses. Optional arguments are levels, gamma and speed:
 
 ```sh
 cargo run -p vectorio-core --release --example muestra_topografia -- foto.png salida.svg 200 1.0 0.1

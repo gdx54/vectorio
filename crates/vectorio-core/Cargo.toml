@@ -1,6 +1,6 @@
 [package]
 name = "vectorio-core"
-description = "Núcleo de Vectorio: geometría, rellenos, tipografía de trazo único, vectorizado y salida para plotter"
+description = "Vectorio core: geometry, fills, single-line typography, vectorization, and plotter output"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,150 +1,150 @@
-# Encargo: panel «Crear», fase 4 (sin costuras y dirección artística del Pueblo blanco)
+# Task: Create panel, Phase 4 (seamless geometry and White village art direction)
 
-Eres un agente de programación trabajando en **Vectorio**, una aplicación de escritorio en Rust para dibujar con plotter (núcleo en `crates/vectorio-core`, interfaz egui en `crates/vectorio-app`). La fase 3 dejó hechos y revisados:
+You 're a programming agent working on **Vector**, a Rust desktop application for drawing with plotter (core on `crates/vectorio-core`, interface egui on `crates/vectorio-app`). The 3 phase left facts and reviews:
 
-- las aristas de intersección del motor;
-- el estilo común en `generate/style.rs`;
-- el kit en `generate/kit/`;
-- la escena «Pueblo blanco» en `generate/village.rs`;
-- las miniaturas de la galería.
+- the intersection edges of the engine;
+- the common style in `generate/style.rs`;
+- the kit in `generate/kit/`;
+- the scene " White village " in `generate/village.rs`;
+- The miniatures in the gallery.
 
-Técnicamente funciona: las pruebas pasan, los tiempos son buenos y los encuentros entre volúmenes ya tienen su línea. Pero el Pueblo blanco **todavía no parece un pueblo blanco**. Esta fase tiene dos partes:
+Technically, it works: tests pass, times are good, and encounters between volumes already have their line. But the White village **still doesn 't look like a White village**. This phase has two parts:
 
-1. corregir unos pocos fallos de la revisión;
-2. la pasada artística que convierte la escena en algo que apetezca plotear.
+1. correct a few deficiencies in the review;
+2. The artistic pass that turns the scene into something you want to plot.
 
-No se añaden escenas nuevas.
+No new scenes are added.
 
-## Reglas
+## The rules
 
-Las mismas de la fase 3:
+The same as the 3 phase:
 
-- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` y `docs/crear-fase3-entrega.md` antes de empezar.
-- La interfaz va en español, con su traducción al inglés en `locales/app.yml`. Se mantiene la separación entre objetos/capas y tintas.
-- **Trabajo original.** SVGeometric (`jarvisar/geometric`) no tiene licencia. No abras, copies ni traduzcas su código ni calques sus escenas, sus piezas o su paleta.
-- Identificadores en inglés; comentarios y documentación en español.
-- **No ejecutes `cargo fmt`.** Sin dependencias nuevas salvo que sean imprescindibles.
-- Si falta `cargo`: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
-- No hagas commit salvo que el usuario lo pida. **No cierres ni reinicies la Vectorio que esté abierta.**
-- Los documentos guardados con las fases 2 y 3 tienen que seguir abriéndose y regenerándose igual. Si cambias el aspecto del Pueblo blanco, versiona su receta igual que hiciste con Manzanas.
-- **Legibilidad.** El código nuevo de la fase 3 está muy apretado: líneas de más de 200 caracteres y varias sentencias por línea. En los ficheros que toques (`style.rs`, `kit/`, `village.rs` e `intersections.rs`), parte las funciones largas y usa una sentencia por línea. No cambies el formato del resto del proyecto.
+- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` and `docs/crear-fase3-entrega.md` before we start.
+- The interface is in Spanish, with its English translation in `locales/app.yml`. The separation between objects/layers and inks is maintained.
+- **Original work.** SVGeometric (`jarvisar/geometric`) is not licensed. Do not open, copy or translate its code or paste its scenes, its pieces or its palette.
+- Identifiers in English; comments and documentation in Spanish.
+- **Do not run `cargo fmt`** No new dependencies unless they are essential.
+- If `cargo` is missing: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
+- Do not commit unless the user asks for it. **Do not close or restart the Vector that is open.**
+- Documents stored with the 2 and 3 phases must continue to open and regenerate equally. If you change the look of the White village, version its recipe the same way you did with City blocks.
+- **Readability.** The new 3 phase code is very tight: lines of more than 200 characters and several sentences per line. In the files you touch (`style.rs`, `kit/`, `village.rs` and `intersections.rs`), split the long functions and use a sentence per line. Don't change the format of the rest of the project.
 
 ---
 
-## Paso 0 · Correcciones de la revisión de la fase 3
+## 0 step · Corrections from the revision of the 3 phase
 
-1. **El encuadre recorta el dibujo.** Lo he medido con 150 semillas en tres áreas distintas, y cerca del 17 % de las salidas del Pueblo blanco (76 de 450) llegan al borde del área a menos de 0,05 mm. El margen es de 1 mm, así que esos dibujos salen **cortados** contra el borde. En Manzanas no le pasa a ninguna.
+1. **The frame cuts the drawing.** I have measured it with 150 seeds in three distinct areas, and close to 17 % of the outputs of White village (76 from 450) reach the edge of the area less than 0.05 mm. The margin is 1 mm, so those drawings come out **cut** against the edge. In City blocks it doesn't happen to anyone.
 
-   La causa: `fit_scene` mide la primera pasada y reconstruye con otra escala, pero la geometría depende de la escala. `Style::quantum` y `snap`, `Scene::visible`, el paso de los estratos y el número de segmentos de los tornos cambian, y la segunda pasada sale más grande que la medida. Corrígelo así:
-   - todo lo que dependa de la escala se calcula **una vez**, con la escala de la primera pasada, y se pasa fijo a la segunda. Por ejemplo, un `Style` con el cuanto ya resuelto;
-   - después de la segunda pasada, comprueba que la caja cabe en el área con su margen. Si no cabe, haz una tercera pasada reduciendo la escala, nunca recortando;
-   - la primera pasada se construye sobre un papel holgado, para que su medida no salga ya recortada.
+   The cause: `fit_scene` measures the first pass and reconstructs with another scale, but the geometry depends on the scale. `Style::quantum` and `snap`, `Scene::visible`, the passage of the strata and the number of turns segments change, and the second pass comes out larger than the measurement. Fix it like this:
+   - Everything that depends on the scale is calculated **once**, with the scale of the first pass, and passed fixed to the second. For example, a `Style` with the quant already solved;
+   - After the second pass, check that the box fits into the area with its margin. If it doesn't fit, make a third pass by reducing the scale, never cutting;
+   - The first pass is built on loose paper, so that its measurement is not cut out already.
 
-   Prueba: con 500 semillas y tres áreas (cuadrada, A4 vertical y apaisada), ninguna salida queda a menos de medio margen del borde.
-   > **Hecho.** `fit_scene` construye las pasadas de medida sobre un papel holgado e itera (hasta cuatro veces) hasta que la salida cabe con medio margen; la escena final se construye con la escala ya ajustada. En 900 salidas (150 semillas, tres áreas, Pueblo blanco en maqueta y Manzanas) la más cercana queda a 0,59 mm del borde.
-2. **El alero son dos líneas sueltas.** `kit::eave` dibuja dos segmentos a 0,3 m de la fachada, sin nada que los sostenga. En el muestrario sobresalen de la silueta de la casa como palos. Sustitúyelo por un vuelo real: el faldón (o una losa fina) sobresale de los muros, con un grosor visible de al menos 1,5 mm en la hoja. La junta con el muro la pone el motor.
-   > **Hecho.** El faldón vuela sobre la fachada de la calle (0,4 m o 1,6 mm en la hoja, lo que sea mayor) con un canto vertical en blanco de al menos 1,6 mm; los costados y la trasera quedan a haces porque tocan a las vecinas y al muro del bancal. Las casas de la fila trasera y la nave de la iglesia no vuelan: tienen delante, muy cerca, otro volumen. `kit::eave` es ahora una losa fina que no se dibuja si su canto no llega a 1,5 mm.
-3. **La chimenea puede quedarse flotando.** Según el código, su base está a `top + rise·0,15` y su cara exterior a `min.x + q`. En un tejado a dos o a cuatro aguas, el faldón está a esa altura en `x = min.x + q` solo si `w ≤ 13,3·q`. Con q = 0,5 m, en casas de más de unos 6,7 m de ancho la chimenea quedaría por encima del tejado en su lado bajo. Ahora no ocurre porque las casas son estrechas, pero ocurrirá con las proporciones del paso 2. Calcula la base a partir de la altura del faldón en el punto más bajo de la huella de la chimenea, menos un encastre claro, y colócala cerca de la cumbrera, no junto al alero. Prueba con una casa de 9 m.
-   > **Hecho.** La base sale de la altura del faldón en el punto bajo de su huella, menos un encastre, y la chimenea solo aparece si su fondo guarda 1,6 mm en papel con el hastial.
-4. **Huecos oscuros.** `opening(..., dark: true)` solo añade un montante. O se rellena de trama oscura, como pedía el plan de la fase 3, o se le cambia el nombre. Prefiero el relleno: es lo que hace que una ventana se lea en una pared blanca (paso 2).
-   > **Hecho.** `OpeningKind::Dark` (y `Twin`) rellena el hueco con una trama vertical apretada (0,6 veces la separación) recortada a su marco; la prueba `openings_clear_wall_hatching_on_every_side_and_dark_ones_get_filled` lo comprueba en las cuatro fachadas.
-5. **Versión de la receta.** El parámetro oculto `scene_version`, con `show: "__internal__" = "never"`, es un apaño. Pasa la versión a un campo propio de `GeneratedGroup` (`#[serde(default)]`), o crea una variante de `ParamSpec` que nunca se muestre. Mantén la migración de las recetas de Manzanas de la fase 2.
-   > **Hecho.** `ParamSpec::Version { current }` (`SCENE_VERSION`) nunca se muestra ni se sortea y, si falta, toma la versión vigente. Manzanas va por la 3 y conserva la migración a 2; Pueblo blanco empieza en la 1 con el pueblo denso (el de la fase 3 no llegó a guardarse en el repositorio, así que no se puede reproducir).
-6. **`Style::lathe` depende del orden interno de las caras de `Scene::lathe`:** primero las n facetas de cada tramo y las tapas al final, con el mismo `circle_segments`. Que `lathe` devuelva esa estructura de forma explícita (facetas por meridiano y tapas aparte), o deja al menos una prueba que falle si el orden cambia.
-   > **Hecho.** `Scene::lathe_parts` devuelve un `Lathe` con las caras por tramo y meridiano y las tapas aparte; `Style::lathe` ya no cuenta caras, y una prueba comprueba la altura y el ángulo de cada faceta.
-7. **Pruebas del kit.** El plan pedía al menos una prueba geométrica por pieza y hay cuatro para doce piezas. Completa las que faltan, sobre todo la escalera, el bancal, el terreno, el pretil y el campanario.
-   > **Hecho.** `every_kit_piece_draws_repeatably_and_cleanly_on_its_own` cubre las piezas que faltaban: cada una dibuja, es determinista, da coordenadas finitas y, sola, no deja avisos de construcción.
+   Test: with 500 seeds and three areas (square, A4 vertical and flat), no outlet remains less than half the margin of the edge.
+   > **Made.** `fit_scene` builds the measurement passes on a loose, iterative paper (up to four times) until the output fits with half a margin; the final scene is built with the already adjusted scale. In 900 exits (150 seeds, three areas, White village in model and City blocks) the nearest one is 0.59 mm from the edge.
+2. **The alignment is two loose lines.** `kit::eave` draws two segments to 0.3 m from the façade, with nothing to support them. In the sample they stand out from the silhouette of the house like sticks. Replace it with a real flight: the skirt (or a thin slab) protrudes from the walls, with a visible thickness of at least 1.5 mm on the leaf. The joint with the wall is powered by the engine.
+   > **Made.** The skirt flies over the street façade (0.4 m or 1.6 mm on the leaf, whichever is larger) with a white vertical corner of at least 1.6 mm; the sides and rear remain beamed because they touch the neighbors and the wall of the terrace. The houses in the back row and the nave of the church do not fly: they have in front, very close, another volume. `kit::eave` is now a thin slab that cannot be drawn if its singing does not reach 1.5 mm.
+3. **The fireplace can stay afloat.** According to the code, its base is at `top + rise·0,15` And his outer face to `min.x + q`. On a two- or four-water roof, the skirt is at that height at `x = min.x + q` only if `w ≤ 13,3·q`. With q = 0.5 m, in houses more than a few 6.7 m wide the chimney would stay above the roof on its lower side. Now it doesn't happen because the houses are narrow, but it will happen with the 2 pass proportions. Calculate the base from the height of the skirt at the lowest point of the chimney footprint, minus a clear frame, and place it near the comb, not next to the handle. Try a house from 9 m.
+   > **Made.** The base comes out of the skirt height at the bottom of its footprint, minus a frame, and the fireplace only appears if its bottom keeps 1.6 mm on paper with the hastil.
+4. **Dark Holes** `opening(..., dark: true)` only adds an upside. Either it's filled with dark hatching, like the 3 phase plan asked, or it's renamed. I prefer filler: it's what makes a window read on a white wall (step 2).
+   > **Made.** `OpeningKind::Dark` (and `Twin`) fills the gap with a tight vertical hatching (0.6 times separation) cut to its frame; the `openings_clear_wall_hatching_on_every_side_and_dark_ones_get_filled` test checks it on the four facades.
+5. **Version of the recipe.** The hidden parameter `scene_version`, with `show: "__internal__" = "never"`, is a flaw. Pass the version to `GeneratedGroup`'s own field (`#[serde(default)]`), or create a `ParamSpec` variant that is never displayed. Maintain the migration of City blocks recipes from the 2 phase.
+   > **Made.** `ParamSpec::Version { current }` (`SCENE_VERSION`) is never shown or sorted and, if missing, takes the current version. City blocks goes through the 3 and preserves migration to 2; White village starts in the 1 with the dense people (the one from the 3 phase did not get saved in the repository, so it cannot be reproduced).
+6. **`Style::lathe` depends on the internal order of the faces of `Scene::lathe`:** first the n facets of each section and the caps at the end, with the same `circle_segments`. That `lathe` returns that structure explicitly (facetes per meridian and covers apart), or leaves at least one test to fail if the order changes.
+   > **Made.** `Scene::lathe_parts` returns a `Lathe` with faces per stretch and meridian and covers separately; `Style::lathe` no longer counts faces, and a test checks the height and angle of each facet.
+7. **Tests of the kit.** The plan called for at least one geometric test per piece and there are four for twelve pieces. Complete the remaining ones, especially the staircase, the terrace, the terrain, the railing and the bell tower.
+   > **Made.** `every_kit_piece_draws_repeatably_and_cleanly_on_its_own` covers the missing pieces: each one draws, is deterministic, gives finite coordinates and, alone, leaves no construction notices.
 
-## Paso 1 · Sin costuras
+## Passage 1 · Seamless
 
-Es el defecto más visible del muestrario. Cada pieza está hecha con varios sólidos pegados, y cada pegote deja una línea en medio de lo que debería ser **una sola superficie**:
+It's the most visible defect in the sample. Each piece is made with several solid stickers, and each stick leaves a line in the middle of what should be **a single surface**:
 
-- **Azotea con pretil:** son cuatro cajas sobre la casa. Hay una línea horizontal a lo largo de todo el muro, en la base del pretil, y juntas verticales en las esquinas del pretil. En el pueblo se ve en casi todas las casas.
-- **Tejado a un agua:** la cara vertical alta del tejado continúa el muro, pero los separa una línea.
-- **Hastiales:** el triángulo del tejado a dos aguas también queda separado del muro por una línea.
-- **Escalera:** cada peldaño es una columna, y el lateral de la escalera sale como una fila de pilares con juntas verticales, no como un único zanco escalonado.
+- **Azotea with apron:** are four boxes over the house. There is a horizontal line along the entire wall, at the base of the railing, and vertical joints at the corners of the railing. In the village you see it in almost every house.
+- **Woven to a water:** the upper vertical face of the roof continues the wall, but a line separates them.
+- **Hastiales:** the triangle of the two-water roof is also separated from the wall by a line.
+- **Staircase:** Each ladder is a column, and the side of the staircase emerges as a row of pillars with vertical joints, not as a single steps.
 
-Las juntas entre **edificios distintos** (casas adosadas) sí deben verse. Las de **una misma pieza**, no.
+The joints between **different buildings** (closed houses) must be seen. The ones from **the same piece**, no.
 
-**Qué hacer:**
+**What to do:**
 
-- **Motor: caras coplanares de un mismo sólido.** Entre dos caras adyacentes, coplanares y con la misma normal exterior de un mismo sólido, no se dibuja la arista. Así se puede partir una cara no convexa en trozos convexos sin que se note. La trama de una cara partida sigue siendo una sola familia continua de líneas: compruébalo con una prueba.
-- **Motor: prismas de perfil no convexo.** Añade `Scene::prism(profile: &[V3], vector: V3)`, que acepte un perfil plano simple no convexo, como el perfil de una escalera o de una casa con tejado. Descompone las tapas en trozos convexos, construye el sólido con `solid_oriented` y devuelve las caras exteriores, agrupadas por cara lógica, para poder tramarlas.
-- **Kit: cada pieza es un único sólido siempre que sea posible.**
-  - Casa con tejado a dos aguas: prisma de perfil pentagonal, muro y hastial en un solo sólido.
-  - Casa con tejado a un agua: prisma de perfil trapecial.
-  - Casa con tejado a cuatro aguas: un solo sólido convexo.
-  - Azotea con pretil: un sólido no convexo, con muros exteriores de altura completa, la corona del pretil, los muros interiores y el suelo de la azotea hundido.
-  - Escalera: prisma del perfil escalonado.
-- **Prueba de costuras.** Para cada pieza del kit, ninguna arista visible separa dos caras coplanares con la misma normal. Las juntas entre casas adosadas siguen apareciendo.
+- **Motor: coplanar faces of the same solid.** Between two adjacent faces, coplanar and with the same outer normal of the same solid, the edge is not drawn. So you can break a non-convex face into convex pieces without noticing. The hatching of a broken face is still a single continuous family of lines: prove it with a test.
+- **Motor: non-convex profile prisms.** Add `Scene::prism(profile: &[V3], vector: V3)`, which accepts a simple non-convex flat profile, such as the profile of a staircase or roofed house. It breaks the lids down into convex pieces, builds the solid with `solid_oriented` and returns the outer faces, grouped by logical face, so that they can be woven together.
+- **Kit: Each piece is a single solid whenever possible.**
+  - House with two water roofs: pentagonal profile prism, wall and hastile in a single solid.
+  - House with a water roof: special profile prism.
+  - House with four water roofs: a single solid convex.
+  - Pre-tiled roof: a solid non-convex, with outer walls of full height, the crown of the pre-tiled roof, the inner walls and the sunken roof floor.
+  - Staircase: prism of the staggered profile.
+- **Sewing Test.** For each piece of the kit, no visible edge separates two coplanar faces with the same normal. The joints between townhouses continue to appear.
 
-> **Hecho.**
-> - **Motor.** `build_solid` no dibuja la arista entre dos caras de un mismo sólido con la misma normal (ni como borde ni como línea). `Scene::hatch_faces` trama una cara partida en trozos sin holgura entre ellos: cada línea cruza los trozos de un solo trazo, y una prueba compara la trama de una cara entera con la de la misma cara en dos triángulos.
-> - **Prismas y poliedros.** `Scene::polyhedron(faces)` recibe caras lógicas planas y simples (no convexas incluidas), une vértices, orienta el giro por adyacencia y por el volumen, parte cada cara en trozos convexos (orejas y Hertel–Mehlhorn) y construye con `solid_oriented`; devuelve los trozos agrupados por cara lógica, o nada si la cáscara no es cerrada. `Scene::prism(profile, vector)` se apoya en él.
-> - **Kit.** La casa (plana, con pretil, a un agua, a dos y a cuatro aguas, con o sin vuelo), el pretil suelto, la escalera, la tapia (anillo o tramos seguidos, con o sin puerta), el banco y los pórticos de la pérgola son un solo sólido cada uno. `Style::shade_groups` trama juntas las caras coplanarias de un sólido.
-> - **Prueba.** `no_kit_piece_draws_a_seam_between_coplanar_faces_of_its_own` recorre 20 piezas a tres escalas y seis semillas con el detector `Scene::seams` (solo en pruebas) y comprueba que dos casas adosadas siguen mostrando su junta con las cuatro cubiertas.
+> **That's it.**
+> - **Motor.** `build_solid` does not draw the edge between two faces of the same solid with the same normal (neither as edge nor as line). `Scene::hatch_faces` hatching a broken face into loose pieces between them: each line crosses the pieces of a single stroke, and one test compares the hatching of an entire face to that of the same face in two triangles.
+> - **Prisms and polyhedra.** `Scene::polyhedron(faces)` receives flat and simple logical faces (non-convex included), joins vertices, directs the turn by adjacency and by volume, divides each face into convex pieces (ears and Hertel – Mehlhorn) and builds with `solid_oriented`; returns the pieces grouped by logical face, or nothing if the shell is not closed. `Scene::prism(profile, vector)` rests on it.
+> - **Kit.** The house (plan, with apron, to one water, to two and to four water, with or without flight), the loose apron, the staircase, the tap (ring or sections in succession, with or without door), the bench and the porticoes of the pergola are one solid each. `Style::shade_groups` hatching together the coplanar faces of a solid.
+> - **Test.** `no_kit_piece_draws_a_seam_between_coplanar_faces_of_its_own` travels through 20 parts at three scales and six seeds with the `Scene::seams` detector (only in testing) and checks that two townhouses continue to show their four-deck joint.
 
-## Paso 2 · Dirección artística del Pueblo blanco
+## Step 2 · Art direction of the White village
 
-Comparado con la hoja de contactos actual, esto es lo que falla y lo que pido:
+Compared to the current contact sheet, here's what's missing and what I'm asking:
 
-- **La cal no se ve.** Con los valores de serie, las dos fachadas visibles de casi todas las casas salen tramadas, así que el pueblo se lee gris y no blanco. Es justo lo contrario de la idea del estilo.
-  - El ángulo del sol tiene que ser **relativo a la vista**: con cualquier «Vista», el sol de serie ilumina de lleno una de las dos orientaciones de fachada visibles, que queda en blanco.
-  - La otra orientación se queda en tono medio, con una trama más abierta que ahora: unas 2,2 veces la separación base.
-  - El oscuro se reserva para las sombras arrojadas, los huecos y las caras que de verdad miran lejos del sol.
-  - Prueba: con los valores de serie y en cada vista, al menos el 40 % del área visible de muro queda sin trama.
-- **Proporciones de casa, no de torre.** Hoy las casas tienen unos 3 m de fachada, 2,6 m de fondo y hasta 5 m de alto más el pretil, y se leen como torres.
-  - Pide fachadas de 4 a 9 m, de 1 a 2 plantas de unos 2,8 m y fondos de 5 a 7 m. Si hace falta, haz los bancales más profundos.
-  - Las casas se adosan **en hilera a lo largo de la calle**, con saltos de altura de al menos un cuanto. De vez en cuando, un patio o un solar rompe la hilera.
-- **Huecos que se lean.** Las ventanas son pequeñas y profundas sobre la cal: hueco relleno de trama oscura (paso 0.4). La puerta, en la planta baja y hacia la calle. El ritmo de los huecos es regular dentro de cada casa y distinto entre casas. Los hastiales y medianeras visibles pueden llevar algún hueco aislado.
-- **Iglesia con jerarquía.** La nave es claramente más larga que ancha (de 1:2 a 1:3) y el campanario va en una esquina de los pies, no en medio de la nave. Prueba que su encuentro con el faldón o con el hastial se dibuja bien.
-- **Chimeneas con mesura.** Menos y solo en tejados inclinados. En la semilla 5 casi cada tejado tiene una.
-- **Estratos con carácter.** Hoy son rayas paralelas casi rectas a distancia constante, y parecen un rayado, no un terreno cortado. Es el sello visual de la serie, así que merece cuidado:
-  - grosor de capa irregular y determinista;
-  - ondulación de baja frecuencia más visible, de un 25 a un 35 % del paso;
-  - de vez en cuando, una capa que se acuña y desaparece (lente);
-  - los estratos solo van en las **caras exteriores** del bloque cortado, las del borde de la maqueta;
-  - los muros interiores entre bancales son muros de contención: llevan una albardilla (línea de coronación) y, como mucho, hiladas muy abiertas, nunca estratos.
-- **Calles.** La calle es el blanco entre hileras. Basta con un bordillo o un escalón donde cambia el nivel. El eje de escaleras conecta de verdad las calles de bancales sucesivos.
-- **Vegetación.** Los cipreses van en parejas o en hilera junto a la iglesia o en el borde de la maqueta. Los olivos se agrupan en los huertos de los solares, no sueltos uno a uno.
+- **The cal cannot be seen.** With the standard values, the two visible façades of almost all houses come out of wedges, so the village is grey and not white. It's just the opposite of the idea of style.
+  - The angle of the sun must be **relative to the view**: with any  « Vista », the serial sun fully illuminates one of the two orientations of the visible façade, which is left blank.
+  - The other orientation remains in the middle tone, with a more open hatching than now: some 2.2 times the base separation.
+  - The dark is reserved for cast shadows, hollows and faces that really look away from the sun.
+  - Test: with the serial values and in each view, at least the 40 % of the visible area of the wall is left without hatching.
+- **Proportions of house, not tower.** Today houses have about 3 m facade, 2.6 m background and up to 5 m height plus the railing, and are read as towers.
+  - It asks for facades from 4 to 9 m, from 1 to 2 plants from about 2.8 m and backgrounds from 5 to 7 m. If necessary, make the terraces deeper.
+  - **houses are lined up along** street, with high jumps of at least one quintet. Every once in a while, a yard or a floor breaks the line.
+- **Holes to be read.** The windows are small and deep above the lime: dark hatching filled hole (step 0.4). The door, in the top view down and into the street. The rhythm of the gaps is regular within each house and distinct between houses. The visible hastils and medians may carry some isolated gap.
+- **Church with hierarchy.** The nave is clearly longer than wide (from 1: 2 to 1: 3) and the bell tower goes in a corner of the feet, not in the middle of the nave. Prove that your encounter with the skirt or hastil is well drawn.
+- **Chimneys with moderation** Less and only on sloping roofs. In the 5 seed almost every roof has one.
+- **Strata with character.** Today they are almost straight parallel stripes at a constant distance, and they look like a strip, not a cut terrain. It's the show's visual stamp, so it's worth watching out for:
+  - irregular and deterministic layer thickness;
+  - low frequency undulation more visible, from a 25 to a 35 % of the pass;
+  - Occasionally, a layer that coins and disappears (lens);
+  - the strata are only on the **outer faces of the cut block**, those on the edge of the model;
+  - The inner walls between terraces are containment walls: they carry a coping (coronation line) and, at most, very open threads, never strata.
+- **Streets.** The street is the target between rows. It's enough with a curb or a ladder where the level changes. The ladder axis really connects the streets of successive terraces.
+- **Vegetation.** Cypresses go in pairs or in a row next to the church or on the edge of the model. The olive trees cluster in the sun's orchards, not loose one by one.
 
-Cuida que todo esto se siga leyendo con una sola tinta: la diferencia entre blanco, medio y oscuro tiene que funcionar sin color.
+Make sure you keep reading all this with one ink: the difference between white, medium and dark has to work colorlessly.
 
-> **Hecho.**
-> - **Cal visible.** El sol de serie se calcula desde la vista: la fachada de la calle visible queda en Lit (0,74) y la otra cara visible en Mid (0,35) a 35° de altura; «Giro del sol» (−90 a 90°) lo gira a partir de ahí, sin subir la versión de la receta. En «Grabado», el tono medio usa 2,2 veces la separación (`Style::gap`). La prueba de cobertura (`Scene::lit_wall_fraction`, solo en pruebas) da entre el 47 y el 65 % de muro sin trama en las cuatro vistas, a sangre y en maqueta.
-> - **Casas.** Fachadas de 4 a 9 m que llenan la hilera sin huecos (se parte en dos un solar de más de 9,5 m), fondos de 5 a 7 m, una planta y, con probabilidad 0,55 por planta, una segunda de 2,8 m; si una casa iguala a su vecina, sube un cuanto. Los bancales son más profundos (calle de 2,4 m más 7 m de casas). Un 40 % de los solares con fondo suficiente es casa con patio (retranqueada, con tapia y puerta) y el resto huerto tapiado con surcos y olivos agrupados.
-> - **Huecos.** La puerta va en la planta baja y hacia la calle; las ventanas siguen un paso y un ancho propios de cada casa (iguales dentro de ella, distintos entre vecinas) y, en las de dos plantas, a veces hay un hueco aislado en la medianera, que solo se ve donde la vecina es más baja.
-> - **Iglesia.** `kit::church` con `Church { width, length, height, tower }`: nave de 1:2,2 a 1:2,8, portada, óculo y ventanas altas en bahías de unos 3 m, y el campanario encastrado en una esquina de los pies, que avanza sobre la fachada y entra en la nave lo justo para guardar 1,6 mm en la hoja. `Church::ahead` dice cuánto avanza, para que bancos, árboles y gente de la plaza no lo toquen. La prueba `the_bell_tower_stands_at_a_front_corner_and_its_meeting_with_the_nave_is_drawn` recorre tres escalas, cuatro vistas y los dos lados.
-> - **Chimeneas.** Solo en tejados inclinados y con menos probabilidad; las azoteas tienen casetón, pérgola, tendedero o depósito.
-> - **Estratos.** `kit::Strata` es común a todo el terreno: grosor de 0,7 a 1,6 pasos, ondulación compartida de baja frecuencia más otra propia (hasta un 30 % del paso) y lentes en un 15 % de las capas. `kit::terrace` recibe un `Cut` con las caras exteriores y la cota desde la que se ve el muro delantero; los muros interiores llevan albardilla y, en el dibujo final, hiladas muy abiertas.
-> - **Calles y escaleras.** La calle es el blanco de 2,4 m delante de cada hilera; el cambio de nivel es el canto del bancal. La escalera central sale de la calle de abajo y llega a la de arriba; los callejones llevan sus propias escaleras.
-> - **Vegetación.** Pareja de cipreses en el costado de la iglesia sin campanario, hilera de cipreses solo en el borde del núcleo, olivos agrupados en huertos y olivares; las hileras de cipreses en los campos son raras.
-> - **Comprobado.** 135 pruebas de núcleo; en release, 500 semillas por generador sin avisos (el peor Pueblo blanco tarda 296 ms), encuadre a 0,54 mm del borde como mínimo y Pueblo blanco de serie con mediana de 84 ms en vista previa y 86 ms en final, ejecutando las pruebas de una en una. Muestras en `target/phase4/paso2/`.
+> **That's it.**
+> - **Visible whitewash.** The serial sun is calculated from the view: the facade of the visible street remains in Lit (0.74) and the other face visible in Mid (0.35) at 35 ° height;  « Turn of the sun »  (− 90 to 90 °) turns it from there, without upgrading the recipe version. In  « Engraving », the middle tone uses 2.2 times the separation (`Style::gap`). The coverage test (`Scene::lit_wall_fraction`, in tests only) gives between the 47 and the 65 % hatching-free wall in the four views, full bleed and in model.
+> - **Houses.** Façades from 4 to 9 m that fill the hollow row (a floor of more than 9.5 m is split in two), backgrounds from 5 to 7 m, a top view and, with probability 0.55 per top view, a second of 2.8 m; if a house is equal to its neighbor, go up a quantity. The terraces are deeper (street of 2.4 m plus 7 m of houses). One 40 % of the sunsets with sufficient background is house with patio (closed, with curtain and door) and the rest garden upholstered with grooves and clustered olive trees.
+> - **Holes.** The door goes into the lower top view and towards the street; the windows follow a step and a width typical of each house (equal within it, distinct between neighbors) and, in those of two floors, there is sometimes an isolated hole in the median, which is only seen where the neighbor is lower.
+> - **Church.** `kit::church` with `Church { width, length, height, tower }`: nave from 1: 2.2 to 1: 2.8, cover, oculus and high windows in bays of about 3 m, and the bell tower embedded in a corner of the feet, which advances over the façade and enters the nave just to keep 1.6 mm on the leaf. `Church::ahead` says how far he goes, so that banks, trees and people in the square don't touch him. The `the_bell_tower_stands_at_a_front_corner_and_its_meeting_with_the_nave_is_drawn` test runs three scales, four views and two sides.
+> - **Chimneys.** Only on sloping roofs and less likely; rooftops have casement, pergola, tent or reservoir.
+> - **Strata.** `kit::Strata` is common throughout the terrain: thickness from 0.7 to 1.6 steps, low frequency shared rippling plus another own (up to a 30 % of the pass) and lenses in a 15 % of the layers. `kit::terrace` receives a `Cut` with the outer faces and height from which the front wall is seen; the inner walls carry coping and, in the final drawing, very open threads.
+> - **Streets and stairs.** The street is the target of 2.4 m in front of each row; the change of level is the singing of the terrace. The central staircase rises from the street below and reaches the one above; the alleys carry their own stairs.
+> - **Vegetation.** Pair of cypresses on the side of the church without bell tower, row of cypresses only on the edge of the core, olive trees grouped in orchards and olive groves; the rows of cypresses in the fields are rare.
+> - **Checked.** 135 Core tests; on release, 500 seeds per generator without warnings (worst White village delays 296 ms), frames to 0.54 mm from the edge at least and White village serial with median of 84 ms in preview and 86 ms at the end, running the tests one at a time. Samples at `target/phase4/paso2/`.
 
-## Paso 3 · Comprobaciones y entrega
+## Step 3 · Checks and deliveries
 
-- **Pruebas:**
-  - las de los pasos 0 y 1;
-  - ningún recorte con 500 semillas en tres áreas;
-  - cobertura de cal ≥ 40 % con los valores de serie;
-  - determinismo;
-  - 500 semillas sin NaN, por debajo de 80 m y con un peor tiempo por debajo de 1 s en release.
-- **Rendimiento:** el Pueblo blanco de serie, por debajo de 100 ms en Preview y de 300 ms en Final.
-- **Antes de entregar:**
+- **Tests:**
+  - the steps 0 and 1;
+  - no cuts with 500 seeds in three areas;
+  - Whitewash coverage ≥ 40 % with the serial values;
+  - determinism;
+  - 500 seeds without NaN, below 80 m and with worse weather below 1 s in release.
+- **Performance:** the White village series, below 100 ms in Preview and 300 ms in Final.
+- **Before delivery:**
   1. `cargo test --workspace`
-  2. `cargo clippy --workspace --all-targets` sin avisos nuevos.
-  3. Ejecuta `kit_piezas`, `hoja_contactos` y `muestra_escena`.
+  2. `cargo clippy --workspace --all-targets` without any new announcements.
+  3. Run `kit_piezas`, `hoja_contactos` and `muestra_escena`.
   4. `python3 scripts/install-macos.py`.
-  5. Comprobación visual en `/Applications/Vectorio.app`, solo si no hay una Vectorio abierta.
-- **Comparación:** guarda en `target/phase4/` la hoja de contactos de la fase 3 y la nueva, con las mismas 12 semillas, para comparar antes y después.
-- **Entrega:** escribe `docs/crear-fase4-entrega.md` con:
-  - lo hecho en cada paso y la API nueva;
-  - los tiempos;
-  - tu valoración sincera semilla a semilla de la hoja nueva: cuáles plotearías y cuáles no, y por qué;
-  - lo que no te convenza.
+  5. Visual verification on `/Applications/Vectorio.app`, only if there is no open vector.
+- **Comparison:** stores in `target/phase4/` the 3 phase contact sheet and the new one, with the same 12 seeds, for comparison before and after.
+- **Delivery:** writes `docs/crear-fase4-entrega.md` with:
+  - what is done at each step and the new API;
+  - the times;
+  - Your sincere evaluation of seed to seed of the new leaf: which plots and which not, and why;
+  - Which doesn't convince you.
 
-> **Hecho.** Encuadre a 500 semillas en tres áreas, 500 semillas por generador sin avisos ni NaN y por debajo de 80 m, cobertura de cal y determinismo en verde; tiempos, comparación y valoración en [crear-fase4-entrega.md](crear-fase4-entrega.md).
+> **Made.** Framed to 500 seeds in three areas, 500 seeds per generator without notices or NaN and below 80 m, lime coverage and determinism in green; times, comparison and valuation in [create-phase4-delivery.md](crear-fase4-entrega.md).
 
-## Fuera de esta fase
+## Outside this phase
 
-Castillo, estadio y otras escenas; sombras sobre otros objetos; figuras y texto. Volveremos a ellos cuando el Pueblo blanco esté a la altura.
+Castle, stadium and other scenes; shadows on other objects; figures and text. We'll get back to them when the White village is up.

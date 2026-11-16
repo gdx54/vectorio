@@ -1,221 +1,211 @@
-# Plan · Material Liquid Glass coherente (claro y oscuro)
+# Plan · Consistent Liquid Glass material (clear and dark)
 
-Plan para implementarlo por fases (Sonnet). Cada fase compila, pasa `cargo test` y
-`cargo clippy --all-targets -- -D warnings` y se instala con `python3 scripts/install-macos.py`.
-Conserva el español como idioma fuente, `tr!/ts!/tm!` en cualquier texto nuevo y la
-separación objetos/capas ↔ tintas. No cambia ningún comportamiento, solo el aspecto.
+Plan to implement it in phases (Sonnet). Each phase compiles, passes `cargo test` and `cargo clippy --all-targets -- -D warnings` and installs with `python3 scripts/install-macos.py`. Preserves Spanish as the source language, `tr!/ts!/tm!` in any new text and object/layers  ↔  inks separation. It doesn't change any behavior, just the look.
 
-## 1. Diagnóstico (capturas del 12-11-2026)
+## 1. Diagnostic (catches of 12 - 11 - 2026)
 
-Lo que hay hoy en `theme.rs` es un panel con relleno en **degradado vertical**
-(`glass_top` → `glass`), un **brillo solo arriba** (`rim_top` → `rim_bottom`), un trazo
-de 1 px y una sombra. No es un único material; cada pieza se pinta a su manera:
+What's on `theme.rs` today is a panel filled with **vertical degraded** (`glass_top` → `glass`), a bright **just above** (`rim_top` → `rim_bottom`), a stroke of 1 px and a shadow. It's not a single material; each piece is painted in its own way:
 
-| Pieza | Cómo se pinta hoy | Problema |
+|Piece by piece|How does it look today?|This is a problem.|
 |---|---|---|
-| Barra superior (`app.rs::toolbar`) | `TopBottomPanel` opaco `pal.bar` y línea separadora | Es una barra clásica de macOS 14. En Liquid Glass la barra es transparente sobre el contenido y cada grupo de controles flota en su propia cápsula de vidrio. |
-| Paneles laterales y de estado | `glass_shape` | En **oscuro**, el degradado 66→34 sobre un lienzo de 30 se lee como una caja gris turbia con un bisel arriba, más estilo 2010 que vidrio. En **claro**, el vidrio casi blanco sobre el lienzo 232 queda como una tarjeta blanca plana, y el brillo blanco sobre blanco no se ve. |
-| Lienzo | Color liso, y `canvas::fit` aparta el papel de los paneles | No hay nada detrás del vidrio. Como egui no desenfoca, la translucidez no aporta nada y solo ensucia. |
-| Segmentados (`segmented`, `choice`, `text_segment`) | Fondo opaco `pal.control` y selección en rectángulo r = 8 | En oscuro es gris sobre gris y la selección no destaca. No son cápsulas. |
-| Botón de acento (`accent_button`) | Rectángulo azul plano | En macOS 26 es una cápsula de vidrio teñido con brillo. |
-| Tarjetas de tinta (`inspector::paint_pen_card`) | `pal.card` 64,64,70 casi opaco en oscuro | Bloques pesados que compiten con la banda de color. |
-| Campos y desplegables | Rectángulos `pal.control` opacos y el ▼ de egui | Son opacos sobre el vidrio, y el triángulo no es de Mac. |
-| Hojas (Ajustes, Atajos, Color, Foto) y avisos | `glass_frame` = `pal.bar` opaco | Cada una con un margen y un radio propios. |
-| Radios | Panel 18, margen interior 14, control 8, segmentado 10, tarjeta 12 | No son concéntricos: 18 − 14 = 4 ≠ 8. |
-| Texto secundario | Gris opaco 152 (oscuro) o 110 (claro), a 10,5–11,5 pt | Le falta contraste en oscuro, sobre todo en las tarjetas y en «Ideas para empezar». |
+|Upper bar (`app.rs::toolbar`)|`TopBottomPanel` opaque `pal.bar` and separating line|It 's a classic macOS 14 bar. In Liquid Glass the bar is transparent over the contents and each control group floats in its own glass capsule.|
+|Side panels and state panels|`glass_shape`|In **dark**, the degraded 66 →34 over a canvas of 30 reads like a misty grey box with a bezel above, more 2010 style than glass. In **clear**, the almost white glass over the 232 canvas remains like a flat white card, and the white glow over white is not seen.|
+|Canvas|Smooth color, and `canvas::fit` separates the paper from the panels|There's nothing behind the glass. Since egui does not blur, the translucency contributes nothing and only makes it dirty.|
+|Segmented (`segmented`, `choice`, `text_segment`)|opaque background `pal.control` and rectangular selection r = 8|In the dark it's gray on gray and the selection doesn't stand out. They're not capsules.|
+|Accent button (`accent_button`)|Blue rectangle plane|In macOS 26 is a glass capsule stained with brightness.|
+|Ink cards (`inspector::paint_pen_card`)|`pal.card` 64.64.70 almost opaque in the dark|Heavy blocks competing with the color band.|
+|Fields and deployable|`pal.control` opaque rectangles and the ▼ of egui|They're opaque on the glass, and the triangle isn't Mac's.|
+|Sheets (Styles, Shortcuts, Color, Photo) and notices|`glass_frame` = `pal.bar` opaque|Each with its own margin and radius.|
+|Radios|18 panel, inner margin 14, control 8, segmented 10, card 12|They are not concentric: 18 − 14 = 4 ≠ 8.|
+|Secondary text|152 (dark) or 110 (clear) opaque grey to 10.5  –  11.5 pt|It lacks contrast in the dark, especially in cards and ideas to start with.|
 
-En resumen, el claro «casi llega» porque la sombra separa el panel del fondo. El oscuro
-falla porque en oscuro la sombra no se ve, y lo único que define el panel es un
-degradado gris con un brillo arriba.
+In short, the light almost arrives because the shadow separates the panel from the background. The dark fails because in the dark the shadow cannot be seen, and the only thing that defines the panel is a degraded gray with a brightness above.
 
-## 2. Principios del material
+## 2. Principles of the material
 
-egui 0.29 no puede leer ni desenfocar lo que hay debajo, así que el vidrio se simula con
-cuatro capas, **siempre las mismas** para todo lo que flote:
+egui 0.29 can't read or blur what's underneath, so the glass is simulated with four layers, **always the same** for everything that floats:
 
-1. **Sombra**: doble.
-   - Una de contacto, corta y nítida, para definir el borde.
-   - Otra ambiental, amplia y suave, para despegarlo del fondo.
-   - En oscuro, la de contacto pasa a ser un trazo exterior negro, porque una sombra negra sobre negro no se ve.
-2. **Cuerpo**: un tinte **casi uniforme** y translúcido, con un degradado vertical muy leve (≤ 4 % de luminancia), no el actual de ~30 unidades.
-3. **Borde especular**: un anillo de 1 px por **todo** el perímetro, cuya intensidad depende de la orientación de la normal.
-   - Máximo arriba a la izquierda, un segundo máximo más débil abajo a la derecha y casi nada en los costados.
-   - Esa doble luz es lo que hace que se lea como vidrio y no como plástico.
-4. **Línea interior de profundidad**: 1 px justo dentro del anillo, oscura y muy tenue, solo en la mitad inferior. Da grosor sin bisel.
+1. **Shadow**: double.
+   - One of contact, short and sharp, to define the edge.
+   - Another environment, wide and soft, to take it off the bottom.
+   - In the dark, the contact becomes a black outer stroke, because a black shadow over black is not visible.
+2. **Body**: a nearly uniform **and translucent** dye, with a very slight vertical degradation (≤ 4 % luminosity), not the current of ~ 30 units.
+3. **Specular edge**: a ring of 1 px by **all** the perimeter, whose intensity depends on the orientation of the normal.
+   - Maximal up on the left, a second maximal weaker down on the right and almost nothing on the sides.
+   - That double light is what makes it look like glass and not plastic.
+4. **Interior line of depth**: 1 px right inside the ring, dark and very faint, only in the lower half. It's thick without bezel.
 
-Los controles dentro del vidrio usan **rellenos con alfa** (blanco en oscuro, negro en
-claro), no grises opacos. Así funcionan sobre cualquier vidrio y sobre el lienzo.
+The controls inside the glass use **alpha-filled** (dark white, light black), not opaque gray. That's how they work on any glass and canvas.
 
-## 3. Fases
+## 3. Stages
 
-### Fase 1 · Un único material en `theme.rs`
+### Phase 1 · A single material in `theme.rs`
 
-1. Sustituye `glass_shape` por una API de materiales:
-   ```rust
-   pub enum Material { Panel, Capsule, Sheet, Popup, Tinted(Color32) }
-   pub fn glass(rect: Rect, radius: f32, m: Material, pal: &Palette) -> egui::Shape
-   pub fn glass_panel_with(ui, pal, radius, margin, m: Material, add) -> InnerResponse<R>  // la de ahora más el material
+1. Replace `glass_shape` with an API of materials:
+   ``` rust
+   Subject: Panel, Capsule, Sheet, Popup, Tinted(Color32)
+   In the case of the manufacturer, the manufacturer shall provide the manufacturer with the following information:
+   Pub fn glass_panel_with(ui, pal, radius, margin, m: Material, add) -> InnerResponse<R> // the current plus the material
    ```
-   - `Panel`: los paneles laterales, el de estado y los de Salida.
-   - `Capsule`: los grupos de la barra (radio = alto / 2).
-   - `Sheet`: hojas modales, más opaca.
-   - `Popup`: menús y desplegables.
-   - `Tinted`: el botón de acento.
-2. **Borde especular**: reutiliza `rounded_outline` (sube a 12 tramos por esquina para que el anillo no se vea facetado).
-   - Para cada vértice calcula la normal exterior `n` y define `k = 0.5 + 0.5·dot(n, (-0.6,-0.8))`. La luz viene de arriba a la izquierda.
-   - Intensidad del anillo: `rim_hi·k^3 + rim_lo·(1-k)^3`. El segundo término es el contrabrillo abajo a la derecha.
-   - Banda de 1,0 px (no 1,25), con alfa por vértice como ya se hace.
-3. **Línea interior**: segundo anillo entre `shrink(1.0)` y `shrink(2.0)` con `pal.inner_shade`, multiplicado por `smoothstep(0.4, 1.0, y_rel)`.
-4. **Sombra doble**: contacto `Shadow{offset:(0,1), blur:3}` con `shadow_contact`, y ambiental `Shadow{offset:(0,10), blur:32}` con `shadow`.
-5. **Paleta nueva**. Sustituye `glass_top`, `rim_top`, `rim_bottom` y `card` por los campos de esta tabla. Son valores de partida, a ajustar con capturas.
+   - `Panel`: side panels, state and output panels.
+   - `Capsule`: the bar groups (radio = high / 2).
+   - `Sheet`: moulded leaves, more opaque.
+   - `Popup`: menus and drop-downs.
+   - `Tinted`: the accent button.
+2. **Specular edge**: reuse `rounded_outline` (up to 12 sections by corner so that the ring does not look faceted).
+   - For each vertex, calculate the external normal `n` and define `k = 0.5 + 0.5·dot(n, (-0.6,-0.8))`. The light is coming from the top left.
+   - Ring intensity: `rim_hi·k^3 + rim_lo·(1-k)^3`. The second term is shining down to the right.
+   - Band of 1.0 px (not 1.25), with alpha per vertex as already done.
+3. **Inner line**: second ring between `shrink(1.0)` and `shrink(2.0)` with `pal.inner_shade`, multiplied by `smoothstep(0.4, 1.0, y_rel)`.
+4. **Double Shadow**: contact `Shadow{offset:(0,1), blur:3}` with `shadow_contact`, and environmental `Shadow{offset:(0,10), blur:32}` with `shadow`.
+5. **new palette**. Replace `glass_top`, `rim_top`, `rim_bottom` and `card` with the fields in this table. They're starting values, adjusted for catches.
 
-   | Campo | Claro | Oscuro |
+   |Field|Of course it is.|It 's dark.|
    |---|---|---|
-   | `canvas` (arriba → abajo, degradado muy suave) | 238,238,242 → 230,230,235 | 22,22,25 → 16,16,18 |
-   | `glass` (Panel) | 255,255,255 α 0,74 | 44,44,50 α 0,72 |
-   | `glass_sheet` | 250,250,252 α 0,94 | 38,38,42 α 0,94 |
-   | `glass_tint_top` (degradado del cuerpo, se mezcla arriba) | blanco α 0,10 | blanco α 0,04 |
-   | `rim_hi` / `rim_lo` | blanco α 1,0 / blanco α 0,55 | blanco α 0,34 / blanco α 0,14 |
-   | `inner_shade` | negro α 0,05 | negro α 0,35 |
-   | `outline` (trazo exterior) | negro α 0,07 | negro α 0,60 |
-   | `shadow` / `shadow_contact` | negro α 0,12 / 0,08 | negro α 0,45 / 0,50 |
-   | `fill_control` (campos, segmentado sin seleccionar) | negro α 0,05 | blanco α 0,08 |
-   | `fill_hover` | negro α 0,08 | blanco α 0,12 |
-   | `fill_card` (tarjeta de tinta) | blanco α 0,70 | blanco α 0,07 |
-   | `knob` (segmento seleccionado) | blanco opaco, con sombra de contacto | blanco α 0,20, con anillo `rim_hi` |
-   | `text` | 29,29,31 | 245,245,247 |
-   | `secondary` | 96,96,104 | 174,174,182 |
-   | `tertiary` (pistas, «Ideas…») | 132,132,140 | 128,128,136 |
-   | `separator` | negro α 0,08 | blanco α 0,10 |
-   | `accent` | 0,122,255 | 10,132,255 |
+   |`canvas` (top → below, very soft degraded)|238,238,242 → 230,230,235|22,22,25 → 16,16,18|
+   |`glass` (panel)|255,255,255 α 0,74|44,44,50 α 0,72|
+   |`glass_sheet`|250,250,252 α 0,94|38,38,42 α 0,94|
+   |`glass_tint_top` (degraded from the body, mixed above)|white α 0.10|white α 0.04|
+   |`rim_hi` / `rim_lo`|white α 1.0 / white α 0.55|white α 0.34 / white α 0.14|
+   |`inner_shade`|black α 0.05|black α 0.35|
+   |`outline` (external stroke)|black α 0.07|black α 0.60|
+   |`shadow` / `shadow_contact`|black α 0.12 / 0.08|black α 0.45 / 0.50|
+   |`fill_control` (fields, segmented without selection)|black α 0.05|white α 0.08|
+   |`fill_hover`|black α 0.08|white α 0.12|
+   |`fill_card` (ink card)|white α 0.70|white α 0.07|
+   |`knob` (selected segment)|opaque white, with contact shade|white α 0.20, with `rim_hi` ring|
+   |`text`|29,29,31|245,245,247|
+   |`secondary`|96,96,104|174,174,182|
+   |`tertiary` (leads, ideas... ")|132,132,140|128,128,136|
+   |`separator`|black α 0.08|white α 0.10|
+   |`accent`|0,122,255|10,132,255|
 
-   - El oscuro baja el lienzo a 16–22 y sube el vidrio a 44–50: el panel queda **por encima** del fondo, no al mismo nivel.
-   - El claro baja un poco el lienzo para que el vidrio blanco contraste.
-   - Aplica el degradado del lienzo con un `Mesh` de 4 vértices en `canvas::show` y `output::show`, en lugar de `fill(pal.canvas)`. Deja `pal.canvas` como color medio para los usos que ya tiene (atenuado de controles desactivados, `vectorize_ui.rs:602`).
-6. **Radios concéntricos**:
-   - `PANEL_RADIUS = 22`, `PANEL_PAD = 12` (sustituye a `PANEL_MARGIN + 4`) y `CONTROL_RADIUS = PANEL_RADIUS - PANEL_PAD = 10`.
-   - Las tarjetas de tinta usan `CONTROL_RADIUS + 2`.
-   - Las cápsulas usan alto / 2.
-   - Las hojas usan `SHEET_RADIUS = 26` con `SHEET_PAD = 20`.
-   - Pon todo en `theme.rs` y quita los números sueltos: `22.0` del estado, `20.0` del aviso y `Margin::same(22.0)` y `18.0` de las hojas.
-7. **Pruebas** en `theme.rs`:
-   - Contraste WCAG: compón `text`, `secondary` y `tertiary` sobre `glass` encima del `canvas` (alfa sobre opaco).
-     - `text` ≥ 7:1.
-     - `secondary` ≥ 4,5:1.
-     - `tertiary` ≥ 3:1.
-     - Comprueba claro y oscuro.
-   - El anillo es simétrico respecto a la diagonal y el máximo cae arriba a la izquierda.
+   - The dark lowers the canvas to 16  –  22 and raises the glass to 44  –  50: the panel remains **above the background**, not at the same level.
+   - The clear lowers the canvas a little so that the white glass contrasts.
+   - It applies canvas degradation with a `Mesh` of 4 vertices on `canvas::show` and `output::show`, instead of `fill(pal.canvas)`. Leave `pal.canvas` as the middle color for the uses you already have (deactivated control attenuation, `vectorize_ui.rs:602`).
+6. **Concentric radios**:
+   - `PANEL_RADIUS = 22`, `PANEL_PAD = 12` (replacing `PANEL_MARGIN + 4`) and `CONTROL_RADIUS = PANEL_RADIUS - PANEL_PAD = 10`.
+   - The ink cards use `CONTROL_RADIUS + 2`.
+   - The capsules use high / 2.
+   - The sheets use `SHEET_RADIUS = 26` with `SHEET_PAD = 20`.
+   - Put everything in `theme.rs` and remove the loose numbers: `22.0` from the state, `20.0` from the notice and `Margin::same(22.0)` and `18.0` from the sheets.
+7. **Tests** in `theme.rs`:
+   - WCAG contrast: composite `text`, `secondary` and `tertiary` over `glass` over the `canvas` (alpha over opaque).
+     - `text` ≥ 7: 1.
+     - `secondary` ≥ 4.5: 1.
+     - `tertiary` ≥ 3: 1.
+     - Check clear and dark.
+   - The ring is symmetrical to the diagonal and the maximum falls up to the left.
 
-### Fase 2 · Barra transparente con cápsulas (`app.rs`)
+### Phase 2 · Transparent capsule bar (`app.rs`)
 
-1. Quita el `TopBottomPanel` opaco.
-   - El lienzo (`CentralPanel`) ocupa toda la ventana.
-   - La barra pasa a ser un `egui::Area` con `Order::Middle` y alto `TOOLBAR_H`.
-   - Mantén el arrastre de ventana y el doble clic sobre el hueco vacío: ahora el `interact` va sobre el rectángulo de la barra **antes** de los controles, como hoy.
-2. **Efecto de borde superior**: un degradado del color del lienzo de α 0,85 a 0 en los primeros `TOOLBAR_H + 12` px.
-   - Va pintado en la capa del lienzo, por encima del papel y por debajo de la barra.
-   - Así el título y los botones se leen aunque el papel pase por debajo.
-3. Cada grupo de la barra se pinta con `Material::Capsule`, alto 34 y radio 17: las herramientas, Foto/Abrir, Deshacer/Rehacer y Diseño/Salida.
-   - Reescribe `segmented` con el fondo de cápsula de vidrio, `fill_control` dentro y padding 3.
-   - Reescribe `paint_segment_bg` con un **pomo** en forma de cápsula (`knob`): sombra de contacto en claro y anillo especular en oscuro.
-   - Anima el pomo entre segmentos con `ctx.animate_value_with_time(id, x, 0.18)`. Es opcional pero muy de macOS 26.
-   - El texto del segmento seleccionado va en `text` y semibold. El resto, en `secondary`.
-4. El título «Vectorio / Sin título» se queda sin cápsula, en `text` y `secondary`, como en Finder.
-5. `canvas::fit`: el papel se ajusta debajo de la barra (añade `TOOLBAR_H` al margen superior), porque ahora el lienzo empieza en y = 0.
-   - Revisa `canvas.rs:121` y las coordenadas que restan la barra.
-   - Revisa también `help_sheet`, el ancla del aviso y `floating_panels` (`top`).
-6. **Modo Salida**: lo mismo. `output::show` no debe dejar una franja opaca.
+1. Remove the opaque `TopBottomPanel`.
+   - Canvas (`CentralPanel`) occupies the entire window.
+   - The bar turns into a `egui::Area` with `Order::Middle` and high `TOOLBAR_H`.
+   - Keep the window drag and double click on the empty space: now the `interact` goes over the rectangle of the **bar before the** of the controls, as today.
+2. **Upper edge effect**: a degradation of the canvas colour from α 0.85 to 0 in the early `TOOLBAR_H + 12` px.
+   - It's painted on the layer of canvas, above the paper and under the bar.
+   - So the title and buttons are read even if the paper passes underneath.
+3. Each group of the bar is painted with `Material::Capsule`, high 34 and radio 17: the tools, Photo/Open, Deshacer/Re-Make and Design/Output.
+   - Rewrite `segmented` with the glass capsule bottom, `fill_control` inside and padding 3.
+   - Rewrite `paint_segment_bg` with a **capsule-shaped** (`knob`): contact shadow in light and ring mirror in dark.
+   - Animate the knob between segments with `ctx.animate_value_with_time(id, x, 0.18)`. It 's optional but very macOS 26.
+   - The text of the selected segment goes to `text` and semibold. The rest, in `secondary`.
+4. The title  « Vector / Untitled »  is left without capsule, in `text` and `secondary`, as in Finder.
+5. `canvas::fit`: the paper fits under the bar (add `TOOLBAR_H` to the upper margin), because now the canvas starts at y = 0.
+   - Check `canvas.rs:121` and the coordinates that subtract the bar.
+   - See also `help_sheet`, the warning anchor and `floating_panels` (`top`).
+6. **Output**: the same. `output::show` must not leave an opaque strip.
 
-### Fase 3 · Controles y contenido sobre el vidrio
+### Phase 3 · Controls and contents on the glass
 
 1. **`visuals()`**:
-   - `widgets.inactive` = `fill_control`, `hovered` = `fill_hover` y `active` = `accent` α 0,18.
-   - `rounding` = `CONTROL_RADIUS` en general; botones pequeños (`small_button`, «Ajustar») en cápsula.
-   - `window_fill`/`menu` usan el color del material `Popup`.
-   - `menu_rounding` = 12 y `popup_shadow` = la sombra ambiental.
-   - `extreme_bg_color` (campos de texto) = `fill_control` también, no blanco ni negro puros.
-2. **`accent_button`**: pasa a cápsula con `Material::Tinted(accent)`.
-   - Cuerpo con el acento, la mitad superior mezclada un 10 % con blanco y el anillo especular encima.
-   - Texto blanco semibold.
-   - Al pasar el ratón, ilumina un 6 %. Al pulsar, oscurece un 8 %.
-   - Úsalo también en el «Hecho» de `colorpanel.rs:129`, que hoy lleva su propio `Button`.
-3. **Desplegables**: un `icon` propio para `ComboBox` con un chevron arriba/abajo (dos «V» de 4 px en `secondary`) en lugar del ▼.
-   - Hazlo como función `theme::combo_icon` y aplícalo a todos los `ComboBox` con `.icon(theme::combo_icon)`.
-4. **Tarjetas de tinta** (`paint_pen_card`):
-   - Fondo `fill_card` con el mismo anillo especular, en una versión fina, y sin `glass_stroke`.
-   - La banda de color se queda, pero el brillo (`sheen`) pasa a un degradado de blanco α 0,22 a 0 en lugar de un rectángulo.
-   - El código hex y el grosor van en `tertiary` (11 pt). El nombre, en `text` 12,5 semibold.
-   - En `Ghost` (arrastrando) usa `Material::Popup`, no el color de la tarjeta opaco.
-5. **`section()`**: 11 pt semibold en `secondary`, con +0,3 de interletraje si egui lo permite. Si no, déjalo así.
-   - Los textos de ayuda bajo las secciones van en `tertiary`.
-   - Revisa `inspector.rs`, `output.rs` y `prefs_ui.rs`: cualquier `pal.secondary` que sea una pista y no una etiqueta pasa a `tertiary`.
-6. **`swatch`** (papel): el anillo de selección en `accent` a 2 px con 2 px de separación, como ahora. El trazo de borde pasa a `outline`.
-7. **`close_button`**: cápsula `fill_control`.
+   - `widgets.inactive` = `fill_control`, `hovered` = `fill_hover` and `active` = `accent` α 0.18.
+   - `rounding` = `CONTROL_RADIUS` in general; small buttons (`small_button`,  « Ajust ») in capsule.
+   - `window_fill` / `menu` use the color of the material `Popup`.
+   - `menu_rounding` = 12 and `popup_shadow` = environmental shadow.
+   - `extreme_bg_color` (text fields) = `fill_control` also, not pure white or black.
+2. **`accent_button`**: switch to capsule with `Material::Tinted(accent)`.
+   - Body with accent, upper half mixed a 10 % with white and the ring specular on top.
+   - Semibold white text.
+   - When the mouse passes, it lights up a 6 %. When pulsed, it obscures a 8 %.
+   - It is also used in the `colorpanel.rs:129` made, which today carries its own `Button`.
+3. **Displayable**: a `icon` own for `ComboBox` with an up/down chevron (two  « V »  of 4 px in `secondary`) instead of ▼.
+   - Make it `theme::combo_icon` function and apply it to all `ComboBox` with `.icon(theme::combo_icon)`.
+4. **Ink cards** (`paint_pen_card`):
+   - Back `fill_card` with the same specular ring, in a fine version, and without `glass_stroke`.
+   - The color band stays, but the brightness (`sheen`) passes to a white degraded α 0.22 to 0 instead of a rectangle.
+   - The hex code and thickness are in `tertiary` (11 pt). The name, in `text` 12.5 semibold.
+   - In `Ghost` (tracking) use `Material::Popup`, not the color of the opaque card.
+5. **`section()`**: 11 pt semibold on `secondary`, with + 0.3 of interlettering if egui allows it. If not, leave it like this.
+   - Help texts under the sections go to `tertiary`.
+   - Check `inspector.rs`, `output.rs` and `prefs_ui.rs`: any `pal.secondary` that is a lead and not a label goes to `tertiary`.
+6. **`swatch`** (paper): the selection ring in `accent` to 2 px with 2 px separation, as now. The edge stroke goes to `outline`.
+7. **`close_button`**: capsule `fill_control`.
 
-### Fase 4 · Hojas, menús y avisos
+### Stage 4 · Sheets, menus and notices
 
-1. `glass_frame` desaparece y todas las hojas usan `Material::Sheet` con `SHEET_RADIUS` y `SHEET_PAD`.
-   - Afecta a Ajustes (`prefs_ui.rs:55`), Atajos (`app.rs:837`), Color (`colorpanel.rs:61`) y Foto (`vectorize_ui.rs:313`).
-   - Para ello `glass_panel_with` acepta un `Frame`/margen, o se añade `glass_sheet(ui, pal, add)`.
-   - Hoy todas hacen `.fill(pal.bar.to_opaque())`: esa opacidad la da ahora el α 0,94 del material.
-2. El velo de las hojas pasa a negro α 0,25 en claro y α 0,45 en oscuro, más un degradado radial suave si es barato. Si no, sin degradado.
-3. **Aviso (`toast`)**: `Material::Capsule`, centrado bajo la barra.
-4. Los menús de egui (Exportar, desplegables) toman `window_fill`, `window_stroke` = `outline` y la sombra de `visuals()`. No pueden llevar el anillo de malla; con el trazo y la sombra basta.
-5. Los círculos de `vectorize_ui.rs:517/523` (`pal.bar`) pasan a `Material::Capsule` circular o a `glass_sheet`.
+1. `glass_frame` disappears and all the sheets use `Material::Sheet` with `SHEET_RADIUS` and `SHEET_PAD`.
+   - It affects Settings (`prefs_ui.rs:55`), Shortcuts (`app.rs:837`), Color (`colorpanel.rs:61`) and Photo (`vectorize_ui.rs:313`).
+   - For this purpose `glass_panel_with` accepts a `Frame` / margin, or `glass_sheet(ui, pal, add)` is added.
+   - Today they all make `.fill(pal.bar.to_opaque())`: that opacity is now given by the α 0.94 of the material.
+2. The leaf veil passes to black α 0.25 in light and α 0.45 in dark, plus a soft radial degradation if it's cheap. If not, without degradation.
+3. **Warning (`toast`)**: `Material::Capsule`, centered under the bar.
+4. The menus of egui (Export, deployable) take `window_fill`, `window_stroke` = `outline` and the shadow of `visuals()`. They can't wear the mesh ring; with the stroke and the shadow that's enough.
+5. The circles of `vectorize_ui.rs:517/523` (`pal.bar`) pass to `Material::Capsule` circular or to `glass_sheet`.
 
-### Fase 5 · Lo que hay detrás del vidrio (opcional, después de validar 1–4)
+### Phase 5 · What's behind the glass (optional, after validating 1  –  4)
 
-egui no desenfoca. Pero sí sabemos qué hay bajo cada panel: el papel, que es un
-rectángulo de color conocido.
+egui does not blur. But we do know what's under each panel: the paper, which is a known colored rectangle.
 
-1. **Papel «visto a través»**: si el rectángulo del papel en pantalla corta un panel o la barra, pinta dentro de la forma del vidrio y **antes** del cuerpo:
-   - un `Shadow` con `blur` ≈ 24 y `spread` 0 del rectángulo del papel, recortado al panel;
-   - con el color del papel y α 0,55.
-   
-   Así se ve una mancha clara de bordes difusos, que es el desenfoque del papel. Lo pinta `glass_panel_with` si recibe `backdrop: Option<(Rect, Color32)>`, que `app.rs` calcula a partir de `self.view`.
-2. **Ajuste del papel**: `canvas::fit` deja de reservar todo el ancho de los paneles. Encaja el papel entre ellos, pero permite que, al hacer zoom o desplazar, pase por debajo. Ya lo hace; solo cambia que ahora se verá.
-3. Mide el coste con un proyecto grande. Si un fotograma tarda > 1 ms más, desactívalo durante el arrastre.
+1. **Paper  « seen through  »**: if the rectangle of the on-screen paper cuts a panel or bar, paint inside the shape of the glass and **before** of the body:
+   - a `Shadow` with `blur` ≈ 24 and `spread` 0 of the rectangle of the paper, cut to the panel;
+   - with the color of the paper and α 0.55.
 
-### Fase 6 · Comprobación visual
+   So you see a clear spot of diffuse edges, which is the blurring of the paper. `glass_panel_with` paints it if it receives `backdrop: Option<(Rect, Color32)>`, which `app.rs` calculates from `self.view`.
+2. **Adjustment of the paper**: `canvas::fit` ceases to reserve the entire width of the panels. It puts the paper between them, but allows it, when zooming or scrolling, to pass underneath. It already does; it only changes that now it will be seen.
+3. Measure the cost with a big project. If a frame takes > 1 longer, turn it off during drag.
 
-Haz capturas en claro y oscuro sin tocar las preferencias ni las ventanas del usuario:
+### Phase 6 · Visual inspection
+
+Capture in clear and dark without touching the user's preferences or windows:
 
 ```bash
 H=$(mktemp -d); mkdir -p "$H/Library/Application Support/Vectorio"
 echo '{"appearance":"oscuro"}' > "$H/Library/Application Support/Vectorio/preferencias.json"
-HOME="$H" /Applications/Vectorio.app/Contents/MacOS/vectorio &   # instancia propia; ciérrala con kill <pid> al acabar
+HOME="$H" /Applications/Vectorio.app/Contents/MacOS/vectorio &   # separate instance; close it with kill <pid> when finished
 ```
 
-- Usa `screencapture -x -l <windowid>` con el id de la ventana de ese pid. Este proyecto ya ha usado un pequeño Swift con `CGWindowListCopyWindowInfo`.
-- **Nunca** cierres otras instancias de Vectorio.
+- Use `screencapture -x -l <windowid>` with the window ID of that bid. This project has already used a small Swift with `CGWindowListCopyWindowInfo`.
+- **I never** You shut down other instances of Vectorio.
 
-Lista de revisión, en claro y en oscuro:
+Checklist, in both light and dark:
 
-- [x] Los paneles se separan del lienzo sin mirar la sombra.
-- [x] El borde brilla arriba a la izquierda y un poco abajo a la derecha, nunca como un bisel.
-- [x] La barra no tiene franja ni línea. Los grupos son cápsulas y el pomo del segmentado se distingue a primera vista.
-- [x] Exportar es una cápsula azul con brillo.
-- [x] Las tarjetas de tinta pesan menos que su banda de color.
-- [x] Los textos de pista se leen en oscuro.
-- [x] Ajustes, Atajos, Color y Foto comparten radio, margen y material.
-- [x] El modo Salida no tiene franjas opacas.
-- [x] Revisa a escala de interfaz 0,85 y 1,25 (Ajustes → General).
+- [x] The panels separate from the canvas without looking at the shadow.
+- [x] The edge shines up to the left and a little down to the right, never like a bezel.
+- [x] The bar has no stripe or line. The groups are capsules and the segmented knot is distinguished at first glance.
+- [x] Export is a bright blue capsule.
+- [x] Ink cards weigh less than their color band.
+- [x] Track texts are read in the dark.
+- [x] Settings, Shortcuts, Color and Photo share radio, margin and material.
+- [x] The output mode has no opaque bands.
+- [x] Check at the interface scale 0.85 and 1.25 (General Adjusters →).
 
-Resultado de la revisión (12-11-2026): se corrigieron picos en la sombra de las cápsulas pequeñas, el pomo hueco de los deslizadores, las casillas redondas casi invisibles en claro, el gris de una pasada invisible en el mapa de tinta y el ajuste del papel al arrancar con otra escala.
+Results of the review (12 - 11 - 2026): spikes in the shadow of the small capsules, the hollow knot of the sliders, the almost invisible round boxes in the clear, the gray of an invisible pass on the ink map and the adjustment of the paper when starting with another scale were corrected.
 
-## 4. Fuera de alcance
+## 4. Out of range
 
-- Desenfoque real con un pase propio de wgpu (`egui_wgpu::CallbackTrait` sobre una copia del framebuffer). Es posible, pero cuesta y es frágil en eframe 0.29. Sería un plan aparte si la fase 5 no basta.
-- `NSVisualEffectView` nativo detrás de la ventana: solo desenfocaría el escritorio, no el lienzo.
-- Cambios de disposición o de flujo, y cambios de iconos (salvo el chevron de los desplegables).
+- Real defocus with its own wgpu pass (`egui_wgpu::CallbackTrait` on a copy of the framebuffer). It's possible, but it's expensive and fragile in 0.29 frame. It would be a separate plan if the 5 phase isn't enough.
+- `NSVisualEffectView` native behind the window: it would only blur the desk, not the canvas.
+- Changes in layout or flow, and changes in icons (except for deployable chevron).
 
-## 5. Reparto sugerido
+## 5. Suggested cast
 
-| Fase | Riesgo | Modelo / razonamiento |
+|Stage|The risk|Model / reasoning|
 |---|---|---|
-| 1 Material y paleta | Medio: es la base de todo | Sonnet, razonamiento alto |
-| 2 Barra transparente | Medio: coordenadas y arrastre | Sonnet, alto |
-| 3 Controles | Bajo | Sonnet, medio |
-| 4 Hojas | Bajo | Sonnet, medio |
-| 5 Fondo a través | Medio-alto | Sonnet, alto, u Opus si la 1–4 no convencen |
-| 6 Capturas y ajuste fino | — | Opus para el juicio visual final |
+|1 Material and pallet|Medium: it is the basis of everything|Sonnet, high reasoning|
+|2 Transparent bar|Medium: coordinates and drag|Sonnet, high|
+|3 Controls|Down there.|Sonnet, half|
+|4 Sheets|Down there.|Sonnet, half|
+|5 Fund through|Mean-high|Sonnet, alto, or opus if the 1  –  4 do not convince|
+|6 Captures and fine-tuning|—|Opus for the Final Judgment|

@@ -1,280 +1,274 @@
-# Plan: panel «Crear», fase 5 (escenas de alta densidad)
+# Plan: Create panel, Phase 5 (dense scenes)
 
-Objetivo: dos escenas nuevas que nazcan con la riqueza de las ilustraciones de
-referencia (ciudad isométrica, festival, cúpulas bajo el mar y en el espacio) y no
-la ganen a base de retoques como el Pueblo blanco.
+Objective: two new scenes that are born with the richness of the reference illustrations (isometric city, festival, domes under the sea and in space) and do not earn it on the basis of touches like the White village.
 
-**Regla de origen.** Son ilustraciones con derechos de autor (y con marcas
-reales). Sirven solo de análisis: no se copian composiciones, personajes, rótulos,
-logotipos ni marcas (nada de Royal Enfield, Toyota, etc.). Las escenas son
-originales, con temas y rótulos propios. Mismo criterio que con SVGeometric.
+**Rule of origin.** They are illustrations with copyright (and real trademarks). They serve only for analysis: no compositions, characters, labels, logos or brands (nothing from Royal Enfield, Toyota, etc.) are copied. The scenes are original, with their own themes and labels. Same criteria as with SVGeometric.
 
-## 1. Qué lleva esa riqueza (análisis)
+## 1. What brings that wealth (analysis)
 
-1. **Tres escalas a la vez.** Un hito enorme (calamar, escenario, torre de cristal,
-   cohete, circuito), bloques medios (edificios, cúpulas, tribunas) y un polvo de
-   detalle (personas, coches, motos, globos, banderas, árboles). Quita una escala y
-   la imagen se vacía.
-2. **Gente por cientos, y legible.** La densidad no viene de dibujar mucho por
-   persona sino de muchas personas muy simples, en grupos con intención: una cola,
-   un paso de cebra, una grada, un corrillo, un baile. Cada grupo cuenta algo.
-3. **Cada superficie hace algo.** Azoteas con terraza, balcones con gente,
-   fachadas con escaparate, toldo, rótulo y ventanas con vida. No hay tejado liso
-   ni suelo vacío: el vacío es una decisión (una plaza), no un olvido.
-4. **Escenas dentro de la escena.** Las cúpulas de cristal enseñan un interior
-   completo (un pueblo, una cancha, un jardín). Es el truco que multiplica la
-   densidad sin llenar la hoja: un volumen simple con un mundo dentro.
-5. **Distritos temáticos.** Cada zona del plano tiene su gramática (puerto, parque,
-   calle comercial, circuito). La variedad entre zonas da lectura; la repetición
-   dentro de una zona da orden.
-6. **Gran forma que cruza capas.** Un animal gigante o una vía que atraviesa
-   cúpulas, agua y cielo une la composición y marca el recorrido del ojo.
-7. **El fondo también está lleno.** Mar, cielo, estrellas, campo: nunca papel en
-   blanco en los bordes. Todo llega a sangre.
-8. **Color como jerarquía.** Pocas familias de color por zona y un acento vivo. En
-   el plotter eso son tintas: no hace falta gama, hace falta reparto.
+1. **Three scales at a time** A huge milestone
+   Rocket, circuit), medium blocks (buildings, domes, tribunes) and a powder of
+   details (people, cars, motorcycles, balloons, flags, trees). Take off a scale and
+   the image is emptying.
+2. **Hundreds of people, and readable.** Density doesn't come from drawing too much by
+   person, but many very simple people, in groups with intent: a tail,
+   A zebra step, a ladder, a lane, a dance. Every group counts.
+3. **Every surface does something.** Rooftops with terraces, balconies with people,
+   Façades with window, shroud, label and living windows. There 's no smooth roof.
+   or empty ground: the void is a decision (a square), not a forgetting.
+4. **You're scenes inside the scene.** The glass domes show an interior
+   A whole village, a courtyard, a garden. It's the trick that multiplies the
+   density without filling the sheet: a simple volume with a world inside.
+5. **Thematic districts.** Each area of the plan has its own grammar (port, park,
+   Commercial street, circuit). The variety between areas gives a reading; the repetition
+   within an orderly zone.
+6. **Great way to cross layers.** A giant animal or a pathway that runs through it
+   domes, water and sky unite the composition and mark the path of the eye.
+7. **The bottom is full, too.** Sea, sky, stars, field: never paper on
+   White on the edges. Everything comes to full bleed.
+8. **Color as a hierarchy** Few color families per area and a vivid accent. In
+   The plotter that's inks: you don't need gamma, you need distribution.
 
-## 2. Qué hay que añadir al motor y al kit (infraestructura común)
+## 2. What to add to the engine and kit (common infrastructure)
 
-Se hace primero, porque las dos escenas dependen de ella.
+It's done first, because both scenes depend on it.
 
-- **Multitud (`kit::crowd`).** Figura mínima de 5–8 trazos más cabeza, con 4–6
-  variantes de pose y altura, dibujada como sprite con oclusión (no como sólido de
-  revolución). Generadores de grupo: `queue`, `crossing`, `stands` (rejilla por
-  gradas), `cluster`, `dance`. Presupuesto: 1.000–3.000 personas por hoja.
-- **Vehículos (`kit::vehicle`).** Coche, moto, bus, barca, tren: cajas con perfil
-  extruido y ruedas. Colocación sobre una polilínea (calle, circuito, vía) con
-  separación y sentido.
-- **Gramática de fachada (`kit::shopfront`, `kit::tower`).** Rejilla de ventanas
-  con ritmos, bajos con escaparate y toldo, balcones con gente, rótulos y torres
-  de cristal con plantas visibles. Reemplaza el `facade()` actual en las escenas
-  densas.
-- **Cinta curva (`kit::ribbon`).** Calles, circuitos y raíles a partir de una
-  polilínea suave: banda con borde, bordillo, marcas y peralte. Es lo que hoy no
-  puede hacer el pueblo (solo trabaja en ejes).
-- **Cúpula (`kit::dome`).** Casquete en alambre sin ocluir el interior (se dibuja
-  con `whole_line`), con un contenido que se recibe como cierre: la cúpula
-  recorta el mundo interior y dibuja su cubierta por encima.
-- **Criaturas y grandes formas (`kit::creature`).** Cuerpo de revolución sobre un
-  eje curvo, con aletas o extremidades; tres especies al principio (cetáceo,
-  cefalópodo, saurio). También cohete y estación.
-- **Rotulación.** Los rótulos usan el texto vectorial que ya existe en el núcleo,
-  proyectado sobre un plano de fachada.
-- **Presupuesto y medida.** `Scene` hasta 8.000 caras y 40.000 segmentos (el banco
-  actual mide 12 ms con 5.000 y 20.000). Se añade una métrica de densidad por
-  escena: personas, metros trazados y metros por decímetro cuadrado.
-- **Tintas.** Los juegos pasan a 5–7 rotuladores: contorno, trama, vegetación,
-  terreno, agua, gente y rótulos. Cada parte conserva su tinta; con menos
-  rotuladores se agrupan como ahora.
+- **Multitude (`kit::crowd`).** Minimum figure of 5  –  8 strokes plus head, with 4  –  6
+  Position and height variants, drawn as occlusion sprite (not as solid of
+  the revolution). Group generators: `queue`, `crossing`, `stands` (grid by
+  grades), `cluster`, `dance`. Budget: 1,000  –  3,000 people per leaf.
+- **Vehicles (`kit::vehicle`).** Cars, motorcycles, buses, boats, trains: boxes with profile
+  Extruded and wheeled. Placement on a polyline (street, circuit, track) with
+  separation and meaning.
+- **Façade grammatical (`kit::shopfront`, `kit::tower`).** Window grating
+  With rhythms, bass with window and shell, balconies with people, labels and towers
+  glass with visible plants. It replaces the current `facade()` in the scenes
+  It's very dense.
+- **Curved tape (`kit::ribbon`).** Roads, circuits and rails from one
+  Soft polyline: band with edge, curb, markings and pearls. It's what we don't today.
+  You can make the village (it only works on shafts).
+- **Council (`kit::dome`).** Wire cap without insulation (drawn)
+  with `whole_line`), with a content which is received as closure: the dome
+  It cuts through the inner world and draws its cover above it.
+- **Creatures and large shapes (`kit::creature`).** Revolutionary body on a
+  Curved axis, with fins or extremities; three species at the beginning (cetaceous,
+  the cephalopod, the saurio). Also rocket and station.
+- **Labelling.** The labels use the vector text that already exists in the core,
+  projected on a façade plan.
+- **Budget and measure** `Scene` to 8,000 expensive and 40,000 segments (the bank
+  The current measurement is 12 ms with 5,000 and 20,000). Add a density metric by
+  Scene: people, meters plotted and meters per square decimeter.
+- **Inks.** The games move to 5  –  7 pens: contour, hatching, vegetation,
+  land, water, people and labels. Each part retains its ink; with less
+  pens are grouped together like they are now.
 
-## 3. Escena A · «Ciudad en fiesta»
+## 3. Scene A ·  « City at the party »
 
-Isométrica, a sangre, con barrios y un circuito que la cose.
+Isometric, full bleed, with neighborhoods and a circuit that sews it.
 
-- **Plano.** Cuadrícula de calles con una avenida diagonal; cuatro o cinco
-  distritos sorteados: comercial, residencial, parque, puerto o playa, y
-  recinto de espectáculo con escenario y gradas.
-- **Hitos.** Una torre de cristal con plantas visibles, un escenario con gradas
-  llenas y una noria, un depósito circular o un faro. Dos o tres por hoja, nunca
-  más.
-- **Circuito.** Una cinta curva que sube y baja sobre los bloques, con coches,
-  neumáticos en las curvas y gradas.
-- **Micro.** Pasos de cebra con multitud, colas, toldos, terrazas en azoteas,
-  globos, banderas y árboles de tres especies.
-- **Parámetros.** Distrito dominante, densidad de gente, número de hitos, presencia
-  de circuito, de playa, de parque; giro del sol y vista.
-- **Cómo se lee con una sola tinta.** Blanco en las fachadas de la calle (la cal
-  de la fase 4), trama abierta en los costados, gente y coches en trazo fino.
+- **Plane.** Street grid with a diagonal avenue; four or five
+  drawn districts: commercial, residential, park, port or beach; and
+  showroom with stage and staircase.
+- **Landmarks.** A glass tower with visible floors, a stage with steps
+  full and a noria, a circular tank or a lighthouse. Two or three a leaf, never.
+  More than that.
+- **Circuit.** A curved tape that goes up and down over the blocks, with cars,
+  tyres on the curves and slopes.
+- **Micro.** Zebra steps with crowds, tails, canopies, roof terraces,
+  balloons, flags and trees of three species.
+- **Parameters** Dominant district, population density, number of landmarks, presence
+  Circuit, beach, park; sunshine and view.
+- **How to read with a single ink.** White on the facades of the street (the lime
+  4 phase), open hatching on the sides, people and cars in fine stroke.
 
-## 4. Escena B · «Cúpulas»
+## 4. Scene B ·  « Domes »
 
-Corte vertical con una línea de agua (o un horizonte espacial) y burbujas.
+Vertical slide with a waterline (or spatial horizon) and bubbles.
 
-- **Mundos.** Subacuático (agua, fondo marino, cetáceo, saurio, barco arriba) y
-  espacial (luna, planetas, cohete, estación, galaxia). Mismo motor con otro
-  decorado y otro juego de tintas.
-- **Cúpulas.** Entre cinco y nueve, de tamaños distintos, unidas por túneles. Cada
-  una contiene una microescena sorteada: jardín, pueblo, cancha, mercado, granja,
-  laboratorio.
-- **Criatura que cruza.** Una gran forma (calamar, ballena, cohete) pasa entre
-  cúpulas y las une compositivamente.
-- **Fondo lleno.** Burbujas, peces o estrellas por campos de densidad, algas o
-  nubes de polvo, siempre a sangre.
-- **Parámetros.** Mundo, número de cúpulas, criatura, densidad de fondo, vista.
+- **Worlds.** Underwater (water, seabed, cetacean, saurian, upper ship) and
+  It is also important to note that this is not the case in the European Union. Same engine with another
+  decorated and another ink set.
+- **domes.** Between five and nine, of different sizes, connected by tunnels. Each
+  One contains a micro scene drawn: garden, village, courtyard, market, farm,
+  laboratory.
+- **Creature that crosses.** A large form (a squid, a whale, a rocket) passes between
+  the dome and bind them together in a composite way.
+- **Full bottom** Bubbles, fish or stars by density fields, algae or
+  Dust clouds, always full bleed.
+- **The parameters.** World, number of domes, creature, background density, view.
 
-## 5. Pasos
+## 5. Steps
 
-0. **Infraestructura** (la parte pesada): `crowd`, `vehicle`, `ribbon`, `dome`,
-   `creature`, fachada nueva, presupuesto y métrica de densidad, pruebas de cada
-   pieza (sin costuras, sin recortes, deterministas, sin NaN).
-   *Hecho.* `kit::crowd` (6 poses, colas, pasos, gradas, corrillos, baile y
-   explanada; tope de 3.000 figuras, simplificadas por debajo de 2,6 mm),
-   `kit::ribbon` (cinta con bordes, discontinua, pianos, vía y tablero elevado),
-   `kit::vehicle` (coche, moto, autobús, barca y tren enganchado), fachada
-   (`window_grid` con 4 ritmos, balcones con gente, escaparates con toldo,
-   rótulos con la letra del núcleo, torre de cristal, azotea con sombrillas),
-   `kit::dome` (vidrio que no tapa e interior recortado a la esfera con
-   `Scene::clip_to_sphere`), `kit::creature` (cetáceo, cefalópodo, saurio,
-   cohete y estación), `Scene::load` con el presupuesto de 8.000 caras y
-   40.000 segmentos, `kit::density` (personas, metros y metros por dm²) y el
-   juego de tintas `inks::DENSE` de 5 a 7 rotuladores (línea, gente,
-   vegetación, agua, trama, rótulos, terreno). Pruebas en
-   `kit/dense_tests.rs`: deterministas, sin NaN, nada con entradas imposibles,
-   sin costuras ni caras solapadas, interior de la cúpula dentro del vidrio,
-   vista previa que aclara sin mover a nadie, 3.000 personas dentro del
-   presupuesto (39.652 segmentos, 15 ms) y lámina en el tope en 20 ms.
-   Muestrario: `cargo run -p vectorio-core --example kit_denso --release`.
-1. **Ciudad en fiesta** completa, con las 12 semillas valoradas una a una.
-   *Hecho (versión acotada).* Generador `festival_city` registrado, con juego
-   `inks::DENSE`, controles de gente, 1–3 hitos, circuito, vista y giro del sol.
-   Incluye un núcleo de nueve manzanas (una reservada para la plaza), periferia, comercios y azoteas,
-   cruces con peatones, colas, coches, motos y autobuses; torre de cristal,
-   escenario con dos gradas y depósito circular, sorteados sin repetirse, y
-   carrera urbana por las calles, con vallas, público, grada y meta. La ciudad sigue a sangre.
-   Se comprueban determinismo, geometría finita dentro del papel, ausencia de
-   avisos y presupuesto en las semillas 0–11, con los tres recuentos de hitos y
-   ambos estados del circuito; también las cuatro vistas y los extremos de gente.
-   *Mejora:* manzanas de fachada continua (una o dos filas con patio), hitos altos
-   detrás de la plaza y escenario delante, plaza con fuente, corros, olivos y verbena
-   (farolas y banderines que cruzan las calles), escaparates con rótulos variados,
-   paseantes y tráfico por toda la ciudad, y acabado por presupuesto (completo,
-   comercios, volumen o caja) para no pasar nunca de los topes.
-   Hoja de contactos en `target/phase5/contactos.svg` y detalle de ciudad en
+0. **Infrastructure** (the heavy part): `crowd`, `vehicle`, `ribbon`, `dome`,
+   `creature`, new façade, budget and density metric, tests of each
+   It is not possible to use the product in the same way as the product in question.
+   *Made.* `kit::crowd` (6 poses, tails, steps, stairs, rails, dancing and
+   Explained; top of 3,000 figures, simplified below 2.6 mm),
+   `kit::ribbon` (rope with edges, discontinuous, pianos, track and elevated board),
+   `kit::vehicle` (car, motorcycle, bus, boat and attached train), façade
+   (`window_grid` with 4 rhythms, balconies with people, windows with blinds,
+   signs with the letter of the core, glass tower, roof with umbrellas),
+   `kit::dome` (non-covering glass and interior cut to the sphere with
+   `Scene::clip_to_sphere`), `kit::creature` (cetaceous, cephalopod, saurian,
+   rocket and station), `Scene::load` with the budget of 8,000 expensive and
+   40,000 segments, `kit::density` (people, meters and meters per dm2) and the
+   ink set `inks::DENSE` from 5 to 7 pens (line, people,
+   This is the main reason why it is important for the Commission to take the necessary measures in order to ensure that the measures are implemented effectively. Tests on
+   `kit/dense_tests.rs`: deterministic, without NaN, nothing with impossible inputs,
+   without seams or overlapping faces, inside the dome inside the glass,
+   Preview that clarifies without moving anyone, 3,000 people inside the
+   39,652 segments, 15 ms) and sheet at the top in 20 ms.
+   `cargo run -p vectorio-core --example kit_denso --release`.
+1. Complete **Festival city**, with the 12 seeds rated one by one.
+   *Made (shortened version).* Registered `festival_city` generator, with game
+   `inks::DENSE`, people controls, 1  –  3 milestones, circuit, view and turn of the sun.
+   It includes a core of nine City blocks (one reserved for the square), periphery, shops and rooftops,
+   pedestrian crossings, queues, cars, motorcycles and buses; glass tower,
+   two-stage stage and circular deposit, drawn unrepeated; and
+   urban race through the streets, with fences, public, gradient and goal. The city follows full bleed.
+   Determinism, finite geometry within the paper, absence of
+   0 seeds  –  11, with all three milestone counts and
+   Both circuitry states; also the four views and the ends of people.
+   *Improvement:* City blocks continuous facade (one or two rows with courtyard), high landmarks
+   behind the square and stage in front, square with fountain, springs, olives and verbena
+   (flares and flags crossing the streets), windows with various labels,
+   the city, and finished by budget (complete,
+   In order to avoid ever going over the top.
+   Contactsheet in `target/phase5/contactos.svg` and city details in
    `target/phase5/ciudad.svg`.
-   Quedan pendientes la noria, el faro, la playa y el puerto, el parque con tres
-   especies, globos y banderas, la avenida diagonal, el distrito dominante y la
-   valoración detallada de cada semilla. Esta entrega cubre la revisión visual
-   de errores evidentes, no esa valoración artística completa.
-   Corrección 1: ciudad a sangre y carrera urbana; cámara a 2,4–4 mm/m,
-   cobertura del suelo verificada y detalle de periferia ajustado al presupuesto.
-   Revisadas las doce láminas individuales: edificios hasta el borde y escaparates
-   visibles. Con este encuadre cercano la carrera periférica se ve por fragmentos
-   en los bordes; no se presenta el rectángulo completo en una sola vista.
-   Puerto o paseo marítimo, avenida diagonal, noria, parques y globos quedan
-   para el siguiente paso.
-   Corrección 2: sombras proyectadas como en el pueblo (control «Densidad de
-   sombras») y control «Evento» para la plaza: verbena; mercadillo con doce
-   puestos con toldo y rótulo; feria con noria, tiovivo, casetas y cola; y
-   cabalgata por la calle de la plaza más cercana a la cámara, con carroza,
-   gigantes, cabezudos, banda y público (ese tramo se queda sin tráfico). Nuevo
-   control «Vida en la calle»: obra con estructura a medias y grúa torre (solo
-   donde la grúa cabe en la hoja y sin tapar la plaza de frente), globo
-   aerostático, bandadas de palomas, vendedores de globos, tendederos con vecina
-   en las azoteas, pintores en andamios colgados y bancos con gente sentada al
-   pie de los olivos.
-   Cruce con el pueblo: el pueblo usa ya las figuras de la ciudad (con postura,
-   niños y sombra gracias a `Scene::cast_shadow`), y un vendedor de globos y una
-   bandada de palomas en la plaza; palomas, vendedor y figura con sombra viven
-   ahora en `kit::life`, compartidos por las dos escenas.
-   Lámina suelta con parámetros a mano: `cargo run -p vectorio-core --example
-   muestra_receta --release -- festival_city ciudad.svg 3 event=fair stories=1`.
-   Corrección 3: control «Costa» (sin costa, playa o puerto) en uno de los lados
-   delanteros. Playa con paseo de palmeras, sombrillas, bañistas, socorrista,
-   vóley y barcas; puerto con muelle, lonja, espigón de escollera con faro y
-   pantalán con barcas. Control «Avenida diagonal» (no con la carrera): cruza la
-   cuadrícula delante de la plaza (detrás si hay costa), con mediana de árboles
-   y farolas, cuatro carriles, edificios en cuña con proa achaflanada (bajos los
-   que quedan entre la avenida y la cámara) y un parque con fuente, cipreses en
-   el borde, pinos al fondo y olivos delante. La cámara se corre hacia el mar y
-   hacia la avenida para que entren en la hoja. Cruce con el pueblo: pinares
-   ralos entre los cultivos y una pareja de palmeras a la entrada de la plaza.
-   Con parámetros a mano los interruptores van como `si`/`no`:
+   There's the noria, the lighthouse, the beach and the port, the park with three
+   In addition, it is important to note that the Commission's proposal for a directive on the
+   a detailed evaluation of each seed. This delivery covers the visual review
+   Of obvious errors, not that complete artistic evaluation.
+   Correction 1: city full bleed and city run; camera to 2.4 - 4 mm/m,
+   verified soil coverage and budget-adjusted periphery detail.
+   Twelve individual sheets reviewed: buildings to the edge and windows
+   They're visible. With this close frame the peripheral run is seen by fragments
+   on the edges; the full rectangle is not presented at a single glance.
+   Port or promenade, diagonal avenue, noria, parks and balloons remain
+   for the next step.
+   Correction 2: shadows projected as in the village
+   shadows ») and control  « Event »  for the square: verbena; market with twelve
+   woven fabrics of cotton, containing predominantly, but < 85% cotton by weight, mixed principally or solely with man-made fibres
+   horseback riding on the street of the square closest to the chamber, with carriage,
+   Gigants, heads, bands and the public (this section is left without traffic). New
+   control  « Living on the street »: work with a half-structure and tower crane (only)
+   where the crane fits into the leaf and without covering the front square), balloon
+   air conditioners, flocks of pigeons, balloon sellers, neighbourhood shopkeepers
+   On the rooftops, painters on hanging scaffolds and benches with people sitting at the
+   the foot of the olive trees.
+   Cross with the people: the people already use the figures of the city (with posture,
+   children and shadow thanks to `Scene::cast_shadow`), and a balloon seller and a
+   flocks of pigeons in the square; pigeons, salesman and figure with shadow live
+   Now on `kit::life`, shared by the two scenes.
+   Loose sheet with manual parameters: `load run -p vector-core --example
+   show_recipe --release -- festival_city city.svg 3 event=fair stories= 1 `.
+   Correction 3: control  « Costa »  (no coast, beach or port) on one side
+   In front of you. Beach with palm walk, umbrellas, bathers, lifeguard,
+   Voloes and boats; harbour with pier, longhaul, spigot with lighthouse and
+   pants with boats. Control  « Avenue diagonal »  (not with the race): cross the road
+   grid in front of the square (behind if there is a coastline), with a median of trees
+   and lanterns, and four lanes, and buildings in wedges with planed forearms,
+   They are located between the avenue and the chamber) and a park with fountain, cypresses in
+   the edge, pine trees at the bottom and olives in front. The camera runs towards the sea and
+   to the avenue so they can get on the leaf. Cross with the village: pine trees
+   branches between the crops and a pair of palm trees at the entrance to the square.
+   With manual parameters the switches go like `si` / `no`:
    `... festival_city avenida.svg 4 avenue=si circuit=no coast=port`.
-   Corrección 4: mediana continua entre las llegadas de las calles, con pasos
-   de cebra y peatones en cada llegada; proas con chaflán de tres metros y
-   escaparate. Con costa y avenida, desplazamiento conjunto y un 10 % más de
-   campo para mostrar el agua y la mediana a la vez. Los tendederos respetan
-   ahora el grosor del pretil a esa escala y no se duplican en las azoteas.
-   «Distrito» sortea Comercial, Residencial u Ocio: cambian las proporciones
-   de alturas, balcones, comercios, patios, tendederos y terrazas de la periferia;
-   el núcleo conserva su organización y Ocio favorece el escenario. Banderolas
-   en farolas, banderas en azoteas y faro, y racimos atados a puestos y plaza.
-   Los nuevos adornos son trazos; comparten el dibujo de globos del vendedor
-   sin añadir oclusores. Pruebas de vegetación visible junto al eje en las cuatro
-   vistas, y barridos de los tres distritos con costa y avenida.
+   4 correction: continuous median between arrivals of streets, with steps
+   zebras and pedestrians at each arrival; three-metre-high propellers; and
+   Get out of here. With coast and avenue, joint displacement and a 10 % plus
+   field to show the water and the mean at the same time. The shopkeepers respect
+   now the thickness of the railing at that scale and they don't double on the rooftops.
+    « District »  Commercial, residential or leisure lottery: the proportions change
+   heights, balconies, shops, courtyards, tents and peripheral terraces;
+   The core retains its organization and Leisure favors the stage. Flags and flags
+   and on lamps, and on banners on roofs, and on lamps, and on clusters bound at posts and squares.
+   The new ornaments are strokes; they share the seller's balloon drawing
+   without adding occlusers. Tests of visible vegetation along the axis at the four
+   views, and sweep of the three districts with coast and avenue.
 
-   Crear: panel flotante Liquid Glass de 360 puntos, sin divisor redimensionable;
-   selector compacto y galería desplegable, leyenda de tintas sin recortes laterales.
-   Zoom con pellizco y botones, desplazamiento con trackpad y arrastre; doble clic
-   o «Ajustar» recuperan la hoja. La cámara de vista previa no altera la receta.
-   Capturas de egui fuera de pantalla en `target/phase5/crear-{980,1440}.png`,
-   sin cerrar ni reiniciar la sesión abierta. El material usa la implementación
-   de vidrio de `theme.rs`, incluido su fondo translúcido y reflejos.
+   Creating: Liquid Glass floating panel of 360 points, with no removable divider;
+   Compact selector and drop-down gallery, legendary ink without side cuts.
+   Zoom with pin and buttons, scroll with trackpad and drag; double click
+   or  « Adjust »  retrieve the sheet. The preview camera doesn't alter the recipe.
+   Off-screen footage of egui on `target/phase5/crear-{980,1440}.png`,
+   without closing or restarting the open session. The material uses implementation
+   of `theme.rs` glass, including its translucent background and reflections.
 
-   Revisión visual de 24 láminas (`target/phase5/revision4`), con `--random` y
-   vista fijada. No se aprecian personas flotantes sobre edificios ni textos
-   superpuestos en esta revisión. Los recortes de edificios en los bordes son
-   intencionados; no se han retirado para simular una maqueta.
+   Visual review of 24 sheets (`target/phase5/revision4`), with `--random` and
+   I've got my eyes fixed. They don't appreciate people floating on buildings or texts.
+   overlapped in this review. The cuts to buildings on the edges are
+   intentionally; they have not retreated to simulate a model.
 
-   | Vista / semilla | Observación |
+   |View / seed|The Commission shall adopt implementing acts.|
    |---|---|
-   | 225 / 0 | Playa y mercadillo legibles; plaza visible, sin asfalto vacío. |
-   | 225 / 1 | Cabalgata y avenida visibles; proas todavía discretas de frente. |
-   | 225 / 2 | Escenario y plaza se separan bien; costa sin elementos flotantes. |
-   | 225 / 3 | Noria y carrusel ocultan parte del pavimento, propio del evento. |
-   | 225 / 4 | Puerto y faro enteros en el papel; lonja y escenario legibles. |
-   | 225 / 5 | Noria parcialmente cortada por el encuadre, sin corte estructural nuevo. |
-   | 225 / 6 | Obra y grúa a un lado de la plaza; edificio de obra se lee abierto. |
-   | 225 / 7 | Noria y parque compiten por atención; queda pendiente afinado de densidad. |
-   | 225 / 8 | Copas de la mediana tapan parte de un paso; troncos fuera del cruce. |
-   | 225 / 9 | Puerto abierto y escenario claro; sin huecos de ciudad en el borde. |
-   | 225 / 10 | Grúa recortada por arriba, a sangre; plaza reconocible a su lado. |
-   | 225 / 11 | Feria densa, con noria y escenario; rótulos separados. |
-   | 315 / 0 | Obra y playa visibles; plaza desplazada, sin taparla. |
-   | 315 / 1 | Avenida y cabalgata claras; proas mejoradas pero sobrias en esta vista. |
-   | 315 / 2 | Escenario y playa despejados; plaza abierta. |
-   | 315 / 3 | Feria densa y depósito recortado arriba; plaza cubierta por atracciones. |
-   | 45 / 0 | Playa y escenario completos; edificios cortados en el borde. |
-   | 45 / 1 | Mediana continua y parque visibles; copa grande reduce la lectura del paso. |
-   | 45 / 2 | Obra cerca de la plaza, que queda libre; grúa en el borde derecho. |
-   | 45 / 3 | Noria tapa parte de la feria; no hay cuerpos flotando sobre las casas. |
-   | 135 / 0 | Obra y playa ordenadas; el borde corta casas, no calles desiertas. |
-   | 135 / 1 | Mediana y parque claros; cruce con público visible. |
-   | 135 / 2 | Plaza y escenario abiertos; obra ocupa el otro costado. |
-   | 135 / 3 | Noria domina el evento; rótulos y público legibles alrededor. |
+   |225 / 0|Readable beach and market; visible square, without empty asphalt.|
+   |225 / 1|Horseshoe and avenue visible; bow still discreet in front.|
+   |225 / 2|Stage and square are well separated; coast without floating elements.|
+   |225 / 3|Noria and carousel hide part of the pavement, typical of the event.|
+   |225 / 4|Whole harbor and lighthouse on paper; long and legible stage.|
+   |225 / 5|Noria partially cut by the frame, without new structural slice.|
+   |225 / 6|Works and cranes on one side of the square; building work is open.|
+   |225 / 7|Noria and Park compete for attention; it's a densely tuned slope.|
+   |225 / 8|Median cups cover part of a passage; trunks outside the crossing.|
+   |225 / 9|Open harbor and clear scenery; no city gaps on the edge.|
+   |225 / 10|Cranes cut from above, full bleed; spot recognizable next to it.|
+   |225 / 11|Dense fair, with noria and stage; separate labels.|
+   |315 / 0|Works and beach visible; displaced square, uncovered.|
+   |315 / 1|Clear avenue and horse riding; improved but sober bow in this view.|
+   |315 / 2|Clear stage and beach; open square.|
+   |315 / 3|Dense fair and cropped deposit above; square covered with attractions.|
+   |45 / 0|Full beach and stage; cut-out buildings on the edge.|
+   |45 / 1|Continuous medium and visible park; large cup reduces passage reading.|
+   |45 / 2|Works near the square, which is free; cranes on the right edge.|
+   |45 / 3|Noria covers part of the fair; there are no bodies floating over houses.|
+   |135 / 0|Work and beach in order; the edge cuts houses, not deserted streets.|
+   |135 / 1|Mediana and clear park; cross with visible public.|
+   |135 / 2|Square and stage open; work occupies the other side.|
+   |135 / 3|Noria dominates the event; readable labels and public around.|
 
-   Pulido final de ciudad: los árboles de mediana guardan 5,5 m con los cruces
-   para dejar espacio a la copa; las copas del parque también se comprueban
-   proyectadas en papel para no tapar los pasos. Con feria, el parque espacia
-   su arbolado y baja
-   pinos y olivos para que no compitan con la noria. Pequeños aparcabicis de dos
-   bicicletas en algunas aceras del núcleo, ligados a «Vida en la calle», sin
-   oclusores ni consumo de aleatoriedad adicional. Revisadas las cuatro vistas
-   de feria con avenida y una vista con bicicletas.
+   End of town clearing: middle trees keep 5.5 m with the crosses
+   to make room for the cup; the park cups are also checked
+   projected on paper so as not to cover the steps. With a fair, the space park
+   Its tree-lined and low
+   pine and olive trees so they don't compete with the noria. Small parkabicis of two
+   bicycles on some sidewalks in the core, linked to  « Life on the street », without
+   No additional occlusion or random consumption. Revised all four views
+   Fair with avenue and a bicycle view.
 
-2. **Cúpulas — implementado**, con los dos mundos y las referencias visuales
-   aportadas el 14 de noviembre. Jerarquía de cinco a nueve cúpulas, conectadas
-   por un árbol de pasarelas y con seis interiores: pueblo con torre, jardín,
-   cancha, mercado, huerto y laboratorio. Vidrio en tinta de agua y contorno
-   oscuro; el interior se recorta a la esfera y la mitad trasera oculta el
-   decorado. Un cetáceo, calamar o reptil marino cruza el fondo submarino; un
-   cohete, estación o ballena estelar, el espacial. Ambos pueden desactivarse.
-   Agua con superficie, barca, bancos de peces, burbujas, coral, rocas, buzos y
-   pequeño submarino; espacio con planetas, galaxia, estrellas, horizonte lunar,
-   cráteres, estación pequeña y astronautas. Controles de gente, fondo, número
-   de cúpulas y cuatro vistas. Juegos Abismo, Órbita y Bolígrafo, con reducción
-   de tintas según el número de rotuladores. Las referencias se adaptan a trazos
-   para plotter, sin copiar sus marcas ni personajes.
-3. **Comprobaciones y entrega — completado:** 500 semillas por escena sin NaN
-   ni coordenadas fuera de la hoja,
-   tiempos por debajo de 250 ms en Preview y de 1,5 s en Final, clippy, ejemplos,
-   instalación, hojas de contactos y `docs/crear-fase5-entrega.md`. Barrido
-   adicional de Cúpulas en Preview y Final (máximos 13,50 y 13,15 ms); 24 láminas
-   revisadas de los dos mundos y panel egui comprobado en dos tamaños. Detalle
-   de las pruebas, avisos previos de clippy y archivos en la entrega.
+2. **domes  —  implemented**, with both worlds and visual references
+   the 14 of November. Hierarchy of five to nine domes, connected
+   by a tree of gateways, and with six interiors: town with tower, garden,
+   courtyard, market, garden and laboratory. Glass in water and contour ink
+   dark; the inside is cut into the sphere and the back half hides the
+   decorated. A cetacean, squid or marine reptile crosses the underwater bottom; a
+   rocket, station or star whale, space. Both can be deactivated.
+   Surface water, boat, fish banks, bubbles, coral, rocks, divers and
+   small submarine; space with planets, galaxies, stars, lunar horizon,
+   craters, small station and astronauts. People controls, fund, number
+   of domes and four views. Games Abyss, Orbit and Pencil, with reduction
+   of inks according to the number of pens. References are tailored to strokes
+   for plotters, without copying their trademarks or characters.
+3. **Testing and delivery  —  completed:** 500 seeds per scene without NaN
+   or off-sheet coordinates,
+   times below 250 ms in Preview and from 1.5 s in Final, clippy, examples,
+   installation, contact sheets and `docs/crear-fase5-entrega.md`. Drying
+   Additional preview and final domes (maximum 13.50 and 13.15 ms); 24 sheets
+   Reviewed from both worlds and egui panel verified in two sizes. Details
+   of the tests, clippy advance notices and files on delivery.
 
-Se hace «de una» en este orden: primero la gente y la cinta (lo que más
-densidad aporta), y la ciudad con ellas, antes de abrir la segunda escena.
+It's done in this order: first the people and the tape (the most density brings), and the city with them, before opening the second scene.
 
-## 6. Riesgos y qué no prometo
+## 6. Risks and what I don't promise
 
-- **Tiempo de plotter.** Una hoja con 2.000 personas y fachadas ricas puede pasar
-  de 300 m de trazo. Hay que dar un control de densidad, y que Preview dibuje la
-  mitad.
-- **Líneas finas.** Una persona a 3 mm solo se lee con rotulador de 0,2–0,3 mm.
-  Se fija el tamaño mínimo por rotulador, como ya hace `Style::quantum`.
-- **Las cúpulas con interior** necesitan que el interior sea un mundo recortado;
-  es lo más delicado del motor y puede costar más que todo lo demás junto.
-- **Textura vs. limpieza.** Más densidad no es mejor: si la multitud no tiene
-  agrupación intencionada, se lee como ruido. La valoración semilla a semilla
-  vuelve a ser parte de la entrega.
+- **Plotter time.** A sheet with 2,000 rich people and facades can pass
+  of 300 m of stroke. You have to do a density check, and let Preview draw the
+  Half of it.
+- **Thin lines.** A person to 3 mm is only read with a 0.2  –  0.3 mm pen.
+  The minimum size per pen is fixed, as `Style::quantum` already does.
+- **Domesters with interior** need the interior to be a cutting world;
+  It's the most delicate part of the engine and it can cost more than anything else combined.
+- **Texture vs. cleaning.** More density is not better: if the crowd doesn't have
+  intentional grouping, it reads like noise. The seed to seed valuation
+  It's part of the delivery again.

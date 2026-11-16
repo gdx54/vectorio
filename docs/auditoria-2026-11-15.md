@@ -1,177 +1,177 @@
-# Auditoría de Vectorio · 15 de noviembre de 2026
+# Vectorio audit · 15 November 2026
 
-La auditoría inicial identificó **8 hallazgos: 4 P1 y 4 P2**. Los ocho se han corregido en la implementación y se ha actualizado `/Applications/Vectorio.app` sin cerrar ni reiniciar ventanas abiertas.
+The initial audit identified **8 findings: 4 P1 and 4 P2**. All eight have been corrected in implementation and `/Applications/Vectorio.app` has been updated without closing or restarting open windows.
 
-## Corrección posterior del cierre con ⌘Q
+## Further correction of closure with ⌘Q
 
-Los dos informes de macOS `vectorio-2026-11-15-175316.ips` y `vectorio-2026-11-15-175433.ips` identificaron un `SIGABRT` en `winit::ApplicationDelegate::app_will_terminate`, llamado desde `NSApplication::terminate` dentro de `VectorioApp::request_quit`. La llamada síncrona reentraba en el manejador de eventos durante el propio fotograma.
+The two macOS reports `vectorio-2026-11-15-175316.ips` and `vectorio-2026-11-15-175433.ips` identified a `SIGABRT` in `winit::ApplicationDelegate::app_will_terminate`, named from `NSApplication::terminate` within `VectorioApp::request_quit`. The synchronous call re-entered the event manager during the frame itself.
 
-Se eliminó esa llamada y el permiso global de terminación nativa. Tras resolver los cambios pendientes, la aplicación solicita `ViewportCommand::Close` y un repintado para que eframe termine su bucle y libere los recursos fuera de `App::update`. Las solicitudes del Dock siguen llegando a la misma protección de cambios.
+That call and the global native termination permission were removed. After resolving the outstanding changes, the application requests `ViewportCommand::Close` and a repaint so that the frame finishes its loop and releases resources outside of `App::update`. Dock requests continue to receive the same change protection.
 
-La nueva prueba comprueba que la salida envía `Close`, sin ocultar la ventana ni cancelar el cierre. Las 8 pruebas de sesión documental y Clippy pasaron, y se reinstaló la compilación release en Aplicaciones. Se probaron cierres con ⌘Q en la instalación real y se comprobó que el proceso terminaba sin generar nuevos informes de fallo. Se confirmó que la salida con cambios pendientes espera la confirmación del usuario. No se verificó pulsar Cancelar: la herramienta no permite controlar el aviso del sistema y el usuario estaba con el teléfono. Se cerró únicamente el proceso de prueba creado por el agente (4874, iniciado a las 17:57:49), sin documentos del usuario; no quedó una acción pendiente para el usuario.
+The new test verifies that the output sends `Close`, without hiding the window or canceling the shutdown. The 8 documentary session tests and Clippy passed, and the release compilation was reinstalled in Apps. Closures were tested with ⌘Q at the actual facility and it was verified that the process ended without generating new failure reports. It was confirmed that the outlet with pending changes awaits confirmation from the user. No Cancel button verified: the tool does not allow to control the system alert and the user was with the phone. Only the test process created by the agent (4874, initiated at 17: 57: 49) was closed, without user documents; no action was pending for the user.
 
-## Correcciones aplicadas
+## Adjustments applied
 
-| Hallazgo | Corrección y verificación |
+|Finding|Correction and verification|
 | --- | --- |
-| Cambios sin guardar | Estado de último guardado, indicador en el título y diálogo Guardar / Descartar cambios / Cancelar para nuevo, abrir y salir. Menú y solicitudes nativas de salida pasan por la protección. Cancelar o fallar el guardado conserva la sesión. |
-| Historial entre proyectos | Abrir o crear reinicia historial, rehacer, selección, herramientas en curso y resultados pendientes. La regresión confirma que abrir B, deshacer y guardar conserva B y deja A intacto. |
-| Carga inválida | Límite de archivo de 256 MB; dimensiones y producto comprobados antes de reservar; límite de 16 millones de píxeles por cobertura y 64 millones acumulados; PNG contrastado antes de decodificar. Se validan papel, tintas, posiciones, identidades y referencias; `next_id` se normaliza por encima de las identidades reservadas. |
-| Accesibilidad | Herramientas y segmentos con nombre, función y estado; candados identificados por parámetro; colores y visibilidad etiquetados; foco visible y botones desactivados reconocibles. Pruebas del árbol AccessKit y activación con Enter/Espacio. Tab recorre controles fuera de la selección del lienzo. |
-| Ajustes | Bloqueo común de órdenes de menú y teclado; controles de fondo desactivados; se omiten archivos soltados y atajos de Crear mientras hay una hoja activa. Esc y ⌘W cierran Ajustes. |
-| Recortes SVG | Recorte vectorial de segmentos, transformaciones, unión de figuras, intersección de recortes heredados, huecos par/impar y `objectBoundingBox`. Las máscaras no soportadas se rechazan con un error explícito en vez de importar un resultado distinto. |
-| Exportación desfasada | Comprobación común de las claves actuales de las tintas en exportación de Diseño, por rotulador y por páginas, incluso antes de que se haya iniciado el trabajo de cálculo. |
-| Error al elegir imagen | Se muestra el fallo y se conserva la imagen anterior y sus ajustes. Regresión con un PNG corrupto. |
+|Changes not saved|Last saved status, indicator in the title and dialog Save / Discard changes / Cancel for new, open and exit. Native menu and exit requests go through protection. Cancellation or failure of the guard retains the session.|
+|Historical between projects|Open or create history restart, reboot, selection, ongoing tools and pending results. Regression confirms that opening B, undoing and saving preserves B and leaves A intact.|
+|Invalid load|File limit of 256 MB; dimensions and product checked before booking; limit of 16 million pixels per coverage and 64 million accumulated; PNG contrasted before decoding. Paper, inks, positions, identities and references are validated; `next_id` is standardized above the reserved identities.|
+|Accessibility|Tools and segments with name, function and status; parametrically identified locks; labelled colors and visibility; visible focus and recognisable deactivated buttons. AccessKit tree testing and activation with Enter/Space. Tab runs controls outside the canvas selection.|
+|Adjustments|Common blocking of menu and keyboard commands; background controls disabled; unlocked files and Create shortcuts omitted while a sheet is active. Esc and ⌘W close settings.|
+|SVG cuts|Segment vector cutting, transformations, joining of figures, intersection of inherited cuts, par/impar gaps and `objectBoundingBox`. Unsupported masks are rejected with an explicit error instead of importing a different result.|
+|Exports out of date|Common checking of the current keys of the inks exported from Design, by pen and by page, even before calculation work has begun.|
+|Error when choosing image|The failure is displayed and the previous image and its settings are preserved. Regression with a corrupt PNG.|
 
-Verificación posterior:
+Subsequent verification:
 
-- `cargo test --workspace --all-targets --offline`: **258 correctas, 0 fallidas, 8 omitidas**; 18 pruebas de regresión adicionales respecto a la auditoría inicial.
-- `cargo clippy --workspace --all-targets --offline -- -D warnings`: correcto.
-- Captura adicional `create::render_qa::render_create_panels -- --ignored`: correcta; revisadas las imágenes de 980 × 620 y 1440 × 900 generadas con el renderizador de pruebas.
-- `python3 scripts/install-macos.py`: compilación release e instalación correctas; el instalador comprobó la firma de la aplicación antes de reemplazarla.
-- La versión abierta no se reinició. La actualización se utiliza al volver a iniciar la aplicación.
+- `cargo test --workspace --all-targets --offline`: **258 correct, 0 failed, 8 omitted**; 18 additional regression tests with respect to the initial audit.
+- `cargo clippy --workspace --all-targets --offline -- -D warnings`: right.
+- Additional capture `create::render_qa::render_create_panels -- --ignored`: correct; 980 × 620 and 1440 × 900 images generated with the test renderer have been reviewed.
+- `python3 scripts/install-macos.py`: correct release compilation and installation; the installer checked the signature of the application before replacing it.
+- The open version didn't restart. The update is used when restarting the application.
 
-La semántica accesible se verificó en el árbol generado por egui; no se realizó una sesión completa de VoiceOver ni una salida real con el plotter. El diálogo nativo de salida y la integración con el Dock no se ejercitaron sobre una sesión de usuario. La puntuación siguiente corresponde a la auditoría inicial y no se ha aumentado mediante una estimación.
+Accessible semantics were verified on the tree generated by egui; no full VoiceOver session or actual output with the plotter was performed. Native output dialogue and integration with the Dock were not exercised over a user session. The following score corresponds to the initial audit and has not been increased by an estimate.
 
-## Auditoría inicial
+## Initial audit
 
-La aplicación tenía una base técnica sólida, con riesgos en la protección del trabajo y la coherencia entre documento, archivo e historial. No se identificaron P0 dentro del alcance revisado.
+The application had a solid technical basis, with risks in the protection of the work and consistency between document, file and history. No P0s were identified within the scope reviewed.
 
-## Alcance y evidencia
+## Scope and evidence
 
-Se revisó el estado actual del árbol de trabajo, incluidos sus cambios locales: núcleo Rust, interfaz egui, persistencia, deshacer, importación SVG e imágenes, cálculo de trazos, exportación y empaquetado macOS. En esta primera fase no se modificó código de producto.
+The current status of the work tree was reviewed, including its local changes: core Rust, interface egui, persistence, undo, import SVG and images, stroke calculation, export and macOS packaging. In this first phase, the product code was not changed.
 
-- `cargo test --workspace --all-targets --offline`: **240 pruebas correctas, 0 fallidas, 8 omitidas**. Las omitidas corresponden a capturas, rendimiento y barridos extensos de semillas.
-- `cargo clippy --workspace --all-targets --offline -- -D warnings`: correcto. Cargo avisa de incompatibilidad futura en la dependencia `block 0.1.6`; no bloquea la compilación actual.
-- `/usr/bin/codesign --verify --deep --strict /Applications/Vectorio.app`: correcto.
-- La huella de fuentes del instalador coincide con `Contents/Resources/build.json` de la aplicación instalada.
-- Se abrió la instalación de Aplicaciones y se inspeccionaron el árbol de accesibilidad y las vistas Diseño, Crear y Salida. Se volvió a Diseño sin añadir objetos ni modificar ajustes.
-- Se prepararon programas temporales en `/tmp`, fuera del código de producto, para comprobar carga inválida, identificadores, recorte SVG, historial, trazos desfasados y atajos con Ajustes abierto. El programa del historial utilizó los módulos reales de la aplicación y una copia temporal de `app.rs` con un único método añadido para invocar `track_changes`.
+- `cargo test --workspace --all-targets --offline`: **240 correct tests, 0 failed, 8 omitted**. The omissions correspond to catches, yields and extensive sweeping of seeds.
+- `cargo clippy --workspace --all-targets --offline -- -D warnings`: right. Load notification of future incompatibility in the `block 0.1.6` dependency; does not block the current build.
+- `/usr/bin/codesign --verify --deep --strict /Applications/Vectorio.app`: right.
+- The fountainprint of the installer matches the `Contents/Resources/build.json` of the installed application.
+- The Applications facility was opened and the accessibility tree and design, creation and exit views were inspected. He went back to Design without adding objects or modifying settings.
+- Temporary programs were prepared in `/tmp`, outside the product code, to check for invalid load, identifiers, SVG cut, history, outdated strokes and shortcuts with Open Settings. The history program used the actual application modules and a temporary copy of `app.rs` with a single method added to invoke `track_changes`.
 
-La revisión visual fue limitada al tamaño de ventana existente y al tema activo. Una captura de Crear quedó incompleta y no se utilizó para declarar defectos de renderizado. No se hicieron pruebas con plotter físico, una sesión completa de VoiceOver, benchmarks extensos, barridos de todas las recetas ni consulta de vulnerabilidades de dependencias. El detector web de Impeccable no corresponde a una aplicación egui.
+The visual review was limited to existing window size and active theme. A capture of Create was incomplete and was not used to declare rendering defects. No physical plotter testing, a full VoiceOver session, extensive benchmarks, scans of all recipes, or dependency vulnerability queries were done. Impeccable 's web detector does not match a egui application.
 
-## Evaluación de la interfaz
+## Assessment of the interface
 
-La aplicación tiene estructura propia de editor de escritorio, menú nativo y atajos. La conformidad funcional con macOS queda pendiente por la salida sin protección de cambios, los controles sin semántica accesible y los atajos que atraviesan Ajustes.
+The app has its own desktop editor structure, native menu, and shortcuts. Functional compatibility with macOS is pending due to the change-protected output, controls without semantics accessible, and shortcuts running through Settings.
 
-Puntuación orientativa de la revisión, no certificación de accesibilidad ni medición exhaustiva de rendimiento. Se adaptan las dimensiones de Impeccable a macOS; no se aplican requisitos táctiles de iOS o Android.
+Guidance score of the review, no accessibility certification or comprehensive performance measurement. The dimensions of Impeccable are adapted to macOS; no iOS or Android touch requirements apply.
 
-| Dimensión | Puntuación | Evidencia principal |
+|Dimension|Scoring|The main evidence|
 | --- | ---: | --- |
-| Accesibilidad | 2/4 | AccessKit activo y algunos controles etiquetados; herramientas, segmentos y candados aparecen como `unknown`. |
-| Rendimiento | 3/4 | Cálculo de escenas, trazos y salida en segundo plano; importación y algunas exportaciones siguen siendo síncronas. Sin benchmark de latencia. |
-| Apariencia y temas | 3/4 | Paleta centralizada y pruebas de contraste/materiales correctas; verificación visual limitada al tema activo. |
-| Comportamiento de escritorio | 2/4 | Menú y atajos nativos; faltan protección de cambios y aislamiento completo de hojas. |
-| Adaptación | 3/4 | Pruebas de disposición a 980 × 620 y tamaños mayores correctas; falta recorrido manual con escalado y contenido largo. |
-| **Total** | **13/20** | **Aceptable; necesita trabajo significativo en las dimensiones débiles.** |
+|Accessibility|2/4|AccessKit active and some controls labeled; tools, segments and locks appear as `unknown`.|
+|Rate of return|3/4|Scene calculation, strokes and exit in the second plane; imports and some exports remain synchronous. No benchmark of latency.|
+|Appearance and topics|3/4|Centralized palette and correct contrast/material testing; visual verification limited to the active subject.|
+|Desktop behaviour|2/4|Native menu and shortcuts; lack of change protection and complete sheet insulation.|
+|Adaptation|3/4|980 × 620 readiness tests and correct larger sizes; manual route with scaled and long content is missing.|
+|**Total**|**13/20**|**Acceptable; it needs meaningful work on the weak dimensions.**|
 
-## Hallazgos
+## Findings
 
-### 1. [P1] Salir no protege los cambios sin guardar
+### 1. [P1] Exit does not protect changes without saving
 
-**Localización:** `crates/vectorio-app/src/commands.rs:393`, `crates/vectorio-app/src/app.rs:490` y `:515`. Categoría: persistencia y comportamiento de escritorio.
+**Location:** `crates/vectorio-app/src/commands.rs:393`, `crates/vectorio-app/src/app.rs:490` and `:515`. Category: persistence and desktop behaviour.
 
-El menú usa directamente `PredefinedMenuItem::quit`; no existe una instantánea de último guardado ni una comprobación de documento modificado. Nuevo y abrir un proyecto también sustituyen el documento sin ofrecer guardar. El cierre rojo de ventana oculta la ventana y conserva la sesión, pero salir del programa puede perder definitivamente el trabajo no guardado.
+The menu directly uses `PredefinedMenuItem::quit`; there is no last saved snapshot or a modified document check. New and open a project also replace the document without offering to save. The red window shutter hides the window and keeps the session, but leaving the program can definitely lose the unsaved work.
 
-**Verificación:** revisión del flujo de salida, guardado y sustitución del documento. No se ejecutó Salir con trabajo del usuario.
+**Verification:** revision of the output flow, saving and replacement of the document. No execution of Exit with user work.
 
-**Corrección:** mantener un estado de último guardado y encauzar salir, nuevo y abrir proyecto por una resolución Guardar / Descartar / Cancelar. Si se cancela o falla guardar, conservar la sesión actual. Añadir indicador de documento modificado. Acción sugerida: `$impeccable harden`.
+**Correction:** maintain a last saved status and route out, new and open project by a Save / Discard / Cancel resolution. If you cancel or fail to save, keep the current session. Add a modified document indicator. Suggested action: `$impeccable harden`.
 
-### 2. [P1] Deshacer cruza proyectos y conserva la ruta del archivo equivocado
+### 2. [P1] Deshacer crosses projects and keeps the wrong file route
 
-**Localización:** `crates/vectorio-app/src/app.rs:300`, `:437` y `:520`. Categoría: integridad del documento.
+**Location:** `crates/vectorio-app/src/app.rs:300`, `:437` and `:520`. Category: Integrity of the document.
 
-Abrir B cambia `doc` y `file`, pero conserva el historial y `committed` de A. El siguiente seguimiento registra la sustitución como un cambio deshacible. Deshacer recupera A sin restaurar la asociación al archivo A. Un guardado normal posterior escribiría A sobre B.
+Open B changes `doc` and `file`, but retains the history and `committed` of A. The following follow-up records the replacement as an unworkable change. Deshacer recovers A without restoring the association to file A. A later normal guard would write A over B.
 
-**Reproducción aislada:** crear estado A → registrar cambios → abrir B → registrar cambios → deshacer. Resultado real:
-
-```text
-Tras abrir B y deshacer: documento=Proyecto A, archivo=/tmp/vectorio-audit-project-b.vectorio
-```
-
-**Corrección:** iniciar una sesión documental coherente al abrir o crear: reiniciar historial, rehacer, instantáneas, selección y trabajos vinculados a la sesión. Si se permite deshacer una apertura, el historial debe conservar también la asociación del archivo. Acción sugerida: `$impeccable harden`.
-
-### 3. [P1] La carga de proyectos puede provocar un pánico antes de devolver un error
-
-**Localización:** `crates/vectorio-core/src/trace.rs:338`, `crates/vectorio-core/src/raster.rs:17`, `crates/vectorio-core/src/doc.rs:670`. Categoría: validación de entrada y estabilidad.
-
-La cobertura reserva `w * h` elementos antes de validar el PNG y sus dimensiones. Un archivo con dimensiones desbordantes provoca un pánico; dimensiones grandes también pueden exigir memoria desproporcionada. Esta deserialización se ejecuta en el hilo de interfaz al abrir el proyecto.
-
-**Reproducción aislada:** serializar un documento con cobertura 2 × 2 y sustituir `w` por `18446744073709551615`. `Document::from_json`, dentro de `catch_unwind`, provoca un pánico en lugar de devolver `Err`.
-
-La validación documental también omite invariantes de identidad: otro caso aislado aceptó `next_id = 1` con un objeto existente de identificador 1, y añadir un objeto produjo dos identificadores iguales. Las operaciones que buscan por identificador pueden entonces dirigirse al primer objeto coincidente.
-
-**Corrección:** comprobar dimensiones, multiplicación con `checked_mul`, límites de píxeles y tamaño del archivo antes de reservar; contrastar el PNG antes de construir la rejilla. Validar identificadores únicos, referencias a tintas/grupos y `next_id` al cargar. Rechazar o normalizar con un mensaje explícito. Acción sugerida: `$impeccable harden`.
-
-### 4. [P1] Los controles personalizados principales carecen de semántica accesible
-
-**Localización:** `crates/vectorio-app/src/app.rs:980`, `:991`, `:1047`; `crates/vectorio-app/src/create.rs:163`. Categoría: accesibilidad.
-
-Herramientas, segmentos y candados se dibujan con `allocate_exact_size`, `Sense::click` y un pintor, sin aportar `WidgetInfo` con función, nombre y estado. El árbol de accesibilidad real expone numerosos controles de la barra y los candados de Crear como `unknown`. El texto de ayuda al pasar el puntero no proporciona la semántica que sí tienen los botones estándar.
-
-**Impacto:** un usuario de lector de pantalla no puede identificar de forma fiable la herramienta, el modo seleccionado o el estado del candado. Los atajos cubren algunas acciones, pero no sustituyen esa información.
-
-**Corrección:** registrar nombre, función y estado accesibles; definir activación por teclado y foco visible en los componentes compartidos. Verificar con VoiceOver. Las tarjetas de tinta ya usan `WidgetInfo` y ofrecen un precedente dentro del proyecto. Acción sugerida: `$impeccable harden`.
-
-### 5. [P2] Los atajos del documento siguen activos con Ajustes abierto
-
-**Localización:** `crates/vectorio-app/src/commands.rs:121`, `crates/vectorio-app/src/app.rs:892`, `crates/vectorio-app/src/prefs_ui.rs:42`. Categoría: interacción y aislamiento de hojas.
-
-La barrera de teclado contempla color, foto y ayuda, pero no `prefs_ui.open`. Si ningún campo de texto está activo, Delete puede borrar la selección detrás de Ajustes. Las órdenes del menú tampoco excluyen esta hoja.
-
-**Reproducción aislada:** seleccionar un objeto, abrir `PrefsUi`, entregar un evento Delete a `shortcuts`. Resultado:
+**Isolated reproduction:** create state A → record changes → open B → record changes → undo. The actual result:
 
 ```text
-Con Ajustes abierto: prefs_open=true, objeto borrado por Delete=true
+After opening B and undoing: document=Proyecto A, file=/tmp/vectorio-audit-project-b.vectorio
 ```
 
-**Corrección:** resolver primero la hoja activa y limitar los comandos a sus acciones permitidas, tanto desde teclado como desde menú. Conservar Esc para cerrar Ajustes. Acción sugerida: `$impeccable harden`.
+**Correction:** initiate a coherent document session by opening or creating: restart history, restart, snapshots, selection and session-related work. If an opening is allowed, the record must also retain the association of the file. Suggested action: `$impeccable harden`.
 
-### 6. [P2] Importar SVG ignora los recortes
+### 3. [P1] Project load can cause panic before returning an error
 
-**Localización:** `crates/vectorio-core/src/svg_in.rs:29`. Categoría: fidelidad de importación.
+**Location:** `crates/vectorio-core/src/trace.rs:338`, `crates/vectorio-core/src/raster.rs:17`, `crates/vectorio-core/src/doc.rs:670`. Category: input validation and stability.
 
-El recorrido aplica transformaciones absolutas, pero no las regiones de recorte de los grupos. Un trazado parcialmente oculto mediante `clipPath` se importa completo y puede dibujar zonas que el SVG original no muestra.
+The coverage reserves `w * h` elements before validating the PNG and its dimensions. A file with oversized dimensions causes panic; large dimensions may also require disproportionate memory. This deserialization is executed on the interface thread when the project is opened.
 
-**Reproducción aislada:** segmento de (0,0) a (100,100) px, recortado a un rectángulo de 10 × 10 px. El extremo importado queda en **26,4583 mm**, aunque el recorte termina en **2,6458 mm**.
+**Isolated reproduction:** serialize a document with coverage 2 × 2 and replace `w` with `18446744073709551615`. `Document::from_json`, inside `catch_unwind`, causes a panic instead of returning `Err`.
 
-**Corrección:** propagar los recortes y aplicarlos a las polilíneas. Si alguna construcción no está soportada, advertirlo al importar en lugar de aceptar una representación silenciosamente distinta. Acción sugerida: `$impeccable harden`.
+Document validation also omits identity invariants: another isolated case accepted `next_id = 1` with an existing 1 identifier object, and adding an object produced two identifier identifiers. The operations they search for by identifier can then be directed to the first matching object.
 
-### 7. [P2] Exportar desde Diseño puede utilizar trazos de una configuración anterior
+**Correction:** check dimensions, multiply with `checked_mul`, pixel limits and file size before booking; contrast PNG before building the grid. Validate unique identifiers, references to inks/groups and `next_id` when loading. Reject or normalize with an explicit message. Suggested action: `$impeccable harden`.
 
-**Localización:** `crates/vectorio-app/src/app.rs:582`, `:624`; `crates/vectorio-core/src/doc.rs:175`. Categoría: coherencia de exportación.
+### 4. [P1] The main custom controls lack accessible semantics
 
-Salida comprueba que sus cálculos estén actualizados. Diseño llama directamente a `doc.layers()`, y las geometrías `Traced` utilizan sus líneas almacenadas aunque sus parámetros ya hayan cambiado. Mientras termina el recálculo de una tinta viva, se puede exportar la versión anterior. También afecta al flujo por rotulador y a las páginas que repitan esas tintas.
+**Location:** `crates/vectorio-app/src/app.rs:980`, `:991`, `:1047`; `crates/vectorio-app/src/create.rs:163`. This appropriation is intended to cover:
 
-**Verificación:** un objeto con `made` de la configuración anterior y un ángulo cambiado se identifica como desfasado, pero `layers()` sigue devolviendo sus trazos almacenados. La revisión del flujo confirma que Diseño no espera ni comprueba esa condición antes de exportar. No se accionó un diálogo de exportación en la sesión visual.
+Tools, segments and locks are drawn with `allocate_exact_size`, `Sense::click` and a painter, without providing `WidgetInfo` with function, name and status. The real accessibility tree exposes numerous bar controls and Create locks like `unknown`. The help text when passing the pointer does not provide the semantics standard buttons do.
 
-**Corrección:** centralizar una condición de exportación que compruebe las claves actuales de las tintas; esperar su actualización o exportar una instantánea calculada con los parámetros vigentes. Acción sugerida: `$impeccable harden`.
+**Impact:** a screen reader user cannot reliably identify the tool, selected mode or lock state. Shortcuts cover some actions, but do not replace that information.
 
-### 8. [P2] El diálogo específico de imagen descarta los errores de carga
+**Correction:** register accessible name, function and status; define keyboard activation and visible focus in the shared components. Check with VoiceOver. The ink cards already use `WidgetInfo` and offer a precedent within the project. Suggested action: `$impeccable harden`.
 
-**Localización:** `crates/vectorio-app/src/vectorize_ui.rs:176–185`. Categoría: recuperación de errores.
+### 5. [P2] Document shortcuts are still active with open settings
 
-`open_dialog` descarta el resultado de `load` con `let _ =`. Una imagen corrupta o ilegible elegida desde Foto → dibujo no genera aviso. La apertura general sí muestra el error, por lo que el comportamiento depende de la entrada elegida.
+**Location:** `crates/vectorio-app/src/commands.rs:121`, `crates/vectorio-app/src/app.rs:892`, `crates/vectorio-app/src/prefs_ui.rs:42`. Category: interaction and isolation of leaves.
 
-**Verificación:** revisión de las dos rutas y del `Result` devuelto por `image::open`. No se alteraron archivos del usuario.
+The keyboard barrier includes color, photo and help, but not `prefs_ui.open`. If no text field is active, Delete can delete the selection behind Settings. The menu commands do not exclude this sheet either.
 
-**Corrección:** devolver o conservar el error para mostrar un aviso en español y permitir elegir otra imagen sin perder la configuración anterior. Acción sugerida: `$impeccable harden`.
+**Isolated playback:** select an object, open `PrefsUi`, deliver an event Delete to `shortcuts`. The result:
 
-## Patrones y puntos que conviene conservar
+```text
+With Settings open: prefs_open=true, object deleted by Delete=true
+```
 
-Los fallos se concentran en los límites entre estados: documento y archivo, parámetros y trazos calculados, hoja activa y comandos globales. Conviene resolver esos límites en funciones compartidas, para que teclado, menú y barra usen las mismas reglas.
+**Correction:** first resolve the active sheet and limit commands to their permissible actions, both from keyboard and from menu. Keep Esc to close Settings. Suggested action: `$impeccable harden`.
 
-La separación entre objetos/capas y tintas está representada explícitamente en el modelo. El guardado del proyecto usa reemplazo atómico y tiene pruebas de interrupción. La salida comprueba revisiones y cancela cálculos desfasados. Los generadores tienen pruebas de determinismo, límites y recuperación ante errores. La cobertura de disposición, traducciones y contraste es una buena base para ampliar las regresiones a los casos anteriores.
+### 6. [P2] Importing SVG ignores the cuts
 
-## Orden recomendado
+**Location:** `crates/vectorio-core/src/svg_in.rs:29` Category: Loyalty to imports
 
-1. **P1 · `$impeccable harden`:** proteger cambios sin guardar y corregir la asociación entre historial y archivo. Añadir regresiones de abrir, deshacer, guardar y cancelar.
-2. **P1 · `$impeccable harden`:** validar proyectos antes de reservar memoria o aceptar identidades incoherentes.
-3. **P1/P2 · `$impeccable harden`:** completar semántica accesible y aislar el teclado/menú de las hojas.
-4. **P2 · `$impeccable harden`:** asegurar exportación actualizada, recortes SVG y mensajes de carga de imágenes.
-5. **Verificación · `$impeccable audit`:** repetir las reproducciones y recorrer VoiceOver, escalado y archivos grandes tras las correcciones.
-6. **Final · `$impeccable polish`:** revisar foco, mensajes y presentación cuando los flujos anteriores sean correctos.
+The route applies to absolute transformations, but not to the cut-off regions of the groups. A partially hidden layout using `clipPath` is fully imported and can draw areas that the original SVG does not show.
 
-Estas acciones pueden ejecutarse por separado, juntas o en el orden que se prefiera. Repetir `$impeccable audit` después de corregirlas permitirá actualizar la evaluación con evidencia nueva.
+**Isolated reproduction:** segment from (0.0) to (100,100) px, cut to a rectangle of 10 × 10 px. The imported end is **26,4583 mm**, although the cut ends in **2,6458 mm**.
 
-La fase de auditoría inicial no reinstaló la aplicación. La fase posterior de correcciones sí compiló e instaló la actualización, como se detalla al principio del informe.
+**Correction:** propagate the cuts and apply them to the polylines. If any construction is unsupported, warn by importing rather than accepting a silently different representation. Suggested action: `$impeccable harden`.
+
+### 7. [P2] Export from Design can use strokes from a previous configuration
+
+**Location:** `crates/vectorio-app/src/app.rs:582`, `:624`; `crates/vectorio-core/src/doc.rs:175`. Export consistency.
+
+Output checks that your calculations are up to date. Design calls directly to `doc.layers()`, and the `Traced` geometries use their stored lines even though their parameters have already changed. While the recalculation of a live ink is complete, the previous version can be exported. It also affects pen flow and the pages that repeat those inks.
+
+**Verification:** an object with `made` from the previous configuration and a changed angle is identified as outdated, but `layers()` continues to return its stored strokes. The flow review confirms that Design neither expects nor checks that condition before exporting. An export dialogue was not triggered in the visual session.
+
+**Correction:** centralize an export condition that checks the current ink keys; wait for its update or export a snapshot calculated with the current parameters. Suggested action: `$impeccable harden`.
+
+### 8. [P2] The image-specific dialog excludes loading errors
+
+**Location:** `crates/vectorio-app/src/vectorize_ui.rs:176–185` Category: recovery of errors.
+
+`open_dialog` discards the result of `load` with `let _ =`. A corrupt or unreadable image chosen from Photo → drawing does not generate notice. The general aperture does show the error, so the behavior depends on the input chosen.
+
+**Verification:** review of both routes and the `Result` returned by `image::open`. No user files were altered.
+
+**Correction:** return or retain the error to display a notice in Spanish and allow you to choose another image without losing the previous configuration. Suggested action: `$impeccable harden`.
+
+## Patterns and points to be retained
+
+The errors focus on the boundaries between states: document and file, calculated parameters and strokes, active sheet, and global commands. It's best to resolve those boundaries in shared functions, so that keyboard, menu and bar use the same rules.
+
+The separation between objects/layers and inks is explicitly represented in the model. The project guard uses atomic replacement and has evidence of disruption. The output checks checks and cancels outdated calculations. Generators have proof of determinism, limits, and recovery from mistakes. Disposition, translation and contrast coverage is a good basis for extending regressions to previous cases.
+
+## Recommended order
+
+1. **P1 · `$impeccable harden`:** protect unsaved changes and correct the association between history and file. Add the opening, undoing, saving and cancelling regressions.
+2. **P1 · `$impeccable harden`:** validate projects before reserving memory or accepting inconsistent identities.
+3. **P1/P2 · `$impeccable harden`:** complete accessible semantics and isolate the keyboard/menu from the sheets.
+4. **P2 · `$impeccable harden`:** ensure updated export, SVG cuts and image loading messages.
+5. **Verification · `$impeccable audit`:** repeat the reproductions and go through VoiceOver, scaling and large files after corrections.
+6. **Final · `$impeccable polish`:** review focus, messages and presentation when previous flows are correct.
+
+These actions may be executed separately, together or in the order preferred. Repeating `$impeccable audit` after correcting them will allow the evaluation to be updated with new evidence.
+
+The initial audit phase did not reinstall the application. The subsequent stage of corrections did compile and install the update, as detailed at the beginning of the report.

@@ -1,310 +1,214 @@
-# Volumen · plan de rediseño (interfaz, orden y lenguaje artístico)
+# Volume · Redesign plan (interface, organization, and artistic language)
 
-16 noviembre 2026. Revisión del estado de `codex/volumetric` y plan para ejecutarlo por fases.
-Pensado para que otro agente (Codex, Sonnet) lo ejecute paso a paso sin tener que redescubrir el contexto.
+16 November 2026. Review of `codex/volumetric` and a phased implementation plan. Written so another agent (Codex or Sonnet) can execute it step by step without rediscovering the context.
 
-## 1. Diagnóstico
+## 1. Diagnosis
 
-El motor está bien construido (importación robusta, caché por etapas, trabajador cancelable,
-oclusión analítica, recorte físico, recetas). Lo que falla es **el modelo mental** que ofrece.
+The engine is well built: robust import, staged caching, a cancelable worker, analytical occlusion, physical clipping, and recipes. The problem is **the mental model** it presents.
 
-**Siete modos excluyentes que no son del mismo tipo.** `RecipeKind`
-(`crates/vectorio-core/src/volumetric/mod.rs`) mezcla tres cosas distintas en un mismo combo:
-- *generadores de línea*: secciones (ATLAS/STRATA), aristas (X-RAY), ondas, malla;
-- *un tratamiento tonal*: SOMBRA PLANA;
-- *una combinación cableada*: ONDAS + MALLA (`Hybrid`).
+**Seven mutually exclusive modes that represent different kinds of things.** `RecipeKind` (`crates/vectorio-core/src/volumetric/mod.rs`) mixes three concepts in one selector:
 
-Consecuencia: no se puede pedir lo artísticamente interesante, que siempre es una mezcla
-(silueta + ondas solo en la sombra + malla fina en la luz). Cada combinación nueva exigiría
-otro `RecipeKind`. `Hybrid` es el síntoma.
+- *Line generators*: sections (ATLAS/STRATA), edges (X-RAY), waves, and mesh.
+- *A tonal treatment*: FLAT SHADOW.
+- *A hardwired combination*: WAVES + MESH (`Hybrid`).
 
-**`Settings` plano.** Un único struct con los parámetros de todos los modos (cortes, campo,
-sombra, arte, STRATA, X-RAY…). La interfaz tiene que esconder y mostrar según el modo, y la
-receta guarda basura de modos no usados. Las tintas están limitadas a tres papeles fijos
-(`layer_pens: [usize; 3]`, `Drawing::items(pens: [usize; 3])`).
+Consequently, the artistically interesting combinations cannot be requested: silhouette + waves only in shadow + fine mesh in the light. Each new combination would require another `RecipeKind`. `Hybrid` is the symptom.
 
-**Interfaz ordenada por la tubería técnica, no por la intención.** Un panel de 326 px con
-colapsables Modelo → Transformar → Cámara → Topografía → Composición y tintas → Receta →
-Luz y sombra → Superficie artística. Nombres en clave en inglés y mayúsculas (ATLAS, STRATA,
-X-RAY), contrarios a la regla de interfaz en español. Cámara y luz solo con deslizadores: nada
-se manipula en la vista. Las estadísticas compiten con los botones de acción.
+**Flat `Settings`.** One struct contains parameters for every mode: slices, fields, shadows, art, STRATA, X-RAY, and so on. The interface must hide and show controls according to the mode, and recipes store unused parameters. Inks are limited to three fixed roles (`layer_pens: [usize; 3]`, `Drawing::items(pens: [usize; 3])`).
 
-**Sin continuidad con el documento.** «Colocar en el lienzo» deja trazados fijos: no se puede
-volver a editar el objeto 3D desde Diseño. Y Volumen (⌘4) vive aislado de Crear (⌘2), que
-también tiene motor de escena 3D (`scene`).
+**An interface organized around the technical pipeline rather than intent.** A 326 px panel contains collapsible Model → Transform → Camera → Topography → Composition and inks → Recipe → Light and shadow → Artistic surface sections. Uppercase English code names (ATLAS, STRATA, X-RAY) conflict with the Spanish interface requirement. Camera and light are controlled only by sliders; nothing is manipulated in the preview. Statistics compete with action buttons.
 
-**Pobreza tonal.** Para un plotter el tono se hace con densidad y dirección de línea. Hoy solo
-existe sombra binaria + un tono intermedio con trama recta paralela. No hay trama que siga la
-forma, ni tramado cruzado por niveles, ni línea oculta discontinua, ni halos, ni perspectiva.
+**No continuity with the document.** Place on canvas creates fixed paths; the 3D object cannot be edited again from Design. Volume (⌘4) is isolated from Create (⌘2), which also has a 3D scene engine (`scene`).
 
-## 2. Idea central: escena + pila de pasadas
+**Limited tonal range.** A plotter creates tone through line density and direction. Currently there is only binary shadow plus an intermediate tone made from straight parallel hatching. There is no form-following hatching, layered crosshatching, dashed hidden lines, halos, or perspective.
 
-Sustituir «elige un modo» por **«una escena y una pila de pasadas de trazo»**, como capas.
+## 2. Central idea: a scene and a stack of passes
 
-- **Escena** (compartida): modelo, transformación, cámara, luz, papel y composición.
-- **Pasadas** (lista ordenada): cada una genera líneas, tiene su tinta, su visibilidad y su máscara.
+Replace “choose a mode” with **“a scene and a stack of drawing passes,”** like layers.
 
-| Pasada | Qué dibuja | Viene de |
+- **Scene** (shared): model, transformation, camera, light, paper, and composition.
+- **Passes** (ordered list): each generates lines and has its own ink, visibility, and mask.
+
+| Pass | What it draws | Origin |
 |---|---|---|
-| Contorno | Silueta y perfil exterior; opción «eco» (n desplazamientos hacia fuera) | X-RAY |
-| Aristas | Aristas vivas por ángulo diedro | X-RAY |
-| Secciones | Cortes por planos (dirección, número, rango, desplazamiento por estrato) | ATLAS, STRATA |
-| Curvas de campo | Isolíneas de altura, profundidad o distancia | ATLAS |
-| Ondas | Ondas geodésicas / interferencias | ONDAS |
-| Malla | Aristas de la malla artística | MALLA CROMÁTICA |
-| Trama | Tramado por niveles de luz (ver §4) | SOMBRA PLANA |
-| Sombra arrojada | Contorno o trama de la sombra sobre el suelo | SOMBRA PLANA |
+| Outline | Silhouette and outer profile; optional echo with n outward offsets | X-RAY |
+| Edges | Sharp edges selected by dihedral angle | X-RAY |
+| Sections | Plane intersections: direction, count, range, and offset per stratum | ATLAS, STRATA |
+| Field curves | Height, depth, or distance isolines | ATLAS |
+| Waves | Geodesic waves / interference | WAVES |
+| Mesh | Edges of the artistic mesh | COLOR MESH |
+| Hatching | Hatching by light level; see §4 | FLAT SHADOW |
+| Cast shadow | Outline or hatching of the shadow on the ground | FLAT SHADOW |
 
-Propiedades comunes de cada pasada:
-- **Tinta**: cualquier tinta del documento (se acaba el límite de 3).
-- **Visibilidad**: visible · oculta (discontinua opcional) · todo.
-- **Máscara tonal**: toda la superficie · solo en luz · solo en sombra · banda de luz [a, b].
-  Esto es lo que hace que combinar sea artístico: ondas solo en la sombra, malla solo en la luz.
-- **Reparto de tintas** (opcional): por orientación, altura, profundidad u objeto (hoy solo en Malla).
-- Activa/desactivada, nombre, orden.
+Common properties of every pass:
 
-Los siete modos actuales pasan a ser **estilos** (pilas guardadas) con nombres en español:
-- *Curvas de nivel* (antes ATLAS): Curvas de campo + Contorno.
-- *Estratos* (STRATA): Secciones con desplazamiento + Contorno.
-- *Rayos X* (X-RAY): Aristas visibles + Aristas ocultas discontinuas en otra tinta.
-- *Sombra plana*: Trama (2 niveles) + Sombra arrojada + Contorno.
-- *Ondas*, *Malla de color*, *Ondas y malla*: equivalentes directos.
-- Nuevos (§4): *Grabado*, *Aguafuerte cruzado*, *Plano técnico*, *Topografía en sombra*.
+- **Ink**: any document ink; the three-ink limit ends.
+- **Visibility**: visible · hidden (optionally dashed) · all.
+- **Tonal mask**: entire surface · light only · shadow only · light band [a, b]. This makes combinations artistically useful: waves only in shadow, mesh only in light.
+- **Ink distribution** (optional): by orientation, height, depth, or object; currently available only for Mesh.
+- Enabled/disabled state, name, and order.
 
-## 3. Interfaz propuesta
+The seven existing modes become **styles**, or saved stacks, with Spanish interface names:
+
+- *Contour lines* (formerly ATLAS): Field curves + Outline.
+- *Strata* (STRATA): offset Sections + Outline.
+- *X-ray* (X-RAY): visible Edges + dashed hidden Edges in another ink.
+- *Flat shadow*: Hatching (two levels) + Cast shadow + Outline.
+- *Waves*, *Color mesh*, and *Waves and mesh*: direct equivalents.
+- New styles (§4): *Engraving*, *Crosshatch etching*, *Technical drawing*, and *Shadow topography*.
+
+## 3. Proposed interface
 
 ```
-┌ barra ─────────────────────────────────────────────────────────────┐
-│ Estilos: [miniatura][miniatura][miniatura]…   [Guardar estilo]      │
-├ Escena (izq., plegable) ┬──── papel grande ───────┬ Pasadas (der.) ─┤
-│ Modelo  ▸ cubo ▾ Import │                         │ 👁 ● Contorno    │
-│ Cámara  ▸ planta alzado │      vista del papel    │ 👁 ● Ondas       │
-│         iso · persp.    │   (trazos reales)       │ 👁 ● Trama       │
-│ Luz     ▸ esfera-sol    │                ┌─────┐  │ [+ Añadir]       │
-│ Papel   ▸ A4 · márgenes │                │ 3D  │  │ ── Ondas ──      │
-│                         │                └─────┘  │ parámetros de la │
-│                         │                         │ pasada elegida   │
-├─────────────────────────┴─────────────────────────┴─────────────────┤
-│ 12.430 trazos · 3 tintas · ~18 min de plotter     [Exportar] [Colocar]│
-└─────────────────────────────────────────────────────────────────────┘
+┌ Toolbar ──────────────────────────────────────────────────────────────────────────┐
+│ Styles: [thumbnail][thumbnail][thumbnail]…                      [Save style]       │
+├ Scene (left, collapsible) ┬──────── Large paper ─────────┬ Passes (right) ─────────┤
+│ Model  ▸ cube ▾ Import    │                             │ 👁 ● Outline            │
+│ Camera ▸ top · elevation  │        paper preview        │ 👁 ● Waves              │
+│          iso · persp.    │       (actual strokes)      │ 👁 ● Hatching           │
+│ Light  ▸ sun sphere      │                    ┌─────┐  │ [+ Add]                 │
+│ Paper  ▸ A4 · margins    │                    │ 3D  │  │ ── Waves ──             │
+│                          │                    └─────┘  │ parameters for the      │
+│                          │                             │ selected pass           │
+├──────────────────────────┴─────────────────────────────┴─────────────────────────┤
+│ 12,430 strokes · 3 inks · ~18 min plotting                      [Export] [Place]   │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Principios:
-1. **El papel es protagonista.** La vista 3D pasa a recuadro (alternable a pantalla dividida).
-2. **Manipulación directa.** Arrastrar en el recuadro 3D orbita la cámara; un **gizmo de sol**
-   (esfera pequeña) fija la luz; arrastrar en el papel mueve el dibujo, rueda = escala. Los
-   deslizadores quedan como ajuste fino.
-3. **Panel de pasadas como Capas.** Ojo, muestra de tinta, nombre, arrastrar para reordenar;
-   debajo solo los parámetros de la pasada seleccionada (nada de esconder/mostrar por modo).
-   Clic en una pasada resalta sus trazos en el papel.
-4. **Estilos con miniatura.** Galería en la barra superior; miniaturas generadas con el modelo
-   actual a baja resolución en el trabajador. Elegir un estilo sustituye la pila (deshacer posible).
-5. **Pie limpio.** Estadísticas en una línea (trazos, tintas, tiempo estimado reutilizando
-   `output`), avisos de calidad solo si los hay, botones a la derecha.
-6. Nombres en español en todo: el espacio se llama **Volumen** (⌘4).
-7. Reutilizar `theme::glass_panel`, `accent_button` y la estética Liquid Glass existente.
+Principles:
 
-## 4. Mejoras artísticas (por impacto/coste)
+1. **Paper takes center stage.** The 3D view becomes an inset, with an optional split view.
+2. **Direct manipulation.** Dragging in the 3D inset orbits the camera; a **sun gizmo**, represented by a small sphere, sets the light. Dragging on paper moves the drawing; the wheel scales it. Sliders remain available for fine adjustment.
+3. **A Layers-like pass panel.** Eye, ink swatch, name, and drag-to-reorder handle. Only the selected pass's parameters appear below; no mode-dependent hiding and showing. Clicking a pass highlights its strokes on paper.
+4. **Styles with thumbnails.** A top-bar gallery whose thumbnails are generated by the worker using the current model at low resolution. Choosing a style replaces the stack and can be undone.
+5. **A clean footer.** One line for stroke count, inks, and estimated time, reusing `output`; quality warnings appear only when necessary, with actions on the right.
+6. Spanish names throughout; the workspace is called **Volume** (⌘4).
+7. Reuse `theme::glass_panel`, `accent_button`, and the existing Liquid Glass appearance.
 
-1. **Trama por niveles de luz** (alto impacto, coste bajo). Hoy la luz es binaria + tono
-   intermedio. Calcular `N·L` (más la oclusión de luz ya existente) y dividirlo en 2–4 bandas:
-   cada banda añade una familia de trama con su ángulo (0°, 45°, 90°, 135°) → tramado cruzado
-   clásico de aguafuerte. Reutiliza `shadow/mask.rs` (unión de intervalos y fase global en mm).
-2. **Trama que sigue la forma** (alto impacto, coste medio). Secciones por planos en espacio
-   del objeto **recortadas por la máscara tonal** = trazos que abrazan el volumen solo donde hay
-   sombra, con espaciado que se estrecha en las bandas oscuras. Es combinar `contours` + máscara,
-   sin campos de curvatura todavía. Estilo *Grabado*.
-3. **Línea oculta discontinua en tinta propia** (medio/bajo). Los intervalos ocultos ya se
-   calculan al recortar; conservarlos en vez de descartarlos, con patrón de guion en mm.
-4. **Halos** (alto impacto visual, coste medio). Cortar la línea de detrás unos mm a cada lado
-   donde pasa por detrás de una silueta más cercana. Muy de ilustración técnica; da profundidad
-   sin tono.
-5. **Contorno con eco y grosor** (bajo). Silueta repetida n veces hacia fuera o hacia dentro, o
-   doble pasada desplazada 0,2 mm para engrosar.
-6. **Perspectiva** (medio/alto). Cámara con distancia focal y plano cercano. Ya está en la hoja
-   de ruta; desacoplar de `scene::Camera` sin tocar los generadores de Crear.
-7. **Variación sembrada con efecto real** (bajo). La semilla hoy apenas actúa. Usarla para
-   temblor de mano determinista (desplazamiento por ruido suave en mm), longitud de trazo de
-   trama irregular y pequeños huecos: aspecto dibujado sin perder reproducibilidad.
-8. **Hoja multivista** (medio). Rejilla de N cámaras sobre la misma hoja (giro completo, planta +
-   alzado + perfil + iso) — reutiliza composición y recorte.
-9. **Gradiente de tintas por campo** (bajo). Repartir cualquier pasada entre 2–3 tintas según
-   altura/profundidad/luz con frontera difuminada por alternancia de trazos.
-10. Más adelante: campos de curvatura y líneas de flujo (Praun), contornos sugestivos / apparent
-    ridges (Judd), GLB/glTF.
+## 4. Artistic improvements, ordered by impact and cost
 
-## 5. Orden del código
+1. **Hatching by light level** (high impact, low cost). Current lighting has binary shadow plus an intermediate tone. Compute `N·L`, including existing light occlusion, and divide it into 2–4 bands. Each band adds a hatching family at its own angle (0°, 45°, 90°, 135°), creating traditional etching-style crosshatching. Reuse `shadow/mask.rs`, including intervals and the global phase in millimeters.
+2. **Form-following hatching** (high impact, medium cost). Object sections or isolines **clipped by the tonal mask** create strokes that describe the volume only where shadow exists; spacing decreases in darker bands. Combine `contours` with the mask, without introducing curvature fields yet. Style: *Engraving*.
+3. **Dashed hidden lines in their own ink** (medium/low cost). Hidden intervals are already computed during clipping. Retain them rather than discard them, and apply a dash pattern in millimeters.
+4. **Halos** (high visual impact, medium cost). Interrupt a stroke where it passes behind a closer silhouette. This technical illustration technique conveys depth without tone.
+5. **Outline echo and thickness** (low cost). Offset the silhouette N times outward or inward, or add a second pass offset by 0.2 mm to thicken it.
+6. **Perspective** (medium/high cost). A camera with focal distance and a near plane, already fitted to the sheet. Adapt `scene::Camera` without changing Create generators.
+7. **A seed with a real effect** (low cost). The seed currently does little. Use it for deterministic hand jitter through smooth noise displacement in millimeters, irregular stroke lengths, and small hatching gaps: a hand-drawn appearance with reproducibility.
+8. **Multiview sheets** (medium cost). Repeat N cameras on one sheet: a complete rotation or top + front + side. Reuse composition and clipping.
+9. **Ink gradient by field** (low cost). Use 2–3 inks according to height, depth, or light, softening boundaries by alternating strokes.
+10. Later: curvature fields and flow lines (Praun), suggestive contours / apparent ridges (Judd), and GLB/glTF.
 
-Núcleo (`crates/vectorio-core/src/volumetric/`):
+## 5. Code organization
+
+Core (`crates/vectorio-core/src/volumetric/`):
+
 - `scene_settings.rs`: `SceneSettings { model, camera, light, composition, detail }`.
-- `pass.rs`: `Pass { name, enabled, pen: usize, visibility, mask, coloring, kind: PassKind }`,
-  `PassKind` con sus parámetros propios (enum con datos, no struct plano).
-- `passes/` un archivo por tipo: `outline.rs`, `edges.rs`, `sections.rs`, `field.rs`,
-  `waves.rs`, `mesh.rs`, `hatch.rs`, `ground.rs`. Cada uno: `fn lines(ctx: &PassCtx, p: &Params)
-  -> Vec<Line3 o Polyline>`. `PassCtx` da acceso a las cachés compartidas (malla de trabajo,
-  malla artística, grafo, campo de luz, oclusores, cámara).
-- `engine.rs`: orquesta pasadas, cachea por (identidad de malla, hash de parámetros de la pasada),
-  aplica máscara → oclusión → recorte → simplificación. Salida `Drawing { parts: Vec<Part> }`
-  con una parte por pasada (o por familia de color).
-- `style.rs`: estilos integrados (los siete actuales + nuevos) como pilas de pasadas.
-- Receta **versión 2**; `Recipe::from_json` migra v1 → v2 traduciendo `RecipeKind` a su pila.
-  Mantener una prueba con una receta v1 real.
-- `pipeline.rs`, `art/`, `shadow/` se desmontan en `passes/` conservando sus algoritmos y pruebas.
+- `pass.rs`: `Pass { name, enabled, pen: usize, visibility, mask, coloring, kind: PassKind }`. `PassKind` owns its parameters as enum data, replacing flat settings.
+- `passes/`: one file per type: `outline.rs`, `edges.rs`, `sections.rs`, `field.rs`, `waves.rs`, `mesh.rs`, `hatch.rs`, and `ground.rs`. Each provides `fn lines(ctx: &PassCtx, p: &Params) -> Vec<Line3 or Polyline>`. `PassCtx` gives access to shared working-mesh, artistic-mesh, graph, and light-field caches.
+- `engine.rs`: orchestrates passes, caches by mesh identity and pass-parameter hash, then applies mask → occlusion → clipping → simplification. `Drawing { parts: Vec<Part> }` has a part per pass or color family.
+- `style.rs`: built-in styles, including the seven current modes and new combinations, represented as stacks of passes.
+- **Version 2** recipes; `Recipe::from_json` migrates v1 → v2 by translating `RecipeKind` into a stack. Keep a test with a real v1 recipe.
+- `pipeline.rs`, `art/`, and `shadow/` are progressively moved into `passes/` while retaining their algorithms and tests.
 
 App (`crates/vectorio-app/src/`):
-- `volumetric_ui.rs` → solo estado, trabajador y acciones.
-- `volumetric_scene_panel.rs` (izq.), `volumetric_passes_panel.rs` (der.),
-  `volumetric_styles.rs` (galería), `volumetric_preview.rs` (papel + recuadro 3D + gizmos).
-- Eliminar `volumetric_art_controls.rs` y la lógica `role_active`/`valid_pens` de 3 papeles.
 
-Documento:
-- `Item` nuevo o metadato «Objeto 3D» que guarda la receta junto a los trazados. Doble clic en
-  Diseño → abre Volumen con esa receta; «Actualizar» reemplaza los trazados. Recuperación
-  automática del proyecto incluida.
-- Crear (⌘2): acción «Abrir en Volumen» que convierte la escena generada en malla.
+- `volumetric_ui.rs`: state, worker, and actions only.
+- `volumetric_scene_panel.rs` (left), `volumetric_passes_panel.rs` (right), `volumetric_styles.rs` (gallery), and `volumetric_preview.rs` (paper and 3D inset).
+- Remove `volumetric_art_controls.rs` and the three-role `role_active`/`valid_pens` logic.
 
-## 6. Fases
+Document:
 
-Cada fase deja la app funcionando, con pruebas y `python3 scripts/install-macos.py`.
+- A new `Item` or 3D-object metadata retains the recipe alongside its paths. Double-clicking in Design opens Volume with that recipe; Update replaces the paths. Include automatic project recovery.
+- Create (⌘2): an Open in Volume action converts the generated scene into a mesh.
 
-**Fase A · Pasadas en el núcleo, sin cambiar la interfaz.** `Pass`, `PassKind`, `engine.rs`,
-`passes/` envolviendo los algoritmos actuales; los siete `RecipeKind` se traducen a pilas y deben
-producir SVG idénticos (pruebas de equivalencia con los ejemplos `volumetric` y `volumetric_arte`).
-Receta v2 + migración. Fin del límite de 3 tintas.
-*Modelo recomendado: Opus, razonamiento alto (diseño de tipos y cachés).*
+## 6. Phases
 
-**Fase B · Interfaz nueva.** Tres zonas, panel de pasadas tipo Capas, galería de estilos con
-nombres en español, pie limpio, papel protagonista y recuadro 3D. Sin efectos nuevos aún.
-*Modelo recomendado: Sonnet o Codex, razonamiento medio; revisión visual en la app instalada.*
+Each phase leaves a working app, with tests and `python3 scripts/install-macos.py`.
 
-**Fase C · Manipulación directa.** Órbita en el recuadro, gizmo de sol, mover/escalar en papel,
-resaltado de la pasada seleccionada.
-*Modelo recomendado: Sonnet o Codex, razonamiento medio.*
+**Phase A · Passes in the core without changing the interface.** Introduce `Pass`, `PassKind`, `engine.rs`, and `passes/` as wrappers around existing algorithms. Translate all seven `RecipeKind` values into stacks that produce identical SVGs, demonstrated by equivalence tests using `volumetric` and `volumetric_arte`. Recipe v2 plus migration. Remove the three-ink limit. *Recommended model: Opus, high reasoning for type and cache design.*
 
-**Fase D · Tono.** Máscaras tonales por pasada, trama por niveles (cruzada), trama que sigue la
-forma, oculta discontinua. Estilos *Grabado*, *Aguafuerte cruzado*, *Plano técnico*,
-*Topografía en sombra*.
-*Modelo recomendado: Opus, razonamiento alto para máscaras y recorte; el resto Sonnet.*
+**Phase B · New interface.** Three zones, a Layers-like pass panel, a style gallery with Spanish names, a clean footer, prominent paper, and a 3D inset. No new effects yet. *Recommended model: Sonnet or Codex, medium reasoning; visual review in the installed app.*
 
-**Fase E · Acabado artístico.** Halos, eco de contorno, temblor sembrado, gradiente de tintas.
-*Modelo recomendado: Sonnet, razonamiento medio (halos: alto).*
+**Phase C · Direct manipulation.** Orbit in the inset, sun gizmo, move/scale on paper, and highlight the selected pass. *Recommended model: Sonnet or Codex, medium reasoning.*
 
-**Fase F · Continuidad.** Objeto 3D re-editable en el documento, «Abrir en Volumen» desde Crear,
-hoja multivista, perspectiva.
-*Modelo recomendado: Opus para el modelo de documento y la perspectiva; Sonnet para lo demás.*
+**Phase D · Tone.** Tonal masks per pass, layered crosshatching, form-following hatching, and dashed hidden lines. Styles: *Engraving*, *Crosshatch etching*, *Technical drawing*, and *Shadow topography*. *Recommended model: Opus, high reasoning for masks and clipping; Sonnet for the remainder.*
 
-## 7. Criterios de aceptación
+**Phase E · Artistic finish.** Halos, outline echo, seeded jitter, and ink gradients. *Recommended model: Sonnet, medium reasoning; high for halos.*
 
-- Ningún estilo antiguo cambia su SVG en Fase A (pruebas de equivalencia).
-- Cualquier combinación de pasadas es posible sin tocar código.
-- Cambiar tinta, visibilidad u orden de una pasada no recalcula geometría.
-- Cambiar parámetros de una pasada solo recalcula esa pasada.
-- Todo el texto de la interfaz en español (y en `locales/app.yml`).
-- La salida siempre es vectorial con recorte físico; nada raster incrustado.
+**Phase F · Continuity.** Re-editable 3D objects in the document, Open in Volume from Create, multiview sheets, and perspective. *Recommended model: Opus for the document model and perspective; Sonnet for the remainder.*
 
-## 8. Mapas de lectura: el color como información
+## 7. Acceptance criteria
 
-### Qué falla hoy
+- No existing style changes its SVG in Phase A, verified by equivalence tests.
+- Any combination of passes is possible without changing code.
+- Changing a pass's ink, visibility, or order does not recalculate geometry.
+- Changing one pass's parameters recalculates only that pass.
+- All interface text is in Spanish and included in `locales/app.yml`.
+- Output is always vector-based with physical clipping; no embedded raster images.
 
-`art/edges.rs` decide la tinta de cada arista **entera** por reglas gruesas: el eje dominante del
-valor absoluto de la normal (X/Y/Z), tres franjas fijas de altura/profundidad o el objeto módulo
-el número de tintas. Resultado: saltos bruscos que no coinciden con ninguna frontera real, sin
-orden entre tintas, sin leyenda. Parece aleatorio porque no codifica ninguna magnitud legible.
+## 8. Reading maps: color as information
 
-### Modelo: medida → codificación → rampa
+### What is wrong today
 
-Separar tres decisiones, aplicables a **cualquier pasada** (§2):
+`art/edges.rs` chooses an ink for each **whole edge** using coarse rules: the dominant axis of the absolute normal (X/Y/Z), three fixed height/depth bands, or the object index modulo the number of inks. This produces abrupt changes unrelated to real boundaries, with no ordering between inks and no legend. It looks random because it does not encode a readable quantity.
 
-1. **Medida (campo escalar por vértice/cara)**, calculada en el núcleo y cacheada por malla:
-   - Altura, profundidad de cámara, distancia geodésica (ya existen).
-   - **Luz** `N·L` con oclusión de luz (ya hay medio camino en `shadow`).
-   - **Curvatura media** (convexo/cóncavo, Laplace-Beltrami discreto) y **gaussiana** (defecto
-     angular). Muestra crestas, valles, sillas.
-   - **Pendiente** (ángulo con la vertical) y **orientación** de la pendiente (brújula, como un
-     mapa de exposición en geología).
-   - **Oclusión ambiental** (cuánto cielo ve cada punto; muestreo de hemisferio contra los
-     oclusores): rincones y huecos en oscuro. Es la medida que más «lee» el volumen.
-   - **Espesor** (rayo hacia dentro): zonas finas y gruesas, útil para piezas impresas en 3D.
-   - Combinaciones: `a·campo1 + b·campo2`, umbrales, invertir, ecualizar por histograma.
-2. **Codificación** (cómo se dibuja el valor con líneas):
-   - **Rampa de tintas con frontera exacta**: los trazos se cortan donde el campo cruza el umbral
-     (interpolando sobre el segmento, como ya hace `contours`), no por arista entera.
-   - **Transición difuminada**: entre dos tintas vecinas, alternancia ordenada de trazos
-     (dithering por índice de línea) en proporción al valor. Sin bandas duras.
-   - **Densidad**: el valor controla el espaciado de la trama → mapa de calor en una sola tinta.
-   - **Mezcla óptica**: el valor se convierte en un color de un mapa de color y `mix.rs` (ya
-     usado para fotos) lo descompone en coberturas de los rotuladores reales → tramas cruzadas
-     superpuestas, recortadas por caras proyectadas.
-   - **Isolíneas del campo**: curvas de nivel de curvatura, de oclusión, de luz (como un plano
-     térmico), con valores rotulados opcionalmente.
-3. **Rampa**: secuencial (ordenar automáticamente las tintas elegidas por luminosidad OKLab),
-   divergente (curvatura: cóncavo en una tinta, convexo en otra, papel en el cero), categórica
-   solo para objetos. Rampas tipo «térmica» con 4–5 rotuladores de la biblioteca del usuario.
+### Model: measure → encoding → ramp
 
-### Cartela técnica en el papel
+Separate three decisions, applicable to **any pass** (§2):
 
-Opcional, en el margen: barra de leyenda con la rampa real de tintas y valores, nombre de la
-medida y unidades, escala gráfica, azimut/elevación de cámara y luz, modelo y fecha. Texto
-con el motor de letra existente (trazo sencillo). Convierte la lámina en un documento técnico.
+1. **Measure**, a scalar field per vertex or face, computed in the core and cached per mesh:
+   - Height, camera depth, and geodesic distance already exist.
+   - **Light**: `N·L` with light occlusion; `shadow` already provides part of this.
+   - **Mean curvature**, distinguishing convex and concave regions using discrete Laplace–Beltrami, and **Gaussian curvature** from angle defect. Reveals ridges, valleys, and saddles.
+   - **Slope**, the angle from vertical, and **aspect**, the compass orientation of the slope, as on geological exposure maps.
+   - **Ambient occlusion**: how much sky each point sees, sampled over a hemisphere against occluders. Corners and cavities are dark; this measure makes volume especially legible.
+   - **Thickness**, measured by an inward ray: thin and thick regions, useful for 3D-printed parts.
+   - Combinations: `a·campo1 + b·campo2`, thresholds, inversion, and histogram equalization.
+2. **Encoding**, or how a value is drawn with lines:
+   - **Ink ramps with exact boundaries**: split strokes where the field crosses a threshold, interpolating along the segment as `contours` already does, instead of coloring a whole edge.
+   - **Soft transitions**: ordered alternation of neighboring inks by line index, proportional to the value. No hard bands.
+   - **Density**: the value controls hatching spacing, creating a heat map with one ink.
+   - **Optical mixing**: convert the value into a colormap color, then use `mix.rs`, already used for photos, to separate it into actual pen coverages. Overlay crossed hatching clipped to projected faces.
+   - **Field isolines**: contour lines of curvature, occlusion, or light, resembling a thermal drawing, with optional value labels.
+3. **Ramp**: sequential, automatically sorting selected inks by OKLab lightness; diverging, with concave and convex curvature in different inks and paper at zero; categorical only for objects. Thermal-style ramps using 4–5 pens from the user's library.
 
-### Efectos 3D → 2D nuevos (pasadas)
+### Technical legend on paper
 
-- **Hachuras de relieve** (estilo Lehmann, cartografía antigua): trazos cortos en la dirección
-  de máxima pendiente, más largos/densos cuanto más inclinado. Muy técnico y muy plotter.
-- **Mapa de agujas**: rejilla regular en papel con un pequeño trazo por celda orientado según la
-  normal proyectada (o el gradiente de cualquier campo); longitud = magnitud.
-- **Líneas de horizonte** (perfiles apilados): barridos horizontales en pantalla desplazados por
-  la profundidad, con ocultación por horizonte flotante. La profundidad por cara es afín y ya
-  hay BVH 2D en `shadow/project.rs`.
-- **Crestas y valles**: líneas de curvatura extrema en dos tintas (convexo/cóncavo).
-- **Anaglifo**: dos cámaras separadas 2–4°, una en rojo y otra en cian → relieve real con gafas.
-  Variante: par estereoscópico lado a lado.
-- **Desarrollo** (despliegue de la malla artística en plano): pliegues de monte y valle en dos
-  tintas, pestañas de pegado. Se puede recortar y montar: el 3D vuelve a ser 3D.
-- **Estela de giro**: varias rotaciones superpuestas con la rampa de tintas recorriendo el tiempo.
-- **Sección técnica**: corte por un plano con rayado normalizado en la cara cortada, cotas del
-  volumen envolvente y vista oculta discontinua.
+An optional margin legend shows the actual ink ramp and values, measure name and units, graphic scale, camera and light azimuth/elevation, model, and date. Use the existing single-line lettering engine. This turns the sheet into a technical document.
 
-### Fase G · Mapas de lectura (antes de la E)
+### New 3D → 2D effects, represented as passes
 
-Medidas (luz, curvaturas, pendiente, oclusión ambiental), codificaciones (rampa con frontera
-exacta, difuminado, densidad), rampas ordenadas por luminosidad y cartela. Después, efectos:
-hachuras de relieve, líneas de horizonte y anaglifo primero (alto impacto, coste bajo-medio);
-desarrollo y sección técnica al final.
-*Modelo recomendado: Opus, razonamiento alto para curvatura, oclusión ambiental y corte exacto;
-Sonnet o Codex para cartela, rampas y anaglifo.*
+- **Relief hachures**, in the Lehmann / historical cartography style: short strokes along the steepest slope, longer and denser on steeper areas. Well suited to technical drawing and plotters.
+- **Needle map**: a regular paper grid with a small stroke in each cell, oriented by the projected normal or a field gradient; length represents magnitude.
+- **Horizon lines**, or stacked profiles: horizontal screen sweeps displaced by depth, with floating-horizon visibility. Depth per face is affine, and `shadow/project.rs` already has a 2D BVH.
+- **Ridges and valleys**: extreme-curvature lines in two inks for convex and concave regions.
+- **Anaglyph**: two cameras separated by 2–4°, one red and one cyan, producing depth with glasses. Alternative: a side-by-side stereo pair.
+- **Unfolding**: flatten the artistic mesh, using two inks for mountain and valley folds and adding glue tabs. It can be cut out and assembled, turning 3D back into 3D.
+- **Rotation trail**: overlay several rotations, progressing through an ink ramp over time.
+- **Technical section**: a plane cut with standardized hatching on the cut face, bounding-volume dimensions, and dashed hidden lines.
 
-## 9. Jerarquía visual de la interfaz (detalle de la fase B)
+### Phase G · Reading maps, before E
 
-Sustituye y concreta el §3. Una sola pregunta por zona; el ojo recorre: estilo → papel → pasadas → salida.
+Measures: light, curvatures, slope, and ambient occlusion. Encodings: ramps with exact boundaries, dithering, and density. Ramps sorted by lightness, plus legends. Then effects: relief hachures, horizon lines, and anaglyph first, for high impact at low-to-medium cost; unfolding and technical sections last. *Recommended model: Opus, high reasoning for curvature, ambient occlusion, and exact splitting; Sonnet or Codex for legends, ramps, and anaglyph.*
 
-**Cinco zonas, en orden de importancia**
-1. **Papel (centro, máximo espacio).** Es el resultado; nunca lo tapa un panel. Recuadro 3D
-   pequeño abajo a la derecha (92×72 pt aprox.), ampliable a pantalla dividida con doble clic.
-   La cartela (§8) se ve dentro del papel porque se plotea.
-2. **Pasadas (derecha, 180–220 pt).** Lo que más se toca. Arriba la lista tipo Capas
-   (ojo · muestra de tinta o rampa · nombre · asa para arrastrar; `+` para añadir). Debajo,
-   solo los parámetros de la pasada seleccionada, en tres niveles:
-   - *esencial* siempre visible: medida/tipo, densidad o niveles, tintas, máscara;
-   - *Avanzado* plegado: precisión, semilla, simplificación, rangos;
-   - nada de colapsables anidados dentro de colapsables (hoy hay hasta tres niveles).
-3. **Estilo (barra superior, junto al selector de espacios).** Chips con nombre en español y
-   miniatura al pasar el ratón. «Guardar estilo» al final. Elegirlo reemplaza la pila (deshacer).
-4. **Escena (izquierda, 150–180 pt, plegable entera).** Se ajusta una vez y se olvida: Modelo
-   (nombre + nº de triángulos, importar, calidad), Cámara (chips Planta/Alzado/Iso/Persp. +
-   orbitar en el recuadro), Luz (gizmo de esfera con sol arrastrable), Papel (resumen de una
-   línea, despliega tamaño/márgenes/posición). Transformar modelo va dentro de Modelo › Avanzado.
-5. **Pie (una línea).** Izquierda: trazos · tintas · tiempo estimado · tiempo de cálculo, en
-   texto secundario. Avisos solo si los hay (color de aviso, una línea, con acción). Derecha:
-   Exportar SVG (secundario) y Colocar en el lienzo (único botón de acento de la pantalla).
+## 9. Interface visual hierarchy: Phase B details
 
-**Reglas**
-- Un único botón de acento por pantalla: «Colocar en el lienzo».
-- Tres tamaños de texto: título de zona (secundario, pequeño), etiqueta (normal), valor/ayuda
-  (atenuado). Nada en mayúsculas sostenidas; nada de nombres en clave en inglés.
-- Ayudas de una línea bajo el control solo cuando no es obvio («Arrastra en la vista 3D para
-  orbitar»). Las descripciones largas de cada modo desaparecen: el estilo se explica con la miniatura.
-- Estado de cálculo como fina barra de progreso sobre el papel, no como texto en el panel.
-- Pasada seleccionada: sus trazos resaltados en el papel y el resto atenuados mientras se edita.
-- Ventana estrecha: Escena se pliega a iconos; Pasadas pasa a hoja flotante sobre el papel.
-- Reutilizar `theme::glass_panel`, `accent_button` y tokens de `theme.rs`; textos en `locales/app.yml`.
+This replaces and refines §3. Each zone answers one question. The eye follows style → paper → passes → output.
+
+**Five zones, in order of importance:**
+
+1. **Paper, centered and given the most space.** This is the result; panels never cover it. A small 3D inset at the bottom right, approximately 92×72 pt, expands to split view on double-click. The legend (§8) appears on paper because it is plotted.
+2. **Passes, on the right, 180–220 pt.** The most frequently used area. A Layers-like list at the top: eye, ink/ramp swatch, name, drag handle, and `+` to add. Below, only the selected pass's parameters, arranged as follows: essentials always visible (measure/type, density or levels, inks, mask); a collapsed Advanced section (precision, seed, simplification, ranges); no collapsible sections nested inside other collapsible sections, replacing the current maximum of three levels.
+3. **Style, in the top bar beside the workspace selector.** Chips with Spanish names and thumbnails on hover. Save style at the end. Choosing a style replaces the stack and can be undone.
+4. **Scene, on the left, 150–180 pt, collapsible as a whole.** Set once and usually leave alone: Model (name, triangle count, import, quality); Camera (Top/Front/Iso/Perspective chips plus orbit in the inset); Light (sphere gizmo with a draggable sun); Paper (a one-line summary expanding to size, margins, and position). Model transformation lives under Model › Advanced.
+5. **Footer, one line.** Left: strokes, inks, estimated time, and calculation time in secondary text. Show warnings only when necessary, using one line, warning color, and an action. Right: secondary Export SVG and Place on canvas, the screen's only accent button.
+
+**Rules:**
+
+- One accent button per screen: Place on canvas.
+- Three text sizes: small secondary zone title, normal label, and muted value/help. No all-caps labels or English code names in the Spanish interface.
+- One-line help below a control only when needed, such as “Drag in the 3D view to orbit.” Remove long mode descriptions; thumbnails explain styles.
+- Show calculation state as a thin progress bar above the paper, replacing panel text.
+- While editing a selected pass, highlight its strokes on paper and dim the rest.
+- In narrow windows, Scene collapses to icons and Passes becomes a floating sheet over the paper.
+- Reuse `theme::glass_panel`, `accent_button`, and `theme.rs` tokens; strings belong in `locales/app.yml`.

@@ -1,234 +1,234 @@
-# Plan: pulido de Salida, Preferencias e idiomas
+# Plan: Output polish, preferences, and languages
 
-Plan para ejecutarlo por fases. Cada fase deja la app compilando, con pruebas en verde e instalada.
+Plan to execute it in phases. Each phase leaves the app compiling, with tests in green and installed.
 
-## Reglas para todas las fases
+## Rules for all phases
 
-- Lee `AGENTS.md` antes de empezar. La interfaz sigue en español. Se mantiene la separación entre objetos/capas y tintas.
-- **No ejecutes `cargo fmt`**: el proyecto usa líneas densas a propósito y el formateo ensuciaría todo el diff.
-- Si `cargo` no está disponible: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
-- Al terminar cada fase:
+- Read `AGENTS.md` before we start. The interface is still in Spanish. The separation between objects/layers and inks is maintained.
+- **Do not run `cargo fmt`**: the project uses dense lines on purpose and the formatting would contaminate the entire diff.
+- If `cargo` is not available: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
+- At the end of each phase:
   1. `cargo test --workspace`
-  2. `cargo clippy --workspace --all-targets` (sin avisos nuevos)
+  2. `cargo clippy --workspace --all-targets` (without new notices)
   3. `python3 scripts/install-macos.py`
-- No cierres ni reinicies la Vectorio que esté abierta.
-- Actualiza `LEEME.md` cuando cambie algo visible.
-- Un commit por fase, solo si el usuario lo pide. Termina el mensaje con la línea de coautoría que indique la sesión.
-- **Paso 0 (antes de la fase A):** el trabajo de Salida está sin commit en `feat/tipografias-y-menu`. Pide al usuario que lo confirme o autorice el commit antes de tocar nada, para poder comparar.
+- Do not close or restart the Vector that is open.
+- Update `LEEME.md` when you change something visible.
+- One commit per phase, only if the user asks for it. Complete the message with the co-authoring line indicating the session.
+- **Step 0 (before phase A):** Output work is uncommitted on `feat/tipografias-y-menu`. Ask the user to confirm or authorize the commit before touching anything, so they can compare.
 
 ---
 
-## Fase A · Ajustes al plan de salida
+## Phase A · Adjustments to the exit plan
 
-La base es buena y conviene conservarla: modelo conservador, rutas seguras intactas, cálculo en segundo plano, capa propia para el papel y buenas pruebas. Los cambios van por orden de prioridad. A1–A5 son obligatorios. A6–A9 solo se hacen si las mediciones lo justifican.
+The basis is good and should be preserved: conservative model, intact safe routes, secondary calculation, proper paper layer and good tests. Changes are in order of priority. A1 – A5 are mandatory. A6 – A9 is only made if the measurements justify it.
 
-### A1. Una sola comprobación de «salida lista»
-Hoy hay tres versiones distintas:
-- `output::show` usa `rendered.rev == rev && !tracing() && !is_computing() && ready()`.
-- `export_svg` y `export_per_pen` no comprueban `is_computing()`.
-- «Plan con esperas…» en la barra solo comprueba `output_ui.ready()`.
+### It's A1. A single check of the exit list
+Today there are three different versions:
+- `output::show` uses `rendered.rev == rev && !tracing() && !is_computing() && ready()`.
+- `export_svg` and `export_per_pen` do not verify `is_computing()`.
+-  « Plan with waits... »  in the bar only check `output_ui.ready()`.
 
-Cambios:
-- Añade `pub fn output_ready(&self) -> bool` en `VectorioApp` (`app.rs`) con la condición completa y úsala en todos esos sitios.
-- `output::show` calcula `current` y `ready` con ella.
-- Prueba: con `is_computing()` verdadero, `output_ready()` es falso.
+Changes:
+- Add `pub fn output_ready(&self) -> bool` to `VectorioApp` (`app.rs`) with full condition and usable in all those sites.
+- `output::show` calculates `current` and `ready` with it.
+- Proof: with true `is_computing()`, `output_ready()` is false.
 
-### A2. Avisar del resultado de las exportaciones
-Ahora `OutputUi::export_plan` y `export_svg` guardan el error en `self.error`, que solo se ve en el inspector. Exportando desde la barra, el usuario no se entera ni del éxito ni del fallo.
-- Haz que devuelvan `Result<Option<PathBuf>, String>`. `None` significa que se canceló el diálogo.
-- En `app.rs`, muestra un aviso con `notify`: «Plan guardado en …» o el error.
-- Mantén el error en el inspector cuando la exportación se lanza desde el inspector.
+### It's A2. Notification of the result of exports
+Now `OutputUi::export_plan` and `export_svg` keep the error in `self.error`, which is only seen in the inspector. Exporting from the bar, the user knows neither success nor failure.
+- Have them return `Result<Option<PathBuf>, String>`. `None` means the dialogue has been canceled.
+- In `app.rs`, it displays a warning with `notify`:  « Plan saved to... »  or error.
+- Keep the error on the inspector when the export is launched from the inspector.
 
-### A3. El recorrido usa el color del papel
-`map()` pinta el papel siempre `Color32::WHITE` e ignora `app.paper_tint`. Con papel negro y tinta blanca, la simulación no muestra nada.
-- En `Map::Route`, pinta el papel con `PAPER_TINTS[paper_tint]`. Habrá que pasar `paper_tint` a `map()`.
-- Los mapas de calor siguen sobre blanco, que es como se leen.
-- El rótulo de la barra no cambia.
+### It's A3. The tour uses the color of the paper
+`map()` always paints the paper `Color32::WHITE` and ignores `app.paper_tint`. With black paper and white ink, the simulation shows nothing.
+- In `Map::Route`, paint the paper with `PAPER_TINTS[paper_tint]`. We 'll have to pass `paper_tint` to `map()`.
+- The heat maps are still white, which is how you read them.
+- The label on the bar doesn't change.
 
-### A4. Quitar el modo Plotter antiguo y renombrar
-`ViewMode::Plotter` ya no llega al lienzo, así que hay código muerto:
-- `canvas.rs`: la rama `ViewMode::Plotter` de `show`, `simulate` y `paint_plot` (sección «Plotter», hacia la línea 718).
-- `app.rs`, `status_bar`: el bloque `if self.mode == ViewMode::Plotter` con Reproducir, velocidad y «Desplazamientos» (hacia las líneas 789–803).
-- `Sim.show_travel`, si deja de usarse. `OutputUi` ya tiene el suyo.
+### It's A4. Remove the old Plotter mode and rename
+`ViewMode::Plotter` is no longer on the canvas, so there's dead code:
+- `canvas.rs`: the `ViewMode::Plotter` branch of `show`, `simulate` and `paint_plot` (section  « Plotter », to the 718 line).
+- `app.rs`, `status_bar`: the `if self.mode == ViewMode::Plotter` block with Reproduce, speed and  « Deployment »  (towards the lines 789  –  803).
+- `Sim.show_travel`, if you stop using it. `OutputUi` already has his.
 
-Después renombra `ViewMode::Plotter` → `ViewMode::Output` en todo el crate. Es un renombrado mecánico.
+Then rename `ViewMode::Plotter` → `ViewMode::Output` throughout the box. He's a renowned mechanic.
 
-### A5. Recalcular sin tirones
-Al arrastrar un deslizador se encadenan cálculos completos, y cada resultado pone `sim.progress = 1.0`.
-- **Espera previa:** cuando cambian los ajustes, guarda el instante del cambio en `OutputUi`. No lances el trabajo hasta 250 ms después del último cambio. Pide un repintado con `ctx.request_repaint_after`.
-- **Cancelación:** añade `output::prepare_cancellable(..., cancel: &AtomicBool)`. `prepare` pasa a llamarla con una bandera que nunca se activa. Comprueba la bandera en el bucle de `schedule`, cada pocas decenas de trazos, y en el bucle de huellas de `prepare`. Si se activa, devuelve un `Err` interno que la UI ignora. `OutputUi` guarda un `Arc<AtomicBool>` por trabajo y lo activa cuando lanza uno nuevo.
-- Conserva la posición de la simulación al llegar un plan nuevo. Solo pon `progress = 1.0` cuando no había plan.
-- Prueba en core: con la bandera activada, `prepare_cancellable` termina enseguida con error.
+### It's A5. Recalculate without pulling
+When you drag a slider, complete calculations are chained, and each result puts `sim.progress = 1.0`.
+- **Preview Wait:** When the settings change, save the moment of change to `OutputUi`. Don't launch the work until 250 ms after the last change. He wants a repaint with `ctx.request_repaint_after`.
+- **Cancellation:** is added `output::prepare_cancellable(..., cancel: &AtomicBool)`. `prepare` calls her with a flag that never activates. Check the flag on the `schedule` loop, every few dozen strokes, and on the `prepare` fingerprint loop. If activated, return an internal `Err` that the UI ignores. `OutputUi` keeps a `Arc<AtomicBool>` per job and activates it when it launches a new one.
+- It retains the position of the simulation when a new plan arrives. Only put `progress = 1.0` when there was no plan.
+- Core test: with the flag activated, `prepare_cancellable` immediately ends in error.
 
-### A6. Fragmentar solo donde hace falta (algoritmo)
-Ahora, si una sola zona supera el límite, se trocean **todos** los trazos en tramos de `chunk_mm`. Eso añade subidas y viajes en zonas que nunca iban a superar el límite.
+### It's A6. Fragment only where necessary (algorithm)
+Now, if a single zone exceeds the limit, they slice **all** the strokes into `chunk_mm` sections. That adds ups and downs to areas that would never cross the line.
 
-Una celda con `total_heat ≤ max_wet_passes` nunca puede superarlo, así que:
-- En `prepare`, cuando `needs_protection` sea verdadero, trocea solo los trazos cuya huella toque alguna celda con `total_heat.counts[i] > max_wet_passes`. Los demás pasan enteros.
-- Prueba nueva: una zona con 5 pasadas sobre la misma línea y una línea larga de 200 mm lejos de ella. La línea larga queda en un solo tramo y `wet_after.max() <= cap`.
-- Las pruebas existentes deben seguir pasando, en especial `many_crossings_keep_all_geometry…`.
+A cell with `total_heat ≤ max_wet_passes` can never get past it, so:
+- In `prepare`, when `needs_protection` is true, only the strokes whose fingerprint touches any cell with `total_heat.counts[i] > max_wet_passes` are sliced. The others go whole.
+- New test: a zone with 5 passes over the same line and a long line of 200 mm away from it. The long line is on a single stretch and `wet_after.max() <= cap`.
+- Existing tests must continue, especially `many_crossings_keep_all_geometry…`.
 
-### A7. Formato del plan JSON (pensando en el driver)
-- Añade a `OutputPlan`:
-  - `generator: "Vectorio <versión>"`. El core no conoce la versión de la app: recíbela como parámetro de `prepare` o rellénala en la app antes de serializar.
-  - `origin: "top-left"` y `y_axis: "down"`.
-  - El margen ya va dentro de `paper`.
-- Crea `docs/formato-salida.md` con el esquema `vectorio-output-v1`: unidades, acciones (`change_pen`, `travel`, `wait`, `draw`) y qué significa cada campo.
-- Prueba de esquema: serializa un plan pequeño y comprueba la lista de claves de primer nivel y las de cada acción. Si alguien cambia el formato sin cambiar la versión, falla.
+### It's A7. Format of the JSON plan (thinking of the driver)
+- Add to `OutputPlan`:
+  - `generator: "Vectorio <versión>"`. The core doesn't know the version of the app: recycle it as a parameter of `prepare` or fill it in the app before serializing.
+  - `origin: "top-left"` and `y_axis: "down"`.
+  - The margin is already within `paper`.
+- Create `docs/formato-salida.md` with the `vectorio-output-v1` scheme: units, shares (`change_pen`, `travel`, `wait`, `draw`) and what each field means.
+- Schematic test: Serialise a small plan and check the list of first-level keys and those of each action. If someone changes the format without changing the version, they fail.
 
-### A8. Mapa de calor como textura (medir antes)
-`map()` clona la malla cada fotograma (`egui::Shape::Mesh(mesh.clone())`). Con una foto puede tener millones de vértices.
-- Mide primero: añade a `examples/muestra_secado.rs` un caso con una foto o muchas líneas, y cuenta los vértices de `heat_mesh`.
-- Si pasa de unos 200 000 vértices, cambia a textura: `grid.pixels(2048)` → `egui::ColorImage` → `ctx.load_texture(..., TextureOptions::NEAREST)`, pintada con `painter.image` sobre `paper_rect`. Los colores de `HEAT_COLORS` no dependen del tema, así que la textura no hay que regenerarla al cambiar de aspecto.
-- Adapta la prueba `exports_and_simulation_stay_visible…`: en vez de `has_heat` con malla, comprueba que hay una forma de imagen o rectángulo con la textura del mapa.
+### A8. Heat map as texture (measured before)
+`map()` clones the mesh for each frame (`egui::Shape::Mesh(mesh.clone())`). With one photo, you can have millions of vertices.
+- Measure first: add to `examples/muestra_secado.rs` a case with one photo or many lines, and count the vertices of `heat_mesh`.
+- If it passes through some 200 000 vertices, change to texture: `grid.pixels(2048)` → `egui::ColorImage` → `ctx.load_texture(..., TextureOptions::NEAREST)`, painted with `painter.image` over `paper_rect`. The colors of `HEAT_COLORS` do not depend on the theme, so the texture does not have to be regenerated when changing appearance.
+- Adapt the `exports_and_simulation_stay_visible…` test: instead of `has_heat` with mesh, check that there is an image shape or rectangle with the texture of the map.
 
-### A9. Errores del core como tipo (prepara la fase C)
-- En `vectorio-core/src/output.rs`, cambia `Result<OutputPlan, String>` por `Result<OutputPlan, OutputError>`, con un enum de variantes: `InvalidSettings`, `MissingPen`, `InvalidPenWidth`, `InvalidCoordinates`, `InvalidLength`, `Cancelled`.
-- El texto en español pasa a la app (`output.rs` de la app) con una función `error_text(&OutputError) -> String`.
+### A9. Core errors as type (prepare phase C)
+- In `vectorio-core/src/output.rs`, change `Result<OutputPlan, String>` to `Result<OutputPlan, OutputError>`, with an enum of variants: `InvalidSettings`, `MissingPen`, `InvalidPenWidth`, `InvalidCoordinates`, `InvalidLength`, `Cancelled`.
+- The Spanish text goes to the app (app `output.rs`) with a function `error_text(&OutputError) -> String`.
 
-### Fuera de alcance por ahora
-Rendimiento de `draw_route` con fotos enormes (cachear las formas ya dibujadas). Apúntalo en «Próximos pasos» de `LEEME.md`.
+### Out of range for now
+`draw_route` performance with huge photos (caching the shapes already drawn). Write it down in the next steps of `LEEME.md`.
 
 ---
 
-## Fase B · Preferencias
+## Phase B · Preferences
 
-### B1. Modelo y archivo
-- Crea `crates/vectorio-app/src/paths.rs` con `pub fn support_dir() -> Option<PathBuf>`, que devuelve `~/Library/Application Support/Vectorio`. Úsalo en `styles.rs` y en `theme::Appearance` en lugar de repetir la ruta.
-- Crea `crates/vectorio-app/src/prefs.rs`:
-  ```rust
-  #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-  #[serde(default)]
-  pub struct Preferences {
-      pub appearance: theme::Appearance,
-      pub language: Language,          // Sistema · Español · English (la fase C lo activa)
-      pub ui_scale: f32,               // 0.8..=1.5, ctx.set_zoom_factor
-      pub paper_tint: usize,           // hoy se pierde al cerrar
-      pub plotter_name: String,        // "EasyDraw"; sustituye el texto fijo
-      pub show_tips: bool,             // consejos del inspector de documento
-      pub new_document: NewDocument,   // papel, PlotSettings y OutputSettings por defecto
+### B1, please. Model and file
+- Create `crates/vectorio-app/src/paths.rs` with `pub fn support_dir() -> Option<PathBuf>`, which returns `~/Library/Application Support/Vectorio`. Use it on `styles.rs` and `theme::Appearance` instead of repeating the route.
+- Creates `crates/vectorio-app/src/prefs.rs`:
+  ``` rust
+  # [derives(Clone, Debug, PartialEq, Serialize, Deserialize)]
+  #[be (default)]
+  public struct Preferences {
+      Pub appearance: theme::Appearance,
+      public language: Language, // System · Spanish · English (C phase activates it)
+      Pub ui_scale: f32, // 0.8..= 1.5, ctx.set_zoom_factor
+      pub paper_tint: usize, // today is lost at closing
+      pub plotter_name: String, // "EasyDraw"; replaces the fixed text
+      pub show_tips: bool, // advice from the document inspector
+      public new_document: NewDocument, // paper, PlotSettings and OutputSettings by default
   }
   ```
-- Usa `Default` con los valores actuales. `NewDocument::default()` sale de `Document::default()`.
-- Archivo: `preferencias.json` en `support_dir()`. Escritura atómica, igual que hoy en `Appearance::save`: temporal y `rename`.
-- **Migración:** si no existe `preferencias.json` pero sí `apariencia.json`, toma de ahí el aspecto. Guarda el archivo nuevo y deja el antiguo sin borrar.
-- Mueve `Appearance::load/save` a `Preferences::load/save`. `Appearance` conserva `label()` y `apply()`.
-- En `VectorioApp`, sustituye `appearance` por `prefs: Preferences`. Añade `fn set_prefs(&mut self, ctx, new)`, que aplica los cambios (aspecto, escala, tinta del papel) y guarda. Si falla, avisa con `notify` como hace hoy `set_appearance`.
-- Pruebas:
-  - ida y vuelta por JSON;
-  - un JSON vacío `{}` da los valores por defecto;
-  - la migración desde `apariencia.json`. Usa un directorio temporal: haz que `load`/`save` reciban la ruta en una función interna probable.
+- Use `Default` with the current values. `NewDocument::default()` is leaving `Document::default()`.
+- File: `preferencias.json` in `support_dir()`. Atomic writing, just like today in `Appearance::save`: temporal and `rename`.
+- **Migration:** if there is no `preferencias.json` but yes `apariencia.json`, take the appearance from there. Save the new file and leave the old file un erased.
+- Move `Appearance::load/save` to `Preferences::load/save`. `Appearance` retains `label()` and `apply()`.
+- In `VectorioApp`, replace `appearance` with `prefs: Preferences`. Add `fn set_prefs(&mut self, ctx, new)`, which applies changes (look, scale, ink on the paper) and saves. If it fails, notify `notify` as `set_appearance` does today.
+- Tests:
+  - Back and forth through JSON;
+  - a blank JSON `{}` gives the default values;
+  - The migration from `apariencia.json`. Use a time directory: make `load` / `save` receive the route in a probable internal function.
 
-### B2. Ventana de Ajustes
-- Crea `crates/vectorio-app/src/prefs_ui.rs` con un `egui::Window` centrado, sin redimensionar, de unos 520 pt de ancho, con el estilo de `theme::glass_panel` y `theme::close_button`. Esc lo cierra.
-- Pestañas con `segmented` / `text_segment`, como en la barra:
-  - **General:**
-    - Aspecto (Sistema · Claro · Oscuro).
-    - Idioma (Sistema · Español · English). Hasta la fase C, desactivado con la nota «Próximamente».
-    - Tamaño de la interfaz, deslizador 80–150 %.
-    - Mostrar consejos.
-  - **Documento nuevo:**
-    - Papel: tamaño, ancho, alto y margen. Reutiliza los controles de papel del inspector de documento si se pueden extraer a una función.
-    - Color del papel de vista previa.
-    - Velocidades: dibujo, viaje, subir/bajar.
-    - Botones «Usar los de este documento» y «Restablecer».
-  - **Salida:**
-    - Nombre del plotter.
-    - Valores iniciales de secado: tiempo, pasadas húmedas, empape, pausa al cambiar de tinta.
-    - Nota: solo afectan a documentos nuevos; cada proyecto guarda los suyos.
-- Los cambios se aplican al momento, como en macOS: no hay botón «Aceptar». Se guarda al soltar un deslizador o cambiar un valor, no en cada fotograma.
+### B2, please. Adjustment window
+- Create `crates/vectorio-app/src/prefs_ui.rs` with a `egui::Window` centered, without resizing, of some width 520 pt, with the style of `theme::glass_panel` and `theme::close_button`. Esc closes it.
+- Pesta with `segmented` / `text_segment`, as in the bar:
+  - **General of the Army:**
+    - Aspect (System · Clear · Dark).
+    - Language (System · Spanish · English). Until phase C, deactivated with the note  « Soon ».
+    - Interface size, slider 80  –  150 %.
+    - Showing advice.
+  - **New document:**
+    - Paper: size, width, height and margin. Reuse the document inspector's paper controls if they can be extracted to a function.
+    - Color of the preview paper.
+    - Speed: drawing, travel, up/down.
+    -  « Use the buttons in this document »  and  « Reset ».
+  - **Out of the way:**
+    - Name of the plotter.
+    - Initial drying values: weather, wet passes, steam, pauses when changing ink.
+    - Note: they only apply to new documents; each project keeps its own.
+- The changes apply at the moment, as in macOS: there is no  « Accept »  button. It's saved by dropping a slider or changing a value, not every frame.
 
-### B3. Abrir los Ajustes
-- Añade `Command::Preferences` con atajo ⌘, en `COMMAND_KEYS` (`Key::Comma`).
-- Menú nativo: en el menú «Vectorio», después de «Acerca de Vectorio», añade un separador y `item("Ajustes…", Some("CmdOrCtrl+Comma"), Command::Preferences)`.
-- Añade «⌘,» a la hoja de atajos (`CHEATSHEET`).
-- **Quita el menú «Aspecto» de la barra superior** (`app.rs`, `ui.menu_button("Aspecto", …)`). El aspecto se cambia en Ajustes, y se conserva el submenú Visualización → Apariencia como atajo.
+### B3, please. Opening the Settings
+- Add `Command::Preferences` with the abbreviation ⌘, to `COMMAND_KEYS` (`Key::Comma`).
+- Native menu: in the menu  « Vector », after  « About Vector », add a separator and `item("Ajustes…", Some("CmdOrCtrl+Comma"), Command::Preferences)`.
+- Add  «⌘  ⌘, »  to the shortcut sheet (`CHEATSHEET`).
+- **Remove the menu  « Look »  from the top bar of** (`app.rs`, `ui.menu_button("Aspecto", …)`). The appearance is changed in Settings, and the Display submenu → Appearance is retained as a shortcut.
 
-### B4. Usar las preferencias
-- `new_document()` y `blank()` crean el documento con `prefs.new_document`: papel, plot y output.
-- `paper_tint` se lee de `prefs` y se guarda al cambiar, tanto desde el menú como desde Ajustes.
-- `"EasyDraw"` en `output.rs` y en la barra («Preparación · EasyDraw») pasa a ser `prefs.plotter_name`.
-- `show_tips` oculta los consejos de `document_settings` en el inspector.
-- `ui_scale` → `ctx.set_zoom_factor(prefs.ui_scale)` al arrancar y al cambiarlo.
-- Actualiza `LEEME.md`: sección «Ajustes (⌘,)». Quita la mención al menú Aspecto de la barra.
+### B4. Use your preferences
+- `new_document()` and `blank()` create the document with `prefs.new_document`: paper, plot and output.
+- `paper_tint` is read from `prefs` and saved when changing, both from the menu and from Settings.
+- `"EasyDraw"` in `output.rs` and in the bar (« Preparation · EasyDraw ») becomes `prefs.plotter_name`.
+- `show_tips` hides the advice of `document_settings` from the inspector.
+- `ui_scale` → `ctx.set_zoom_factor(prefs.ui_scale)` when starting and changing it.
+- Updates to `LEEME.md`: section  " Adjustments (⌘,)  ". Remove the mention from the Aspect bar menu.
 
 ---
 
-## Fase C · Idiomas: infraestructura y primeras pantallas
+## Phase C · Languages: infrastructure and first screens
 
-Objetivo: español (por defecto y de reserva) e inglés, listos para publicar el código. En esta fase se traducen por completo Ajustes, los menús nativos, la barra, la hoja de atajos y Salida. El resto va en la fase D.
+Objective: Spanish (by default and reserve) and English, ready to publish the code. In this phase, adjustments, native menus, the bar, the shortcut sheet and Output are fully translated. The rest is in phase D.
 
-### C1. Biblioteca y archivos
-- Añade a `vectorio-app`:
+### C1 Library and archives
+- Add to `vectorio-app`:
   - `rust-i18n = "3"`;
-  - `sys-locale = "0.3"`, para detectar el idioma del sistema;
-  - `serde_yaml` como dependencia de desarrollo, para la prueba de claves.
-- En `main.rs`: `rust_i18n::i18n!("locales", fallback = "es");`.
-- Crea `crates/vectorio-app/locales/es.yml` y `locales/en.yml`.
-- Usa claves semánticas por zona: `menu.archivo.abrir`, `salida.guardar_plan`, `ajustes.general.idioma`… Para interpolar: `t!("salida.secando", tiempo = …)`.
-- `Language` (de `prefs.rs`) gana `fn resolve(self) -> &'static str`, que devuelve `"es"` o `"en"`. `Sistema` usa `sys_locale::get_locale()`: si empieza por `es`, `"es"`; en otro caso, `"en"`.
-- `set_prefs` llama a `rust_i18n::set_locale(...)` cuando cambia el idioma.
+  - `sys-locale = "0.3"`, to detect the system language;
+  - `serde_yaml` as a development dependency for key testing.
+- In `main.rs`: `rust_i18n::i18n!("locales", fallback = "es");`.
+- Create `crates/vectorio-app/locales/es.yml` and `locales/en.yml`.
+- Use semantic keys by area: `menu.archivo.abrir`, `salida.guardar_plan`, `ajustes.general.idioma`... to interpolate: `t!("salida.secando", tiempo = …)`.
+- `Language` (from `prefs.rs`) wins `fn resolve(self) -> &'static str`, which returns `"es"` or `"en"`. `Sistema` uses `sys_locale::get_locale()`: if it starts with `es`, `"es"`; otherwise, `"en"`.
+- `set_prefs` calls `rust_i18n::set_locale(...)` when the language changes.
 
-### C2. Números y unidades
-- Crea `crates/vectorio-app/src/fmt.rs` con `decimal(x, decimales)`: coma en español, punto en inglés.
-- Mueve allí `duration`, `distance` y `pct` desde `output.rs`, con unidades traducidas («min», «s», «h»).
-- Sustituye los `.replace('.', ",")` que haya en la app.
+### C2. Numbers and units
+- Create `crates/vectorio-app/src/fmt.rs` with `decimal(x, decimales)`: comma in Spanish, dot in English.
+- Move there `duration`, `distance` and `pct` from `output.rs`, with units translated (« min »,  « s »,  « h »).
+- It replaces the `.replace('.', ",")` in the app.
 
-### C3. Menú nativo y hoja de atajos
-- `CHEATSHEET` pasa de `const` a `fn cheatsheet() -> Vec<(String, Vec<(String, String)>)>`.
-- Al cambiar el idioma, reconstruye el menú: guarda `menu = NativeMenu::install(ctx)` de nuevo. Comprueba que `init_for_nsapp` sustituye el menú anterior y que el manejador de eventos queda bien. Si en macOS da problemas, avisa con «El menú cambiará de idioma al volver a abrir Vectorio» y no lo reconstruyas.
-- `AboutMetadata` (créditos, comentario) también se traduce.
+### C3. Native menu and shortcut sheet
+- `CHEATSHEET` goes from `const` to `fn cheatsheet() -> Vec<(String, Vec<(String, String)>)>`.
+- When you change the language, reconstruct the menu: save `menu = NativeMenu::install(ctx)` again. Check that `init_for_nsapp` replaces the previous menu and that the event manager is fine. If macOS has problems, alert with  « The menu will change language when you reopen Vectorio »  and do not reconstruct it.
+- `AboutMetadata` (credits, comment) is also translated.
 
-### C4. Pantallas de esta fase
-Traduce todos los textos visibles en:
+### C4. Displays of this phase
+Translate all visible texts into:
 - `prefs_ui.rs`;
-- `commands.rs` (menús y hoja);
-- la barra superior de `app.rs` y los avisos de `notify` de ese archivo;
-- `output.rs` (app) y `error_text` de A9;
+- `commands.rs` (menu and sheet);
+- the upper bar of `app.rs` and the `notify` notices in that file;
+- `output.rs` (app) and `error_text` of A9;
 - `theme.rs` (`Appearance::label`, tooltips).
 
-En el `en.yml`, los términos de dominio van así:
+In the `en.yml`, the terms of the domain are as follows:
 
-| Español | English |
+|Spanish|English|
 |---|---|
-| tinta / rotulador | pen |
-| Salida | Output |
-| secado | drying |
-| pasadas húmedas | wet passes |
-| empape | bleed |
-| viaje | travel |
+|ink / pen|pen|
+|Get out.|Output|
+|Dried|drying|
+|wet passes|wet passes|
+|Drying|bleed|
+|Travel|travel|
 
-### C5. Pruebas
-- Prueba de paridad: carga `es.yml` y `en.yml` con `serde_yaml` y comprueba que tienen las mismas claves.
-- Prueba de claves usadas: recorre `src/*.rs` y extrae los literales de `t!("…")` con una expresión regular sencilla o `str::find`. Cada clave debe existir en `es.yml`. `rust-i18n` devuelve la propia clave cuando falta, y así no pasa en silencio.
-- Repite la prueba de visibilidad de Salida (`exports_and_simulation_stay_visible…`) en inglés. Los textos son más largos y no deben salirse del panel en 980×620.
+### C5. Tests
+- Parity test: load `es.yml` and `en.yml` with `serde_yaml` and check that they have the same keys.
+- Use key test: go through `src/*.rs` and extract the `t!("…")` letters with a simple regular expression or `str::find`. Every key must exist in `es.yml`. `rust-i18n` returns its own key when it's missing, so it doesn't pass silently.
+- Repeat the exit visibility test (`exports_and_simulation_stay_visible…`) in English. The texts are longer and should not be left out of the panel in 980 × 620.
 
 ---
 
-## Fase D · Idiomas: resto de la app
+## Phase D · Languages: the rest of the app
 
-Es mecánica, pero larga: unos 900 textos. Haz un commit por archivo y pasa las pruebas de C5 en cada uno.
+It's mechanical, but long: some 900 texts. Make a commit per file and pass the C5 tests on each.
 
-1. `inspector.rs` (unos 390 textos). Empieza por los encabezados de `theme::section`.
+1. `inspector.rs` (some 390 texts). Start with the `theme::section` headlines.
 2. `vectorize_ui.rs`.
-3. `colorpanel.rs`, `canvas.rs`, `styles.rs`. Los nombres de los estilos predefinidos se traducen; los guardados por el usuario, no.
-4. **Etiquetas del core** (`label()` en `fill.rs`, `font.rs`, `mix.rs`, `shapes.rs`, `vectorize.rs` y `trace.rs`): el core no debe depender de `rust-i18n`.
-   - Añade a cada enum `fn key(self) -> &'static str`, un identificador estable en ASCII.
-   - En la app, traduce con `t!(format!("core.trazo.{}", s.key()))`.
-   - Deja `label()` en el core para el ejemplo y las pruebas, o elimínala si ya nadie la usa.
-   - Pasa `Err(String)` de `doc.rs`, `shared.rs` y `trace.rs` a enums, como en A9, o como mínimo tradúcelos en la app.
-5. **No se traduce:**
-   - el contenido de los documentos ya creados (nombres de rotuladores, objetos, papel);
-   - el texto de muestra «Hola, Vectorio».
-   
-   Los rotuladores por defecto de un documento nuevo sí salen en el idioma activo: `default_pens()` recibe los nombres desde la app, o la app los renombra tras crear el documento.
-6. `LEEME.md`: menciona el idioma en Ajustes. Para la publicación en abierto, propón al usuario un `README.md` en inglés. No lo crees sin pedirlo.
+3. `colorpanel.rs`, `canvas.rs`, `styles.rs`. The names of predefined styles are translated; those saved by the user, not.
+4. **Core tags** (`label()` in `fill.rs`, `font.rs`, `mix.rs`, `shapes.rs`, `vectorize.rs` and `trace.rs`): the core should not depend on `rust-i18n`.
+   - Add to each enum `fn key(self) -> &'static str`, a stable identifier in ASCII.
+   - In the app, translate with `t!(format!("core.trazo.{}", s.key()))`.
+   - Leave `label()` in the core for sample and testing, or remove it if no one else is using it.
+   - Pass `Err(String)` from `doc.rs`, `shared.rs` and `trace.rs` to enums, as in A9, or at least translate them into the app.
+5. **It does not translate:**
+   - the content of the documents already created (pen names, objects, paper);
+   - the sample text  « Hola, Vectorio ».
+
+   The default pens of a new document do come out in the active language: `default_pens()` receives the names from the app, or the app renames them after creating the document.
+6. `LEEME.md`: mention the language in Settings. For open publication, propose to the user a `README.md` in English. You don't believe it without asking.
 
 ---
 
-## Decisiones tomadas por defecto (cámbialas si el usuario dice otra cosa)
+## Default decisions (change if the user says otherwise)
 
-- El menú «Aspecto» desaparece de la barra. Se conserva Visualización → Apariencia.
-- Idiomas: español e inglés. «Sistema» elige español si el sistema está en español; en cualquier otro caso, inglés.
-- Los Ajustes son una ventana dentro de la app (`egui::Window`), no una ventana nativa aparte.
-- Al arrancar se sigue abriendo un papel en blanco. No hay preferencia de «abrir el último proyecto», porque obligaría a leer Documentos al iniciar.
+- The  « Apparent »  menu disappears from the bar. Display → Appearance is retained.
+- Languages: Spanish and English.  « System »  Choose Spanish if the system is in Spanish; in any other case, English.
+- Settings are a window within the app (`egui::Window`), not a separate native window.
+- When you start, you still open a blank piece of paper. There is no preference to open the last project, because it would require reading Documents at the start.

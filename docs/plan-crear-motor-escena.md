@@ -1,157 +1,157 @@
-# Encargo: motor de escenas isométricas (fase 1 del panel «Crear»)
+# Task: isometric scene engine (Create panel, Phase 1)
 
-Eres un agente de programación trabajando en **Vectorio**, una aplicación de escritorio en Rust para dibujar con plotter. El núcleo está en `crates/vectorio-core` (sin interfaz) y la interfaz egui en `crates/vectorio-app`. Tu trabajo en este encargo es **solo el núcleo**: un motor que convierte una escena 3D sencilla en líneas 2D listas para el plotter, con las líneas ocultas eliminadas de forma exacta. Después revisaré tu trabajo con otro agente, así que deja el código claro, probado y bien explicado.
+You're a programming agent working on **Vector**, a desktop application in Rust for drawing with plotter. The core is in `crates/vectorio-core` (without interface) and the interface egui in `crates/vectorio-app`. Your job on this assignment is **just the core**: an engine that converts a simple 3D scene into 2D lines ready for the plotter, with the hidden lines exactly removed. Then I'll review your work with another agent, so leave the code clear, proven and well explained.
 
-## Contexto: para qué sirve
+## Context: What is it for?
 
-Vamos a añadir un tercer modo a la app, **Crear**, junto a Diseño y Salida. Tendrá generadores procedurales de dibujos: escenas isométricas (un pueblo, un castillo, un estadio…) y otros generadores 2D. Cada escena se planifica en metros, se construye con piezas 3D simples (cajas, prismas, tejados, cilindros, conos) y se dibuja con una cámara ortográfica. Este encargo es la base de todo eso: el motor de escena. **No** hagas todavía el panel, los generadores ni la integración con el documento; vendrán en fases posteriores.
+We're going to add a third mode to the app, **Create**, along with Design and Output. It will have procedural drawing generators: isometric scenes (a village, a castle, a stadium...) and other 2D generators. Each scene is planned in meters, constructed with simple 3D pieces (boxes, prisms, roofs, cylinders, cones) and drawn with a orthographic camera. This assignment is the basis of all this: the scene engine. **No** still do the panel, the generators or the integration with the document; they'll come in later phases.
 
-## Reglas
+## The rules
 
-- Lee `AGENTS.md` antes de empezar.
-- **Trabajo original.** La idea está inspirada en el proyecto SVGeometric (`jarvisar/geometric`), que **no tiene licencia**. No abras, copies ni traduzcas su código. Implementa a partir de la descripción de este documento.
-- Identificadores en inglés, como el resto del núcleo (`Document`, `Item`, `fill`, `order`…). Comentarios y documentación en **español**, en el tono del código existente (frases cortas que explican el porqué).
-- Usa los tipos que ya existen: `vectorio_core::geom::{P, p, Polyline, BBox, Rng}`. Todo lo que sale del motor está en **milímetros sobre la hoja, con y hacia abajo**, como el resto del núcleo.
-- **Sin dependencias nuevas.** El algoritmo descrito abajo no necesita ninguna librería de operaciones entre polígonos.
-- No toques `crates/vectorio-app` ni otros módulos del núcleo, salvo para registrar el módulo nuevo en `crates/vectorio-core/src/lib.rs`.
-- **No ejecutes `cargo fmt`**: el proyecto usa líneas densas a propósito (hasta unos 150 caracteres) y el formateo ensuciaría todo el diff.
-- Si `cargo` no está disponible: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
-- Trabaja en una rama nueva, `feat/crear-motor-escena`, creada desde la rama actual. No hagas commit salvo que el usuario lo pida. Si lo pide, el mensaje en español y terminando con la línea de coautoría que te indique tu entorno.
-- No cierres ni reinicies la Vectorio que esté abierta.
+- Read `AGENTS.md` before we start.
+- **Original work.** The idea is inspired by the SVGeometric project (`jarvisar/geometric`), which **does not have a** license. You don't open, copy or translate their code. Implement on the basis of the description of this document.
+- Identifiers in English, such as the rest of the core (`Document`, `Item`, `fill`, `order`...). Comments and documentation in **Spanish**, in the tone of the existing code (short phrases explaining why).
+- Use the guys that already exist, `vectorio_core::geom::{P, p, Polyline, BBox, Rng}`. Everything that comes out of the engine is in **millimeters over the blade, with and down**, like the rest of the core.
+- **No new dependencies.** The algorithm described below does not need any polygon-to-polygon operations library.
+- Do not touch `crates/vectorio-app` or other core modules except to record the new module in `crates/vectorio-core/src/lib.rs`.
+- **Do not run `cargo fmt`**: the project uses dense lines on purpose (up to a few 150 characters) and the formatting would contaminate the entire diff.
+- If `cargo` is not available: `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
+- He works on a new branch, `feat/crear-motor-escena`, created from the current branch. Do not commit unless the user asks for it. If you ask, the message in Spanish and ending with the co-authoring line that tells you your surroundings.
+- Do not close or restart the Vector that is open.
 
-## Qué hay que construir
+## What to Build
 
-Un módulo nuevo `crates/vectorio-core/src/scene/` (con `mod.rs` y los ficheros que veas razonables, por ejemplo `camera.rs`, `solids.rs`, `hidden.rs`, `hatch.rs`, `shadow.rs`). Registra `pub mod scene;` en `lib.rs`.
+A new `crates/vectorio-core/src/scene/` module (with `mod.rs` and the files you see reasonable, e.g. `camera.rs`, `solids.rs`, `hidden.rs`, `hatch.rs`, `shadow.rs`). Register `pub mod scene;` to `lib.rs`.
 
-### 1. Tipos básicos
+### 1. Basic types
 
-- `V3 { x, y, z }` en **metros**, z hacia arriba, con las operaciones vectoriales mínimas (suma, resta, escala, producto escalar y vectorial, normalizar).
-- `Camera`: ortográfica, definida por
-  - `yaw_deg`: giro alrededor de la vertical,
-  - `elev_deg`: inclinación hacia abajo desde el horizonte (35,264° es isométrica verdadera; 30° y 26,57° dan dimétricas habituales),
-  - `scale`: milímetros de papel por metro,
-  - un centro de la escena en metros y el centro de la hoja en mm.
+- `V3 { x, y, z }` in **meters**, z upwards, with minimum vector operations (sum, subtract, scale, scalar and vector product, normalize).
+- `Camera`: orthographic, defined by
+  - `yaw_deg`: rotate around the vertical,
+  - `elev_deg`: slope downwards from the horizon (35,264 ° is true isometric; 30 ° and 26.57 ° give usual dimetrics),
+  - `scale`: millimeters of paper per metre,
+  - a center of the scene in meters and the center of the sheet in mm.
 
-  Métodos:
-  - `project(V3) -> (P, f64)`: punto en la hoja (mm, y abajo) y profundidad en metros (mayor = más lejos).
-  - `facing(normal) -> bool`: si una cara con esa normal exterior mira a la cámara.
-  - `ground(P, z) -> V3`: el punto a la altura `z` que se ve en esa posición de la hoja. Servirá a los generadores para recortar el mundo a lo que se ve.
-  - `fit(bbox_mundo, área_hoja, margen)`: elige escala y centro para que una caja del mundo quepa en un rectángulo de la hoja.
-- Partes: cada línea pertenece a una **parte** con nombre (por ejemplo «contorno», «tejados», «sombra», «trama clara»). Usa un `PartId(u16)` y una tabla de nombres en la escena: `scene.part("tejados") -> PartId` devuelve el mismo id para el mismo nombre. Hay una parte activa (`scene.set_part(id)`) que se aplica a todo lo que se añade después. Esto es lo que más adelante se convertirá en tintas: el usuario podrá mover cada parte a otra tinta, así que no mezcles partes.
+  Methods:
+  - `project(V3) -> (P, f64)`: point on the leaf (mm, and below) and depth in metres (greater = further).
+  - `facing(normal) -> bool`: if a face with that normal exterior looks at the camera.
+  - `ground(P, z) -> V3`: the point at the height `z` that you see in that position of the leaf. It'll use the generators to cut the world off from what you see.
+  - `fit(bbox_mundo, área_hoja, margen)`: Choose scale and center so that a box of the world fits into a rectangle of the sheet.
+- Parts: each line belongs to a **part** with a name (e.g.  « contour »,  « carpet »,  « shadow »,  « hatching clear »). Use a `PartId(u16)` and a table of names in the scene: `scene.part("tejados") -> PartId` returns the same id for the same name. There is an active part (`scene.set_part(id)`) that applies to everything added afterwards. This is what will later become inks: the user can move each part to another ink, so don't mix parts.
 
-### 2. La escena
+### 2. The scene
 
-`Scene` guarda la cámara, el área de la hoja (para recortar), las caras que ocultan y las líneas que se dibujan. API mínima (los nombres son orientativos; elige los mejores y documéntalos):
+`Scene` keeps the camera, the sheet area (to cut), the faces they hide and the lines they draw. Minimum API (names are indicative; choose the best and document them):
 
-- `line(&[V3])`: polilínea abierta que se dibuja donde nada la tape.
-- `closed(&[V3])`: polilínea cerrada.
-- `whole_line(&[V3])`: un detalle pequeño que se dibuja **entero o nada**. Si cualquier parte queda tapada o se sale de la hoja, se descarta, porque un detalle cortado queda feo.
-- `occluder(&[V3])`: polígono plano y convexo que solo oculta, sin dibujar nada.
-- `solid(vertices, caras, grupos_suavizado)`: sólido convexo cerrado a partir de caras dadas como índices (acepta cualquier sentido de giro; oriéntalas hacia fuera con el centroide). Cada cara oculta. Las aristas se dibujan así:
-  - una arista se dibuja solo si **al menos una** de sus dos caras mira a la cámara;
-  - si las dos caras comparten un grupo de suavizado mayor que 0 (facetas de una superficie curva), la arista solo se dibuja si es **silueta**, es decir, una cara mira a la cámara y la otra no;
-  - cada arista se emite **una sola vez**, aunque la compartan dos caras. Las aristas duplicadas son el error más típico: el plotter las dibujaría dos veces.
-  - opción `quiet` para que el sólido oculte sin dibujar aristas.
-- Atajos construidos sobre `solid`:
-  - `box3(min, max)` (caja alineada con los ejes) y una variante girada sobre la vertical;
-  - `extrude(polígono_convexo, vector)`: prismas, muros, tejados a dos aguas;
-  - `lathe(centro, perfil: &[(radio, altura)], suave: bool)`: sólido de revolución vertical (cilindros, conos, cúpulas, torres). Un radio 0 es un vértice. El número de segmentos depende del radio proyectado, de forma que el error de cuerda no pase de unos 0,04 mm en el papel. Con `suave = true` usa grupos de suavizado para que solo se vea la silueta; con `false` se ven todas las facetas (útil para árboles o sombrillas de estilo facetado). Con buenos segmentos, la silueta poligonal es suficiente en esta fase.
-- **Detalle según la escala**, para que los generadores no dibujen lo que no se va a ver:
+- `line(&[V3])`: an open polyline drawn where the tape does not move.
+- `closed(&[V3])`: closed polyline.
+- `whole_line(&[V3])`: a small detail that is drawn **whole or nothing**. If any part is covered or leaves the leaf, it is discarded, because a cutting detail is ugly.
+- `occluder(&[V3])`: plane and convex polygon that only hides, without drawing anything.
+- `solid(vertices, caras, grupos_suavizado)`: solid convex closed from faces given as indexes (accepts any direction of rotation; orient them outward with the centre). Every face is hidden. The edges are drawn like this:
+  - an edge is drawn only if **at least one** of its two faces looks at the camera;
+  - If the two faces share a softening group greater than 0 (facets of a curved surface), the edge is drawn only if it is **silhouette**, i.e. one face looks at the camera and the other does not;
+  - Each edge emits **only once**, even if it is shared by two faces. Duplicate edges are the most typical mistake: the plotter would draw them twice.
+  - `quiet` option to hide the solid without drawing edges.
+- Shortcuts constructed on `solid`:
+  - `box3(min, max)` (box aligned with the axles) and a vertical rotating variant;
+  - `extrude(polígono_convexo, vector)`: prisms, walls, double water roofs;
+  - `lathe(centro, perfil: &[(radio, altura)], suave: bool)`: solid with vertical revolution (cylinders, cones, domes, towers). A radio 0 is a vertex. The number of segments depends on the projected radius, so that the string error does not exceed a few 0.04 mm on the paper. `suave = true` uses softening groups so that only the silhouette is seen; with `false` all facets are seen (useful for trees or faceted style umbrellas). With good segments, the polygonal silhouette is sufficient at this stage.
+- **Detail according to the** scale, so the generators do not draw what you won 't see:
   - `paper_mm(metros) -> mm`;
-  - `visible(metros, mínimo_mm) -> bool`, para saltarse detalles demasiado pequeños para el rotulador;
+  - `visible(metros, mínimo_mm) -> bool`, to skip details too small for the pen;
   - `circle_segments(radio_m) -> usize`.
 
-### 3. Eliminación exacta de líneas ocultas
+### 3. Accurate removal of hidden lines
 
-Este es el corazón del motor. No uses z-buffer ni rasterizado: en el plotter deja líneas cortadas a trozos. El método:
+This is the heart of the engine. Do not use z-buffer or rasterized: in the plotter leave lines cut into pieces. The method:
 
-1. **Caras.** Cada cara se proyecta a la hoja. Guarda:
-   - su polígono convexo en pantalla, como semiplanos;
-   - su caja en la hoja;
-   - su profundidad mínima;
-   - su **plano de profundidad sobre la pantalla**: `profundidad = a·x + b·y + c`, sacado de tres vértices no alineados.
+1. **Faces.** Each face is projected onto the leaf. Keep it:
+   - its convex polygon on the screen, as semi-planes;
+   - its box on the leaf;
+   - its minimum depth;
+   - Its **plane of depth over the** screen: `profundidad = a·x + b·y + c`, taken from three non-aligned vertices.
 
-   Las caras de canto (área proyectada casi nula) no ocultan nada y se descartan.
-2. **Índice espacial.** Una rejilla uniforme sobre la hoja (celdas de unos 4 mm) con la lista de caras que toca cada celda. Al consultar un segmento, recorre las celdas de su caja y evita revisar dos veces la misma cara (un sello por consulta en lugar de un `HashSet`).
-3. **Por cada segmento** A→B de cada línea (con su profundidad en los extremos, que varía linealmente a lo largo del segmento):
-   - descarta las caras cuya profundidad mínima no sea menor que la máxima del segmento menos la tolerancia;
-   - recorta el segmento contra el polígono de la cara con **Cyrus-Beck**, lo que da un intervalo `[t0, t1]`;
-   - dentro de ese intervalo, quédate solo con la parte donde la cara está **más cerca** que el segmento (la diferencia de profundidades es lineal en `t`, así que es otro corte);
-   - acumula los intervalos ocultos, ordénalos y emite los huecos que quedan entre ellos;
-   - une los tramos visibles consecutivos a través de los vértices de la polilínea, para que una línea sin interrupciones salga como **un solo trazo**.
-4. **Tolerancias.** Hacen falta dos, explicadas en el código:
-   - una de profundidad (del orden de 2 mm en metros): una cara tiene que estar al menos así de cerca para ocultar;
-   - un encogimiento minúsculo del polígono de la cara en pantalla, para que una cara nunca oculte sus propias aristas ni las de su vecina.
+   The singing faces (nearly zero projected area) hide nothing and are discarded.
+2. **Spatial Index.** A uniform grid over the sheet (cells of about 4 mm) with the list of faces touching each cell. When consulting a segment, go through the cells of your box and avoid checking the same face twice (a stamp per query instead of a `HashSet`).
+3. **For each segment** A →B of each line (with its depth at the ends, which varies linearly along the segment):
+   - discard faces whose minimum depth is not less than the maximum of the segment less the tolerance;
+   - cuts the segment against the face polygon with **Cyrus-Beck**, giving a `[t0, t1]` interval;
+   - Within that interval, just stay with the part where the face is **closer to** than the segment (the difference in depth is linear in `t`, so it's another slice);
+   - accumulates the hidden intervals, arranges them and releases the gaps remaining between them;
+   - connects the consecutive visible stretches across the vertices of the polyline, so that an uninterrupted line emerges as **a single stroke**.
+4. **Tolerance.** Two are missing, explained in the code:
+   - a depth (of the order of 2 mm in metres): a face must be at least this close to conceal;
+   - A tiny shrinkage of the polygon of the face on the screen, so that a face never hides its own edges or those of its neighbor.
 
-   Las pruebas deben demostrar que con ellas no se pierden aristas legítimas y que no aparecen huecos falsos.
-5. **Recorte a la hoja**, descartar tramos de menos de 0,05 mm y aplicar la regla de `whole_line`.
+   The evidence must demonstrate that legitimate edges are not lost and that no false gaps appear.
+5. **Cut the** sheet, discard less than 0.05 mm and apply the `whole_line` rule.
 
-### 4. Tramas en caras y luz
+### 4. Hatching patterns on faces and light
 
-- `hatch_face(&[V3] cara, dirección_mundo, separación_mm)`: líneas paralelas sobre una cara plana y convexa, **separadas lo indicado en el papel** sea cual sea el ángulo de la cara respecto a la cámara. Lo más sencillo: proyecta la cara a la hoja, trama el polígono 2D en el ángulo que da la proyección de `dirección_mundo` y recupera la profundidad de cada punto con el plano de profundidad de la cara. Las líneas de trama pasan por la eliminación de ocultas como cualquier otra, así que una cara tapada por otra pierde su trama. Solo se traman caras que miran a la cámara.
-- Luz: `Scene` tiene un sol opcional (dirección). Un ayudante `tone(normal) -> Tone` clasifica cada cara en `Lit`, `Mid` o `Dark` según la luz, con umbrales configurables. Así un generador puede asignar la parte y la separación de la trama según el tono: arriba clara, un lado media, el otro oscura.
+- `hatch_face(&[V3] cara, dirección_mundo, separación_mm)`: parallel lines on a flat and convex face, **separated as indicated on paper** whatever the angle of the face with respect to the camera. The simplest thing: project the face to the leaf, hatching the 2D polygon at the angle that gives the projection of `dirección_mundo` and retrieving the depth of each point with the depth plane of the face. Hatching lines go through the elimination of occult like any other, so one face covered by another loses its hatching. They only make faces that look at the camera.
+- Light: `Scene` has an optional sun (direction). A `tone(normal) -> Tone` assistant classifies each face into `Lit`, `Mid` or `Dark` according to the light, with configurable thresholds. So a generator can assign the part and separation of the hatching according to the tone: clear top, middle side, dark side.
 
-### 5. Sombras arrojadas
+### 5. Cast shadows
 
-- `begin_shadows(z_suelo, recorte_mundo: Option<[x0, y0, x1, y1]>, ángulo_trama)`: a partir de aquí, cada sólido que se añada proyecta su sombra sobre el plano horizontal `z_suelo` siguiendo el sol. Para un sólido convexo, la sombra es la **envolvente convexa** de sus vértices proyectados.
-- `hatch_shadows(separación_mm)`: rellena todas las sombras del grupo con líneas paralelas sobre el suelo. **Las sombras que se solapan se fusionan** para no dibujar dos veces: recorre las líneas de trama y, en cada una, une los intervalos que aporta cada sombra antes de emitir. Como son polígonos convexos, no hace falta ninguna operación general entre polígonos. Las líneas resultantes están en el plano del suelo y pasan por la eliminación de ocultas, de modo que los objetos de delante las tapan. Las líneas de distintos grupos con el mismo ángulo deben quedar alineadas, para que sombras vecinas se tramen como una sola.
+- `begin_shadows(z_suelo, recorte_mundo: Option<[x0, y0, x1, y1]>, ángulo_trama)`: From here, each solid that is added projects its shadow over the horizontal plane `z_suelo` following the sun. For a solid convex, the shadow is the **convex wrapping** from their projected peaks.
+- `hatch_shadows(separación_mm)`: fill all the shadows in the group with parallel lines on the floor. **Shadows that overlap merge** so as not to draw twice: go through the hatching lines and, in each one, combine the intervals each shadow provides before emitting. Since they are convex polygons, no general operation between polygons is required. The resulting lines are in the plane of the ground and pass through the elimination of occult, so that the objects in front cover them. The lines of different groups with the same angle should be aligned, so that neighbouring shadows are woven together as one.
 
-### 6. Salida
+### 6. Get out.
 
-`scene.render() -> SceneOutput`, con las polilíneas visibles **por parte**, en mm. Dentro de cada parte, conserva el orden en que se añadieron las líneas. No optimices el recorrido: eso ya lo hace `vectorio_core::optimize` (`order`, `join`) más adelante en la canalización. Incluye en `SceneOutput` un método para la longitud total de línea por parte, en metros. Sirve para avisar de dibujos que saturan el papel: el objetivo es de 1 a 40 m por hoja, y por encima de 80 m el papel sufre.
+`scene.render() -> SceneOutput`, with the visible polylines **by**, in mm. Within each part, it retains the order in which the lines were added. Do not optimize the route: that already does `vectorio_core::optimize` (`order`, `join`) later in the pipeline. It includes in `SceneOutput` a method for the total line length per part, in metres. It serves to warn of drawings that saturate the paper: the target is from 1 to 40 m per sheet, and above 80 m the paper suffers.
 
-## Pruebas obligatorias
+## Compulsory testing
 
-Pruebas unitarias en el propio módulo (`#[cfg(test)]`), como en el resto del núcleo:
+Unit tests on the module itself (`#[cfg(test)]`), as in the rest of the core:
 
-1. **Cubo en isométrica:** exactamente 9 aristas visibles (el hexágono exterior y las 3 interiores), sin duplicados, con la longitud total esperada.
-2. **Caja detrás de caja:** la arista tapada se corta en el punto exacto (compara con el valor calculado a mano, con tolerancia de 1e-6 mm).
-3. **Sin auto-ocultación:** las aristas de un sólido y las tramas de sus caras no desaparecen por culpa de sus propias caras ni de las caras vecinas coplanarias (por ejemplo, dos cajas pegadas formando un muro).
-4. **Cara de canto:** no oculta nada.
-5. **`whole_line`:** se descarta entera si algo la tapa en parte y se conserva si está libre.
-6. **Silueta de cilindro suave:** se ven las dos generatrices de la silueta y la tapa superior, pero ninguna arista entre facetas.
-7. **Sombras solapadas:** dos cajas cuyas sombras se pisan producen líneas de trama sin tramos solapados ni duplicados.
-8. **Ningún trazo duplicado:** una función de prueba que detecte segmentos colineales solapados en la salida, aplicada a una escena mixta.
-9. **Determinismo:** la misma escena produce exactamente la misma salida dos veces.
+1. **Cube in isometric:** exactly 9 edges visible (external hexagon and inner 3), without duplicates, with the expected total length.
+2. **Box behind box:** the capped edge is cut at the exact point (compared to the hand-calculated value, with a tolerance of 1e- 6 mm).
+3. **No self-hidden:** The edges of a solid and the hatching patterns of its faces do not disappear due to its own faces or the neighboring coplanar faces (e.g., two sticky boxes forming a wall).
+4. **Singing face:** is not hiding anything.
+5. **`whole_line`:** is discarded entirely if something partially covers it and is retained if it is free.
+6. **Soft-cylinder silhouette:** The two generators of the silhouette and the top lid are visible, but no edge between facets.
+7. **Overlapping Shadows:** two boxes whose shadows are pressed produce hatching lines without overlapping or duplicate sections.
+8. **No duplicate stroke:** a test function that detects overlapping linear segments at the output, applied to a mixed scene.
+9. **Determinism:** the same scene produces exactly the same output twice.
 
-**Medición de rendimiento** (prueba `#[ignore]` o dentro del ejemplo): una escena sintética de unas 5.000 caras y 20.000 segmentos debe resolverse en menos de 100 ms en `--release`. Indica el tiempo medido en tu resumen.
+**performance measurement** (test `#[ignore]` or within the example): a synthetic scene of some expensive 5,000 and 20,000 segments must be resolved in less than 100 ms at `--release`. Indicate the measured time in your summary.
 
-## Ejemplo visual
+## Visual example
 
-Crea `crates/vectorio-core/examples/muestra_escena.rs`, siguiendo el estilo de los otros ejemplos (`muestra_trazos.rs`: comentario de uso en la cabecera y ruta de salida como argumento):
+Create `crates/vectorio-core/examples/muestra_escena.rs`, following the style of the other examples (`muestra_trazos.rs`: use comment in the header and exit route as an argument):
 
 ```
 cargo run -p vectorio-core --example muestra_escena --release -- muestra_escena.svg
 ```
 
-Debe dibujar en A4 un **bodegón de pruebas**, no una escena artística:
+You must draw on A4 a **test carcass**, not an artistic scene:
 
-- dos o tres cajas de alturas distintas, una tapando parcialmente a otra;
-- una casa con tejado a dos aguas (caja y prisma);
-- una torre cilíndrica con tejado cónico;
-- una cúpula;
-- un tramo de muralla con almenas (cajas pequeñas en fila);
-- un par de detalles `whole_line` (ventanas), uno libre y otro tapado;
-- tramas por tono en las caras;
-- sombras arrojadas sobre el suelo.
+- two or three boxes of different heights, one partially covering the other;
+- a house with a double roof (box and prism);
+- a cylindrical tower with a conical roof;
+- a dome;
+- a section of wall with fences (small row boxes);
+- a pair of `whole_line` details (windows), one free and one covered;
+- hatching patterns per tone on the faces;
+- Cast shadows on the floor.
 
-Cada parte va en un grupo SVG con un color distinto. Si una variable de entorno o un argumento lo indica, que genere también una versión en dimétrica, para comprobar que nada depende de la isométrica exacta. Imprime por consola el tiempo y la longitud por parte.
+Each part goes into an SVG group with a different color. If an environment variable or an argument indicates it, it also generates a dimetric version, to check that nothing depends on the exact isometric. Print time and length by console.
 
-## Comprobaciones antes de entregar
+## Checks before delivery
 
 1. `cargo test --workspace`
-2. `cargo clippy --workspace --all-targets` sin avisos nuevos.
-3. Genera `muestra_escena.svg` y míralo: aristas limpias, nada visible que debería estar oculto, ninguna arista legítima perdida, tramas y sombras sin dobles.
-4. `python3 scripts/install-macos.py` (lo exige `AGENTS.md` tras cambios de código, aunque esta fase no cambie la interfaz).
+2. `cargo clippy --workspace --all-targets` without any new announcements.
+3. Generate `muestra_escena.svg` and look at it: clean edges, nothing visible that should be hidden, no legitimate edge lost, hatching patterns and no double shadows.
+4. `python3 scripts/install-macos.py` (required by `AGENTS.md` after code changes, although this phase does not change the interface).
 
-## Qué entregar
+## What to deliver
 
-Un resumen breve en español con:
+A brief summary in Spanish with:
 
-- los ficheros creados y la API pública final (firmas);
-- las decisiones tomadas donde este documento deja margen, y por qué;
-- los valores de tolerancia elegidos y cómo los validan las pruebas;
-- el tiempo medido en la prueba de rendimiento;
-- lo que haya quedado pendiente o que no te convenza.
+- the files created and the final public API (signs);
+- the decisions taken where this document leaves room, and why;
+- the tolerance values chosen and how they are validated by the tests;
+- the time measured in the performance test;
+- What is outstanding or what is not convincing you.
 
-Ese resumen, junto con el diff, es lo que se revisará.
+That summary, together with the diff, will be reviewed.

@@ -1,97 +1,92 @@
-# Encargo para Sol · «Ciudad en fiesta», corrección 1
+# Task for Sol · Festival city, correction 1
 
-Archivo: `crates/vectorio-core/src/generate/festival.rs` (lo escribiste tú).
-Las normas de `docs/plan-paso1-sol.md` siguen valiendo: español, sin `cargo fmt`,
-sin dependencias, sin commit, traducciones en `app.yml`, `--test-threads=1`.
-Va por hitos que dejan las pruebas en verde; para cuando no te quede margen.
+File: `crates/vectorio-core/src/generate/festival.rs` (you wrote it). The rules of `docs/plan-paso1-sol.md` remain valid: Spanish, without `cargo fmt`, without dependencies, without commit, translations into `app.yml`, `--test-threads=1`. Go down landmarks that leave the evidence green, until there's no room for you.
 
-## Qué está mal (revisión de las 12 semillas)
+## What's wrong (review of 12 seeds)
 
-1. **La ciudad es un recuadro.** Hay 3×3 manzanas en el centro y el resto de
-   la hoja son calles vacías que se pierden hacia los bordes. Debe ser **ciudad
-   hasta el borde, a sangre**: el papel corta edificios, no asfalto.
-2. **El anillo elevado no tiene sentido.** Es un bucle de juguete con coches
-   dando vueltas y no se conecta con ninguna calle. Se sustituye por una
-   **carrera urbana** que va *por las calles de la ciudad*.
-3. **Está demasiado lejos.** A unos 1,5 mm por metro no salen ventanas,
-   escaparates, toldos ni balcones (sus umbrales de visibilidad necesitan unos
-   2 mm/m), y la gente sale diminuta. Por eso los edificios parecen cajas vacías.
+1. **The city is a box.** There is 3 × 3 City blocks in the center and the rest of
+   The leaves are empty streets that are lost to the edges. It must be ** city
+   to the edge, full bleed **: paper cuts buildings, not asphalt.
+2. **The elevated ring doesn't make sense.** It's a toy loop with cars.
+   It's going around and it's not connecting to any street. It is replaced by a
+   **urban race** going *through the streets of the city*.
+3. **It's too far away.** To some 1.5 mm per metre there are no windows,
+   windows, curtains or balconies (their visibility thresholds need some
+   2 mm/m), and people come out tiny. That's why the buildings look like empty boxes.
 
-## Hito 1 · Más cerca y ciudad hasta el borde
+## Hito 1 · Closer and city to the edge
 
-- **Escala fija por papel**, no por encuadre de 3×3:
-  `scale = (min(ancho, alto) / 70.0).clamp(2.4, 4.0)` mm/m, con la cámara
-  centrada en el centro de la plaza (`world_center`). En A4 sale unos 3 mm/m.
-  Quita el `camera.fit` sobre la caja de 3×3. `fit_scene` puede quedarse si
-  sigue haciendo falta para el recorte.
-- **Rejilla infinita.** Las celdas van de `PITCH` en `PITCH` y la plaza es la
-  celda (0, 0). Calcula con `extent()` (esquinas del papel proyectadas al suelo,
-  como ya hace) el rango de celdas que tocan la hoja, más una de margen. Rellena
-  **todas** esas celdas con manzanas. Las calles se generan para todo ese rango y
-  siempre salen de la hoja por los dos extremos.
-- **Núcleo y periferia.** Las 8 celdas alrededor de la plaza son el núcleo:
-  allí van los hitos (`landmarks`), las colas y las azoteas con gente. En la
-  periferia las manzanas siguen llevando ventanas, escaparates y toldos, pero
-  menos gente (sin colas y sin azoteas). La periferia no puede quedar más vacía
-  que el núcleo.
-- **Presupuesto.** Mira `scene.load()` antes de cada manzana de periferia. Por
-  encima del 80 % de `SEGMENT_BUDGET` o de `FACE_BUDGET`, esa manzana va sin
-  `window_grid` (solo volumen y escaparate). No subas los topes.
-- **Pruebas** en `festival.rs`:
-  - la escala está entre 2,4 y 4,0 en A4 y en el área de la hoja de contactos;
-  - ningún punto del suelo visible queda fuera de una celda con contenido: toma
-    una rejilla de 20×20 puntos del papel, pásalos al suelo con
-    `camera.ground(p, 0.0)` y comprueba que cada uno cae en una celda poblada o
-    en una calle;
-  - las de antes siguen pasando: deterministas, sin NaN, sin `warning` en las
-    semillas 0 a 11 y `within_budget`.
+- **Fixed scale by paper**, not by frame of 3 × 3:
+  `scale = (min(ancho, alto) / 70.0).clamp(2.4, 4.0)` mm/m, with the camera
+  centered in the centre of the square (`world_center`). In A4 comes out some 3 mm/m.
+  Take the `camera.fit` off the box of 3 × 3. `fit_scene` may stay if
+  Still missing the cut.
+- **Infinite grid.** The cells go from `PITCH` to `PITCH` and the square is the
+  the cell (0, 0). Calculate with `extent()`
+  as it already does) the range of cells touching the leaf, plus one margin. Rhinestone
+  **all** those cells with City blocks. The streets are generated for all that range and
+  They always come out of the leaf at both ends.
+- **Core and periphery.** The Commission 8 The cells around the square are the core:
+  There go the milestones (`landmarks`), queues and rooftops with people. In the
+  The City blockss continue to carry windows, windows and canvases, but
+  Less people (no tails and no roofs). The periphery can't be more empty.
+  than the core.
+- **Budget.** Look at `scene.load()` before every peripheral block. By
+  above the 80 % of `SEGMENT_BUDGET` or `FACE_BUDGET`, that block goes without
+  `window_grid` (only volume and window). Don't go up the tops.
+- **Tests** in `festival.rs`:
+  - the scale is between 2.4 and 4.0 in A4 and in the contact sheet area;
+  - No point of visible soil is left outside a contained cell:
+    a grid of 20 × 20 points of paper, pass them to the ground with
+    `camera.ground(p, 0.0)` and check that everyone falls into a populated cell or
+    On a street;
+  - The previous ones are still going on: determinists, no NaN, no `warning` in the
+    Seeds 0 to 11 and `within_budget`.
 
-## Hito 2 · Carrera urbana en lugar del anillo
+## Hito 2 · Urban career instead of ring
 
-Borra `circuit()` y `supports()`. El parámetro `circuit` pasa a llamarse
-«Carrera urbana»; el `id` se queda y la versión de la receta sigue en 1.
+Delete `circuit()` and `supports()`. The `circuit` parameter is called  « Urban Carriage »; the `id` remains and the recipe version continues at 1.
 
-- **Trazado.** El rectángulo de las cuatro calles que rodean el núcleo de 3×3.
-  Es un bucle cerrado **sobre las calles existentes**, con las mismas `Band`.
-  En esas calles:
-  - marcas `Marking::Kerbs` en lugar de `Dashed`;
-  - sin pasos de cebra ni tráfico normal.
-- **Vallas** a los dos lados de la calzada de carrera: una línea a ±3,6 m del
-  eje con postes cada 2 m (líneas cortas verticales de 1 m). En los cruces con
-  calles normales la valla corta la calle: allí la calle normal termina en la
-  valla, con una cola de gente mirando.
-- **Coches de carrera** en un solo sentido: un `convoy` de `Vehicle::Car` por
-  cada lado del rectángulo, con el rumbo de la vuelta. Que no ocupen las
-  esquinas: deja 6 m libres en cada cruce.
-- **Público** a lo largo de las vallas por fuera (`crowd.queue` paralelo a la
-  valla, a 0,8 m) y **una grada** en un lado. Reutiliza `stand_base` y
-  `crowd.stands`, mirando a la pista.
-- **Meta**: una línea transversal a cuadros (dos filas de cuadrados con
-  `closed`) y un pórtico de dos postes con un travesaño y `kit::sign(..., "META", ...)`.
-- **Pruebas**:
-  - el trazado es cerrado y cada tramo cae sobre el eje de una calle de la
-    rejilla (x o y en la lista de calles);
-  - no hay vehículos a menos de 6 m de un cruce de la carrera;
-  - con la carrera activa siguen pasando las pruebas de costuras, `warning` y
-    presupuesto.
+- **Traced.** The rectangle of the four streets surrounding the core of 3 × 3.
+  It 's a closed loop **over the existing streets**, with the same `Band`.
+  On those streets:
+  - markings `Marking::Kerbs` instead of `Dashed`;
+  - No zebra footsteps or normal traffic.
+- **Fences** on both sides of the racetrack: a line ± 3.6 m from the
+  axis with poles each 2 m (vertical short lines of 1 m). At the crossroads with
+  normal streets the fence cuts the street: there the normal street ends at the
+  fence, with a queue of people watching.
+- **Racing cars** in one direction: a `convoy` of `Vehicle::Car` by
+  each side of the rectangle, with the direction of rotation. That they do not occupy the
+  Corners: leave 6 m free at each crossing.
+- **Public** along the fences outside (`crowd.queue` parallel to the
+  fence, to 0.8 m) and **a grade of** on one side. Reuse `stand_base` and
+  `crowd.stands`, looking at the runway.
+- **Target**: a square cross-sectional line (two square rows with
+  `closed`) and a two-masted portico with a crossbow and `kit::sign(..., "META", ...)`.
+- **Testing of**:
+  - The layout is closed and each section falls on the axis of a street in the
+    grid (x o y in the list of streets);
+  - no vehicles less than 6 m from a race crossing;
+  - With the active race they continue to pass the sewing tests, `warning` and
+    The budget.
 
-## Hito 3 · Hoja de contactos, nota e instalación
+## Hito 3 · Contact sheet, note and installation
 
 - `cargo run -p vectorio-core --example hoja_contactos --release -- target/phase5/contactos.svg`.
-- Para verla, recorta cada lámina de la ciudad en su propio SVG (todo el
-  `<g transform="translate(...)">…</g>` completo, ojo con el cierre) y
-  haz la miniatura con `qlmanage -t -s 1200`. `qlmanage` con la hoja entera se
-  cuelga: no lo intentes.
-- Comprueba a ojo:
-  - ninguna lámina tiene asfalto vacío en los bordes;
-  - se ven ventanas y escaparates;
-  - la carrera se lee como calles cortadas con vallas.
+- To see it, he cuts every sheet of the city into his own SVG (all the
+  `<g transform="translate(...)">…</g>` complete, eye closed) and
+  Make the miniature with `qlmanage -t -s 1200`. `qlmanage` with whole leaf
+  Don't try it.
+- Check with your eye:
+  - no sheet has empty asphalt on the edges;
+  - You can see windows and windows.
+  - The race reads like fenced streets.
 - `cargo test --workspace -- --test-threads=1`, `cargo clippy --workspace --all-targets`
-  (el código nuevo, sin avisos) y `python3 scripts/install-macos.py`.
-- En `docs/plan-crear-fase5.md`, añade una línea a la nota del Paso 1 con
-  «corrección 1: ciudad a sangre y carrera urbana».
+  (the new code, no warnings) and `python3 scripts/install-macos.py`.
+- In `docs/plan-crear-fase5.md`, add a line to the 1 Pass note with
+  "Correction 1: city full bleed and city race".
 
-## Fuera de este encargo
+## Outside of this assignment
 
-Puerto o paseo marítimo como otro final de la ciudad, avenida diagonal, noria,
-parques y globos. Queda anotado como siguiente paso.
+Port or promenade as another end of the city, diagonal avenue, noria, parks and balloons. It's noted as the next step.

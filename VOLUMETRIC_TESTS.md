@@ -1,6 +1,6 @@
-# VOLUMETRIC · verificación
+# VOLUMETRIC · verification
 
-## Comandos
+## Commands
 
 ```sh
 export PATH=/opt/homebrew/opt/rustup/bin:$PATH
@@ -8,74 +8,74 @@ cargo test --workspace
 cargo test -p vectorio-core volumetric
 cargo test -p vectorio-app volumetric_ui
 cargo run -p vectorio-core --release --example volumetric -- target/volumetric
-# Con un archivo real exportado por Blender u otro modelador:
+# With a real file exported by Blender or another modeler:
 cargo run -p vectorio-core --release --example volumetric -- target/volumetric modelo.stl
 python3 scripts/install-macos.py
 ```
 
-El ejemplo genera ATLAS, STRATA y X-RAY como SVG físicos y recetas JSON sin interfaz ni plotter. Las pruebas son locales y no llaman a servicios externos.
+The example generates ATLAS, STRATA and X-RAY as physical SVGs and JSON recipes without interface or plotter. The tests are local and do not call outside services.
 
-## Casos automáticos
+## Automated cases
 
-- Cubo: aristas sin diagonales, varias cámaras, cortes horizontales/verticales/oblicuos, cortes coincidentes con caras coplanarias y proyección ortográfica invariante a profundidad.
-- Esfera: continuidad/cierre en tres orientaciones, densidad; longitud visible menor que completa; resultado invariante al invertir todas las caras.
-- Toroide: dos anillos horizontales, secciones verticales con dos componentes, transición a una componente y agujero conservado.
-- OBJ: polígono cóncavo, índices relativos, objetos, caras degeneradas y repetidas; errores con NaN, índices ausentes/cero. Malla abierta, desconectada, vértices duplicados y aristas no manifold.
-- STL: fixtures de disco ASCII y binario, binario con cabecera «solid», contador de caras/tamaño, truncamiento, NaN, límite de triángulos y varios sólidos ASCII. Importación real asíncrona y fallo que conserva el modelo previo.
-- Siete primitivas: validación y límites de tamaño.
-- SVG: parseo con usvg, unidades físicas 420 × 297 mm, capas Inkscape, sin imágenes incrustadas ni NaN/inf; todas las trayectorias dentro del margen incluso con zoom, desplazamiento y giro; salida determinista en los tres presets.
-- Receta: igualdad exacta de f64, polilíneas y parámetros tras guardar/reabrir una malla curva; serialización/deserialización, rechazo de versiones o parámetros inválidos y recursos acotados.
-- Cachés: órbita/composición conservan malla y curvas del objeto; transformar el modelo o cambiar el campo invalida lo necesario. Cambio de tinta no cambia la versión geométrica.
-- Trabajo asíncrono: cancelación del núcleo, trabajador que conserva solo el pedido más reciente y descarte de respuestas obsoletas.
-- Interfaz: «Según cámara» usa los ángulos actuales sin esperar una respuesta anterior; selector distingue modelos importados y permite volver a la primitiva previa; errores contrastan al menos 4,5:1 en panel claro y oscuro. Acciones accesibles a 980 × 620 y 1440 × 900, español e inglés; regresión completa de funciones anteriores mediante la batería del workspace.
+- Cube: edges without diagonals, several cameras, horizontal/vertical/oblique slides, slides matching coplanar faces and orthographic projection invariant to depth.
+- Sphere: continuity/closure in three directions, density; visible length less than complete; result unchanged when all faces are reversed.
+- Toroid: two horizontal rings, vertical sections with two components, transition to one component and retained hole.
+- Objective: concave polygon, relative indexes, objects, degenerate and repeated faces; errors with NaN, absent/zero indexes. Open mesh, disconnected, duplicate vertices and non-manifold edges.
+- STL: ASCII and binary disc fixtures, binary with header  « solid », face/size counter, truncation, NaN, triangle limit and several ASCII solids. Real asynchronous import and failure retaining the previous model.
+- Seven primitive: validation and size limits.
+- SVG: parse with usvg, physical units 420 × 297 mm, Inkscape layers, with no embedded images or NaN/inf; all trajectories within the margin even with zoom, displacement and spin; deterministic output in all three presets.
+- Recipe: exact equality of f64, polylines and parameters after saving/reopening a curved mesh; serialization/deserialization, rejection of invalid versions or parameters and enclosed resources.
+- Caches: orbit/composition retain the object's mesh and curves; transforming the model or changing the field invalidates if necessary. Change of ink doesn't change the geometric version.
+- Asynchronous work: core cancellation, worker retaining only the most recent order and discarding obsolete answers.
+- Interface:  « According to the camera »  uses the current angles without waiting for an earlier response; selector distinguishes imported models and allows returning to the previous primitive; errors contrast at least 4.5: 1 in clear and dark panel. Accessible shares to 980 × 620 and 1440 × 900, Spanish and English; complete regression of previous functions using the workspace test suite.
 
-## Alcance de la evidencia
+## Scope of evidence
 
-Las tolerancias son geométricas, no comparaciones de píxeles. Los triángulos con winding invertido no cambian la oclusión de secciones; normales incoherentes siguen siendo un límite de la clasificación de siluetas X-RAY. Las pruebas no aseguran reparación de mallas arbitrarias, ausencia de autointersecciones en modelos defectuosos, perspectiva, rendimiento GPU ni exactitud del campo de distancia dentro de cada cara.
+The tolerances are geometric, not pixel comparisons. Triangles with inverted winding do not change the occlusion of sections; incoherent norms remain a limit of X-RAY silhouette classification. The tests do not guarantee repair of arbitrary meshes, absence of self-intersections on faulty models, perspective, GPU performance or accuracy of the distance field within each face.
 
-Los benchmarks y capturas preexistentes que están marcados `ignored` no se consideran ejecutados por `cargo test --workspace`. Las verificaciones visuales y tiempos medidos de esta entrega se anotan al final de este documento.
+Pre-existing benchmarks and catches marked `ignored` are not considered to have been executed by `cargo test --workspace`. The visual checks and measured delivery times are noted at the end of this document.
 
-## Comprobaciones de la entrega (15 noviembre 2026)
+## Delivery checks (15 November 2026)
 
-- Batería final: 66 pruebas de app, 216 de núcleo y 1 doctest (283 en total); 9 ignoradas no forman parte de ese total. Incluye las dos pruebas añadidas tras revisión independiente.
-- Captura manual ejecutada: `cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. Resultados en `target/volumetric/workspace-980.png` y `workspace-1440.png`; capturas adicionales de error oscuro y modelo importado para revisar correcciones.
-- Ejemplo release, toroide de 3.072 triángulos, 48 niveles / 96 curvas: ATLAS 22,0 ms, STRATA 4,5 ms y X-RAY 3,7 ms en esta máquina, caché compartida en las dos últimas llamadas. Es una medición de ese ejemplo, no una promesa para cualquier importación.
-- Instalación de `/Applications/Vectorio.app` compilada en release y firma ad hoc verificada por el instalador. No se cerraron sesiones del usuario ni se enviaron movimientos al plotter.
-- Comprobación con CUA en la instalación: abrir VOLUMETRIC, importar `cube-binary.stl`, cambiar eje Z→X y densidad 48→24; ver el cambio; colocar las dos partes en Diseño y obtener en Salida una ruta de 5,3 m, dos tintas y unos tres minutos estimados. La ejecución física no se realiza.
-- Se intentó abrir Illustrator para comprobar compatibilidad externa, pero la aplicación no llegó a abrirse y la llamada agotó su tiempo. La compatibilidad externa queda sin verificar; los SVG sí pasan parseo y controles vectoriales de la batería.
+- Final suite: 66 app tests, 216 core and 1 doctest (283 in total); ignored 9 are not part of that total. It includes the two additional tests after independent review.
+- Manual capture executed: `cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. Results in `target/volumetric/workspace-980.png` and `workspace-1440.png`; additional catch of dark error and imported model to review corrections.
+- Example release, toroid of 3,072 triangles, 48 levels / 96 curves: ATLAS 22.0 ms, STRATA 4.5 ms and X-RAY 3.7 ms on this machine, cached shared on the last two calls. It is a measurement of that example, not a promise for any imports.
+- `/Applications/Vectorio.app` installation compiled in release and ad hoc signature verified by the installer. No user sessions were closed or movements were sent to the plotter.
+- Check with CUA in the installation: open VOLUMETRIC, import `cube-binary.stl`, change the Z axis →X and density 48 →24; see the change; place the two parts in Design and get in Out a route of 5.3 m, two inks and about three minutes estimated. Physical execution is not done.
+- Attempts were made to open Illustrator to check external compatibility, but the app failed to open and the call ran out of time. External compatibility remains unchecked; SVGs do pass parse and suite vector controls.
 
-- SVG exportado desde el diálogo de la app: `target/volumetric/stl-cube-ui.svg`, XML leído después de guardar: 420 × 297 mm, 24 trazados, 2 capas y 0 imágenes raster. El nombre introducido por automatización quedó inicialmente concatenado al sugerido; se renombró el artefacto de prueba en disco.
-- La revisión independiente dio `ship` en su pase de los tres hallazgos: contraste de error, selector tras importar y dirección de cámara actual. Las capturas y pruebas respaldan esas correcciones; no se interpreta como certificación de capacidades futuras.
-
-
-## Arrastre y ampliación de modelos
-
-- Arrastre probado mediante eventos reales `egui::RawInput::dropped_files` para OBJ y STL (también mayúsculas) desde Diseño, Crear, Salida y VOLUMETRIC. Se comprueba acceso a Solo3D, carga de la malla, cierre de la importación y conservación íntegra del documento. Una segunda importación sustituye la anterior y no recibe su error obsoleto.
-- Calidad de malla: esfera subdividida de más de 40.000 triángulos; reducción geométrica, contornos cerrados, vuelta a todos los triángulos con Original, proxy de pantalla independiente y receta que conserva la fuente completa. Validación y lectura cancelables probadas.
-- Límites actuales: 512 MB por archivo/receta, 5 millones de caras y 15 millones de vértices de entrada (STL sin indexar). Los vértices coincidentes se compactan. Los avisos de 16 MB/8.000 polígonos ya no son los límites vigentes.
-- Medición release con dos STL locales del usuario, leídos sin modificarlos: 1.499.605 triángulos / 71,5 MiB → carga/validación 1,19 s, ATLAS 2,03 s y 40.000 caras de trabajo; 209.872 triángulos / 10 MiB → carga 0,11 s, ATLAS 0,15 s y 39.998 caras de trabajo. Se generan SVG con los tres presets en `target/volumetric-large` y `target/volumetric-calpon`; no se duplican recetas grandes para esta comprobación.
-- Capturas del modelo grande y del acceso a Solo3D: `target/volumetric/large-1440.png` y `drop-980.png`. Generación reproducible: `VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. No toca ventanas de trabajo.
-- Batería de esta ampliación: 68 pruebas de aplicación + 218 de núcleo + 1 doctest = 287 pasan; nueve ignoradas. La captura manual ignorada sí se ejecuta aparte.
-- No se ha medido el extremo de cinco millones de caras en Original. Esa opción conserva geometría completa y puede tardar sustancialmente más que la calidad interactiva. La llamada individual de simplificación nativa no se interrumpe internamente; su resultado se descarta si la petición quedó obsoleta.
-
-- Revisión de esta ampliación: aviso permanente de calidad/reducción junto a las acciones cuando corresponde, comprobado en 980 × 620 y 1440 × 900. La revisión independiente da `ship` en su pase de ese hallazgo.
+- SVG exported from the app dialog: `target/volumetric/stl-cube-ui.svg`, XML read after saving: 420 × 297 mm, 24 traced, 2 layers and 0 raster images. The name introduced by automation was initially concatenated to the suggested; the disc test artifact was renamed.
+- The independent review gave `ship` in its pass of the three findings: error contrast, selector after import and current camera direction. The catch and testing support these corrections; it is not interpreted as future capability certification.
 
 
-## SOMBRA PLANA · entrega de iluminación
+## Dragging and widening of models
 
-- Siete pruebas específicas del núcleo: recorte de oclusión total/parcial; una cara orientada hacia la luz que recibe sombra de otra componente; sombra propia y suelo en una sola capa SVG; orientación coherente de normales en componentes cerradas con winding mezclado; campo de luz en caché al orbitar; cambio de luz y cancelación; faceteado reversible y salida determinista conservando el original. La unión de intervalos no repasa las juntas y elimina sombra de suelo tapada por el objeto.
-- Interfaz: las pruebas de 980 × 620 y 1440 × 900, en español/inglés, incluyen el nuevo preset. Alternar masas/trazos y cambiar tinta no invalida geometría; cambiar luz sí. Batería final: 69 app + 225 núcleo + 1 doctest = 295 pruebas pasan; nueve ignoradas. La captura manual se ejecuta además por separado.
-- Capturas reales de triángulos egui, sin abrir ventanas: `VECTORIO_QA_SHADOW=1 VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. Archivos `target/volumetric/shadow-*.png`: pequeño oscuro, grande claro, error, STL importado, STL grande, vista Solo 3D, trayectorias y segundo tono/contorno. El último caso abre «Acabado y trazos» mediante entrada de puntero sobre el control observado.
-- Ejemplo: `cargo run -p vectorio-core --release --example sombra_plana -- target/volumetric [modelo.stl]`. Genera tres SVG: una tinta, luz lateral y dos tonos con contorno. En toroide de 3.072 caras: 1.200 facetas, 1.089 trazos, 16,5 ms iniciales. Con STL local del usuario de 1.499.605 caras: carga 0,83 s, interpretación inicial 975,8 ms, 1.200 facetas / 2.177 trazos; cambio posterior de luz 19,7 ms y segundo tono/contorno 20,2 ms. Medidas de esta máquina y estos modelos, no garantía general. Los archivos de entrada no se modifican.
-- La revisión visual independiente de los siete estados del nuevo modo dio `ship`, sin hallazgos materiales. Es una revisión de esta extensión; no sustituye una auditoría completa de fuentes ni una ejecución física en plotter.
-- `/Applications/Vectorio.app` actualizada por el instalador, firma verificada; las secciones de código/datos Mach-O coinciden con la compilación release. Se mantiene intacta la sesión abierta del usuario, que conserva su versión hasta el siguiente inicio. La verificación visual de este modo usa capturas headless reales de egui, no se presenta como un recorrido CUA de la aplicación instalada.
+- Tested drag using real events `egui::RawInput::dropped_files` for OBJ and STL (also capitalized) from Design, Create, Output and VOLUMETRIC. Access to Solo3D, loading of the mesh, closure of import and complete preservation of the document shall be checked. A second import replaces the previous one and does not receive its obsolete error.
+- Mesh quality: subdivided sphere of more than 40,000 triangles; geometric reduction, closed contours, return to all triangles with Original, independent screen proxy and recipe that retains the full source. Validation and readability tested.
+- Current limits: 512 MB per file/recipe, 5 million faces and 15 million input vertices (STL without indexing). The matching vertices are compacting. The notices of 16 MB/ 8,000 polygons are no longer the current limits.
+- Release measurement with two local user STLs, read without modification: 1,499,605 triangles / 71.5 MiB → load/validation 1.19 s, ATLAS 2.03 s and 40,000 workloads; 209,872 triangles / 10 MiB → load 0.11 s, ATLAS 0.15 s and 39,998 workloads. SVG is generated with the three presets in `target/volumetric-large` and `target/volumetric-calpon`; no large recipes are duplicated for this verification.
+- Captures of the large model and access to Solo3D: `target/volumetric/large-1440.png` and `drop-980.png`. Reproducible generation: `VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. She doesn't touch work windows.
+- Battery of this expansion: 68 application tests + 218 core + 1 doctest = 287 pass; nine ignored. Ignored manual capture does run separately.
+- You haven't measured the end of five million faces on Original. That option retains complete geometry and can take substantially longer than interactive quality. The individual call for native simplification is not interrupted internally; its result is discarded if the request becomes obsolete.
+
+- Review of this expansion: permanent notice of quality/reduction with shares where applicable, verified in 980 × 620 and 1440 × 900. The independent review gives `ship` his pass on that finding.
 
 
-## Tres lenguajes artísticos · 16 noviembre 2026
+## FLAT SHADOW · lighting delivery
 
-- ONDAS DE SUPERFICIE, MALLA CROMÁTICA y ONDAS + MALLA usan el núcleo de producción, parámetros en recetas y tinta por función. Seis pruebas de arte: distancias que siguen el toroide y origen por componente desconectada; independencia del winding; variación determinista, cambios de origen e interferencias; cada arista y diagonal del cubo exactamente una vez con los cuatro criterios cromáticos; SVG físico, recorte con giro/zoom/posición, documentos y reconstrucción exacta tras abrir recetas con motor nuevo; ocultación de la malla dibujada, número de familias, caché y cancelación. También se comprueba la apertura de recetas antiguas sin parámetros artísticos.
-- Las pruebas de interfaz de ambas lenguas y 980 × 620 / 1440 × 900 incluyen los tres modos. Se comprueban roles activos de tintas y que cambiar la asignación de tinta no solicita geometría. Batería completa final: 70 app + 231 núcleo + 1 doctest = 302 pruebas pasan, nueve ignoradas. La captura ignorada se ejecuta expresamente además.
-- Capturas reales de egui: `VECTORIO_QA_ART=1 VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. Diez estados en `target/volumetric`: tres modos claros a 1440, malla/combinado oscuros a 980, interferencias con controles avanzados, asignaciones de tinta y cada modo con STL grande. La apertura y desplazamiento de los grupos se hace mediante eventos reales de puntero y rueda de egui. No se alteran ventanas del usuario.
-- Ejemplo release `volumetric_arte`: STL local de 1.499.605 caras, carga 0,85 s; ondas 986,4 ms con 2.700 caras y 275 curvas; malla 4,1 ms / 4.049 aristas / tres capas; combinado 8,7 ms / tres capas; interferencias 6,7 ms; malla de una tinta 4,1 ms / una capa. Las últimas llamadas comparten la malla y parte de la caché; son medidas locales, no garantías para cualquier archivo. SVG de 420 × 297 mm sin imágenes raster en `target/volumetric-arte`.
-- La revisión visual independiente de estos diez estados dio `ship`, sin correcciones materiales, al alcance de esta extensión. Muestreó controles y núcleo y no repitió la auditoría completa de pruebas. Conserva el sistema visual existente; PRODUCT.md/DESIGN.md y un nuevo mundo visual no forman parte de este alcance.
-- Instalación de `/Applications/Vectorio.app` actualizada con el instalador autorizado, firma verificada y 14 secciones Mach-O de código/datos coincidentes con el binario release. La sesión ya abierta conserva su versión hasta el próximo inicio. No se afirma un recorrido CUA de esta versión instalada ni una prueba física con plotter.
+- Seven core-specific tests: total/partial occlusion cutoff; a light-oriented face that receives shadow from another component; own shadow and ground in a single SVG layer; consistent orientation of normal in closed components with mixed winding; cached light field while orbiting; light change and cancellation; reversible faceting and deterministic output retaining the original. The junction of intervals does not overlap the joints and removes shade from the ground covered by the object.
+- Interface: The tests for 980 × 620 and 1440 × 900, in Spanish/English, include the new preset. Alternating masses/strokes and changing ink does not invalidate geometry; changing light does. Final suite: 69 app + 225 core + 1 doctest = 295 tests pass; nine ignored. The manual capture shall also be executed separately.
+- Real captures of egui triangles without opening windows: `VECTORIO_QA_SHADOW=1 VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. `target/volumetric/shadow-*.png` files: small dark, large light, error, imported STL, large STL, 3D view only, trajectories and second tone/contour. The last case opens  « Finished and strokes »  by pointer input over the observed control.
+- Example: `cargo run -p vectorio-core --release --example sombra_plana -- target/volumetric [modelo.stl]`. It generates three SVGs: one ink, side light and two contour tones. In 3,072 toroid faces: 1,200 facets, 1,089 strokes, initial 16.5 ms. With local user STL of 1,499,605 expensive: load 0.83 s, initial interpretation 975.8 ms, 1,200 facets / 2,177 strokes; later light switch 19.7 ms and second tone/contour 20.2 ms. Measurements of this machine and these models, no general guarantee. The input files are not modified.
+- Independent visual review of the seven states of the new mode gave `ship`, with no material findings. It is a revision of this extension; it does not replace a complete source audit or a physical plotter execution.
+- `/Applications/Vectorio.app` updated by the installer, signature verified; the Mach-O code/data sections match the release compilation. The user's open session is kept intact, which keeps its version until the next start. Visual verification in this mode uses real headless captures of egui, it is not presented as a CUA route of the installed application.
+
+
+## Three artistic languages · 16 November 2026
+
+- WAVES DE SUPERFICIE, MESH CROMATIC and WAVES + MESH use the production core, parameters in recipes and ink per function. Six art tests: distances following the toroid and origin by disconnected component; winding independence; deterministic variation, change of origin and interference; each edge and diagonal of the cube exactly once with the four chromatic criteria; physical SVG, cut with turn/zoom/position, documents and exact reconstruction after opening recipes with new engine; concealment of the drawn mesh, number of families, cache and cancellation. The opening of ancient recipes without artistic parameters is also checked.
+- Interface tests for both languages and 980 × 620 / 1440 × 900 include all three modes. Active roles of inks are verified and that changing the allocation of ink does not require geometry. Full final suite: 70 app + 231 core + 1 doctest = 302 tests pass, nine are ignored. Ignored capture is explicitly executed as well.
+- Real footage of egui: `VECTORIO_QA_ART=1 VECTORIO_QA_MODEL=/ruta/modelo.stl cargo test -p vectorio-app render_volumetric_workspace -- --ignored`. Ten states in `target/volumetric`: three light modes to 1440, dark mesh/combination to 980, interference with advanced controls, ink assignments and each mode with large STL. The opening and displacement of the groups is done by real egui pointer and wheel events. User windows are not altered.
+- Example release `volumetric_arte`: Local STL of 1,499,605 expensive, load 0.85 s; 986.4 ms waves with 2,700 expensive and 275 curves; mesh 4.1 ms / 4,049 edges / three layers; combined 8.7 ms / three layers; interference 6.7 ms; mesh of one ink 4.1 ms / one layer. The latest calls share the mesh and part of the cache; they're local measures, not guarantees for any file. SVG of 420 × 297 mm without raster images on `target/volumetric-arte`.
+- The independent visual review of these ten states gave `ship`, without material corrections, within reach of this extension. He demonstrated controls and core and did not repeat the full test audit. Preserves the existing visual system; PRODUCT.md/DESIGN.md and a new visual world are not part of this scope.
+- `/Applications/Vectorio.app` installation updated with the authorized installer, verified signature and 14 Mach-O sections of code/data matching the binary release. The open session retains its version until the next start. A CUA tour of this installed version or a physical plotter test is not claimed.

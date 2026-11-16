@@ -1,42 +1,41 @@
-# Crear · entrega de la fase 3
+# Create · Phase 3 delivery
 
-Implementación en `feat/crear-motor-escena`, sin commit y sin dependencias nuevas.
-No se consultó código de SVGeometric. Se conserva la aplicación abierta al terminar.
+Implementation in `feat/crear-motor-escena`, with no commit and no new dependencies. No code from SVGeometric was consulted. The application is kept open upon completion.
 
-## Cambios por paso
+## Changes by step
 
-- **0 — revisión y motor:** `doc.rs`, `generate/mod.rs`, `generate/blocks.rs`,
-  `scene/{mod,hidden,solids,intersections,tests}.rs`, `scene/README.md` y
-  `examples/muestra_escena.rs`. Guardado sin recetas huérfanas; pasos de
-  aleatoriedad inválidos seguros; encuadre por salida real con reconstrucción;
-  altura de sol y cono corregido en Manzanas. Intersecciones analíticas entre
-  caras delanteras de sólidos distintos, con índice espacial, profundidad,
-  continuidad entre facetas, ocultación normal y exclusión de contactos ya
-  dibujados. El bodegón incluye una chimenea y cajas interpenetradas deliberadamente.
-- **0 — interfaz:** `create.rs` e `inspector.rs`. Editar trabaja en copia y
-  restaura parámetros y candados recordados al actualizar/cancelar. La vista
-  previa válida permanece durante Final; los errores se muestran sobre la hoja.
-- **1 — estilo:** `generate/style.rs`. Blanco del papel en caras iluminadas,
-  densidad para medio/oscuro; hiladas en paredes, máxima pendiente en faldones,
-  ángulo de papel en suelo y horizontales continuas en superficies de revolución.
-  Partes estándar y sugerencias de tintas. Estratos ondulados deterministas.
-- **2 — kit:** `generate/kit/{mod,buildings,landscape,tests}.rs`. Cuatro tejados,
-  huecos enteros, chimeneas, pretiles, aleros, campanario con cúpula/chapitel,
-  escaleras, muros/bancales, ciprés, olivo, arbusto y terreno cortado.
-  `examples/kit_piezas.rs` muestra todas las piezas en A4.
-- **3 — Pueblo blanco:** `generate/village.rs`, registro en `generate/mod.rs`
-  y pruebas en `generate/tests.rs`. Bandas de bancales macizos, calles de nivel,
-  eje de escaleras, casas adosadas, plazas/huertos, iglesia alta y vegetación.
-  Cuatro vistas, dos elevaciones, pesos de tejados y controles condicionales.
-- **4 — galería:** miniaturas de todos los generadores en `create.rs`, con un
-  trabajador propio y caché en memoria por sesión. No comparten cola con el
-  cálculo principal. Nuevos textos traducidos en `locales/app.yml`.
-- **5 — revisión:** `examples/hoja_contactos.rs`, pruebas ampliadas, este documento
-  y actualización de `LEEME.md`.
+- **0  —  revision and engine:** `doc.rs`, `generate/mod.rs`, `generate/blocks.rs`,
+  `scene/{mod,hidden,solids,intersections,tests}.rs`, `scene/README.md` and
+  `examples/muestra_escena.rs`. Stored without orphan recipes; steps from
+  Safe invalid randomness; real output framing with reconstruction;
+  Sun height and cone corrected in City blocks. Analytical intersections between
+  the front faces of different solids, with spatial index, depth,
+  continuity between facets, normal concealment and exclusion of contacts already
+  They're drawn. The mortuary includes a fireplace and deliberately interpenetrated boxes.
+- **0  —  interface:** `create.rs` and `inspector.rs`. Editing works in copy and
+  Restores parameters and locks remembered when updating/canceling. The view
+  valid prior remains during Final; errors are shown on the sheet.
+- **1  —  style:** `generate/style.rs` White paper with illuminated faces,
+  density for medium/dark; threads on walls, maximum slope on skirts,
+  angle of paper on the ground and continuous horizontal on revolutionary surfaces.
+  Standard parts and suggestions for inks. It has deterministic wavy strata.
+- **2  —  kit** `generate/kit/{mod,buildings,landscape,tests}.rs` Four roofs,
+  whole hollows, chimneys, chimneys, chimneys, chimneys, bell towers with dome/chapel,
+  Stairs, walls / terraces, cypress, olive, bush and cut ground.
+  `examples/kit_piezas.rs` shows all the parts in A4.
+- **3 - White village:** `generate/village.rs`, registered at `generate/mod.rs`
+  and tests on `generate/tests.rs`. Solid terraces bands, level streets,
+  Axis of stairs, townhouses, squares/gardens, high church and vegetation.
+  Four views, two elevations, roof weights and conditional controls.
+- **4  —  Gallery:** miniatures of all generators in `create.rs`, with a
+  self-employed and cached in memory per session. Don't share a queue with him
+  the main calculation. New texts translated into `locales/app.yml`.
+- **5  —  revision:** `examples/hoja_contactos.rs`, extended tests, this document
+  and update to `LEEME.md`.
 
-## API pública nueva
+## New public API
 
-Las medidas del kit son metros; ángulos de trama y separaciones son grados y mm de papel.
+The measures of the kit are meters; hatching angles and separations are degrees and mm of paper.
 
 ```text
 Scene::set_intersections(&mut self, enabled: bool)
@@ -75,100 +74,76 @@ kit::vegetation(scene: &mut Scene, style: Style, origin: V3, height: f64, plant:
 generate::find("white_village") -> Option<&'static dyn Generator>
 ```
 
-## Decisiones
+## Decisions
 
-- Las intersecciones se calculan en (x, y, profundidad), aprovechando los planos
-  ya proyectados. Solo se comparan caras que comparten celdas y rangos. Cada sólido
-  tiene identidad; las caras sueltas y los sólidos quiet no producen encuentros.
-  Un encuentro pertenece a la parte del sólido más reciente. Los segmentos
-  contiguos de una pareja se unen con tolerancias de 1e-7 mm y 1e-8 m, y se añaden
-  después de los trazos solicitados. Se respeta la separación entre partes.
-- Un contacto solo se omite si su segmento está cubierto por una arista que
-  realmente se emite. Un borde suave entre facetas no impide una intersección.
-  La deduplicación conserva las primeras pasadas dentro de cada parte.
-- Los tonos de un torno se deciden por meridianos completos usando la normal de
-  la faceta más próxima a media altura. Se evita la frontera en escalera sin
-  alterar la geometría. Claro no tiene trama; medio/oscuro tienen distinta densidad.
-- La familia conserva seis partes: `contorno`, `detalle`, `trama`, `sombra`,
-  `vegetación`, `terreno`. Las escaleras pertenecen al terreno, para compartir los
-  contactos del bancal sin pasadas repetidas. Contorno/detalle/trama/terreno sugieren
-  la primera tinta, vegetación la segunda y sombra la última.
-- Alturas y retranqueos usan una unidad mínima de 0,5 m y 2,5 mm de papel. Las
-  plataformas ocupan franjas contiguas; los últimos peldaños llegan al siguiente
-  bancal, sin penetrarlo. El campanario se encastra claramente en la nave y se
-  separa de sus planos exteriores. `construction_issues(1.5)` comprueba las caras
-  delanteras en pruebas/depuración; las 500 semillas pasan sin avisos.
-- Los huecos se omiten por debajo de 1 mm real proyectado y se conservan enteros.
-  La puerta reserva espacio en la planta baja. Preview omite esos detalles finos.
-- La vista frontal de serie mira desde la parte baja de la ladera (yaw 225°).
-  La iglesia está en el bancal más alto y tiene un fuste de 10 m para conservar
-  su jerarquía. La variación deja solares y huertos; no se llena cada lote.
-- El cono nuevo de Manzanas tiene pendiente de unos 60,5°, distinta de los
-  complementos de las dos elevaciones. Las recetas de Manzanas guardadas en fase 2
-  reciben `scene_version=2` al cargarse y mantienen estilo, encuadre, sol y cono
-  anteriores. Las recetas nuevas usan la revisión 3. Hay prueba de regeneración.
+- Intersections are calculated in (x, y, depth), taking advantage of the planes
+  already projected. They only compare faces that share cells and ranks. Each solid
+  It has identity; loose faces and solid quiet ones do not produce encounters.
+  An encounter belongs to the most recent part of the solid. The segments
+  adjacent pairs are joined with tolerances of 1e-7 mm and 1e-8 m, and are added
+  after the requested strokes. Separation between parties shall be respected.
+- A contact is omitted only if its segment is covered by an edge that
+  It's actually broadcasting. A smooth edge between facets does not prevent an intersection.
+  Deduplication keeps the first passes inside each part.
+- The tones of a lathe are determined by full meridians using the normal
+  the nearest facet at half-height. The border is avoided on stairs without
+  Altering the geometry. Of course it doesn't have hatching; medium/dark have different density.
+- The family retains six parts: `contorno`, `detalle`, `trama`, `sombra`,
+  `vegetación`, `terreno`. The stairs belong to the land, to share the
+  terrace contacts without repeated passes. Contour/detail/hatching/terrain suggest
+  The first ink, vegetation the second and shade the last.
+- Heights and locks use a minimum unit of 0.5 m and 2.5 mm of paper. The Commission
+  platforms occupy contiguous ranges; the last steps reach the next
+  terrace, without penetrating it. The bell tower is clearly framed on the ship and is
+  separates it from its outer plans. `construction_issues(1.5)` checks the faces
+  Leaders in testing/cleaning; 500 seeds pass without warning.
+- The gaps are omitted below the actual projected 1 mm and kept whole.
+  The door reserves space in the lower top view. Preview omits those fine details.
+- The serial front view looks from the lower slope (yaw 225°).
+  The church is on the highest terrace and has a fuse of 10 m to preserve
+  their hierarchy. The variation leaves sunsets and orchards; not every batch is filled.
+- The new City blocks cone has a slope of some 60.5°, different from the
+  Supplements of the two elevations. City blocks recipes stored in phase 2
+  They receive `scene_version=2` when charged and maintain style, frame, sun and cone
+  previously. The new recipes use the 3 revision. There's evidence of regeneration.
 
-## Verificación y tiempos
+## Verification and timing
 
-`cargo test --workspace`: **155 pruebas correctas**, incluyendo el ejemplo de
-API; cuatro pruebas de carga se ejecutaron aparte en release. Clippy termina
-sin avisos en el código añadido; permanecen avisos previos en otros módulos.
+`cargo test --workspace`: **155 correct tests**, including the API example; four load tests were run separately on release. Clippy ends without notifications in the added code; previous notifications remain in other modules.
 
-Última medición release, secuencial, sobre A4 útil de 180 × 267 mm:
+Last release measurement, sequential, on useful A4 of 180 × 267 mm:
 
-| Carga | Medición |
+|Load|Measurement|
 |---|---:|
-| Pueblo blanco de serie, Preview | 8,162 ms de mediana; 12,767 ms máximo |
-| Pueblo blanco de serie, Final | 6,518 ms de mediana; 7,059 ms máximo |
-| Pueblo blanco, 500 semillas aleatorias | 14,474 ms máximo |
-| Manzanas, 500 semillas | 7,799 ms máximo |
-| Espirógrafo, 500 semillas | 1,127 ms máximo |
-| Motor: 5.000 caras / 20.000 segmentos | 12,042 ms de mediana |
-| Motor: 500 cajas tramadas, sombras y 2.000 diagonales | 12,514 ms de mediana |
-| Misma carga sin intersecciones | 12,242 ms; sobrecoste activadas: 2,2 % |
+|Series white village, preview|8,162 maximum mean; 12,767 maximum|
+|Serious White village, Final|6,518 maximum mean; 7,059 maximum|
+|White village, 500 random seeds|14,474 maximum|
+|City blocks, 500 seeds|7,799 maximum|
+|Spirograph, 500 seeds|1,127 maximum|
+|Engine: 5,000 front / 20,000 segments|12,042 more than median|
+|Motor: 500 framed boxes, shadows and diagonal 2,000|12,514 more than median|
+|The same load without intersections|12,242 ms; activated excess cost: 2.2 %|
 
-Las 1.500 salidas aleatorias son finitas, permanecen en el área y no alcanzan
-80 m. Las 500 de Pueblo blanco tampoco activan el diagnóstico de rebanadas o
-solapes coplanares. La salida de serie ocupa más del 90 % de una dimensión útil
-y queda por debajo de 40 m. Los tiempos dependen del equipo, no son garantías
-para una escena arbitraria. Preview y Final se midieron consecutivamente; las
-cachés y las tramas distintas explican que Preview no sea siempre el más rápido.
+1,500 random outputs are finite, remain in the area and do not reach 80 m. The 500 of White village also does not activate the diagnosis of coplanar slices or overlaps. The serial output occupies more than 90 % of a useful dimension and is below 40 m. The timing depends on the equipment, it's not a guarantee for an arbitrary scene. Preview and Final were measured consecutively; the different caches and hatching patterns explain that Preview is not always the fastest.
 
-Se inspeccionaron el kit, las dos cámaras del bodegón y los 36 contactos. En
-`/Applications/Vectorio.app` se comprobó la galería con miniaturas, Pueblo blanco,
-Aleatorio varias veces, Colocar, cambio de `vegetación` a verde, Editar, Aleatorio,
-Actualizar y Salida. La parte conservó el verde (#009460). Al volver a Crear,
-los ajustes recordados recuperaron la semilla anterior a editar; la receta
-actualizada conservó la suya. La aplicación se deja abierta con el grupo de prueba.
+We inspected the kit, the two mortuary chambers and the 36 contacts. In `/Applications/Vectorio.app` the gallery was checked with miniatures, White village, Random multiple times, Place, change from `vegetación` to green, Edit, Random, Update and Output. The party retained the green (#009460). By re-creating, the remembered settings recovered the previously edited seed; the updated recipe retained his. The application is left open with the test group.
 
-## Hoja de contactos y valoración
+## Contact and evaluation sheet
 
-Artefactos reproducibles en `target/phase3/`:
+Reproducible artefacts in `target/phase3/`:
 
-- `hoja_contactos.svg`: 4 × 3 semillas por generador, 36 dibujos en total. El 0
-  usa los parámetros de serie; 1–11 usan parámetros aleatorizados con su semilla.
-- `contactos_pueblo.png`, `contactos_manzanas.png`, `contactos_curvas.png`: vistas
-  de revisión por generador. La miniatura de curvas reduce el muestreo para
-  rasterizarla con rapidez; el SVG completo conserva todos los puntos.
-- `kit_piezas.svg`, `muestra_escena.svg`, `muestra_escena_dimetrica.svg` y sus PNG.
+- `hoja_contactos.svg`: 4 × 3 seeds per generator, 36 drawings in total. The 0
+  uses the serial parameters; 1  –  11 uses random parameters with its seed.
+- `contactos_pueblo.png`, `contactos_manzanas.png`, `contactos_curvas.png`: views
+  of checking by generator. The curve thumbnail reduces sampling to
+  quickly raster it; the full SVG retains all the points.
+- `kit_piezas.svg`, `muestra_escena.svg`, `muestra_escena_dimetrica.svg` and their PNGs.
 
-En Pueblo blanco considero aprovechables sin retoque 10 de los 12 contactos.
-El **0** presenta bien calles, vacío central e iglesia; **2 y 4** equilibran el
-foco con casas y vegetación; **8** tiene un ritmo de cubiertas claro. **1 y 11**
-son más flojos: la vista trasera vuelve dominante el corte del terreno y oculta
-calles y fachadas. **6** es muy de iglesia y tiene menos tejido urbano, aunque
-se lee limpio. Es una valoración de esta hoja, no una evaluación estética de
-las 500 semillas. Las pruebas automáticas solo acreditan geometría y tiempos.
+In White village I consider usable without touch 10 of the 12 contacts. The **0** features well streets, central void and church; **2 and 4** balance focus with houses and vegetation; **8** has a clear cover rhythm. **1 and 11** are looser: the rear view makes the terrain slice dominant and hides streets and facades. **6** is very churchish and has less urban fabric, although it reads clean. It's an evaluation of this leaf, not an aesthetic evaluation of 500 seeds. Automatic testing only accredits geometry and time.
 
-Manzanas sigue siendo una demostración geométrica: las versiones escasas, como
-la 6, funcionan como estudio de volúmenes pero no como pueblo. El espirógrafo
-aporta contraste y continuidad de trazo; algunas combinaciones de muchos ciclos
-quedan densas incluso por debajo de 80 m.
+City blocks remains a geometrical demonstration: scarce versions, such as the 6, function as a volume study but not as a village. The spirograph provides contrast and stroke continuity; some combinations of many cycles remain dense even below 80 m.
 
-Las copas y los huecos son deliberadamente simples; aún no tienen el carácter
-orgánico o constructivo de una ilustración dibujada a mano. El estilo ya tiene
-una familia coherente, pero esas dos piezas admitirían una siguiente pasada
-artística. Quedan fuera castillo, estadio, sombras sobre objetos, figuras y texto.
+The cups and holes are deliberately simple; they do not yet have the organic or constructive character of a hand-drawn illustration. The style already has a consistent family, but those two pieces would admit a next artistic pass. Castle, stadium, shadows on objects, figures and text are left out.
 
 ```sh
 cargo test --workspace

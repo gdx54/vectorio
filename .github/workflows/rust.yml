@@ -1,4 +1,4 @@
-name: Comprobaciones Rust
+name: Rust checks
 
 on:
   push:
@@ -14,16 +14,16 @@ concurrency:
 
 jobs:
   test:
-    name: Pruebas en macOS
+    name: Tests on macOS
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Preparar Rust estable
+      - name: Set up stable Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-      - name: Ejecutar pruebas
+      - name: Run tests
         run: cargo test --workspace --locked

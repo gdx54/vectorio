@@ -1,62 +1,69 @@
 # Vectorio
 
-Aplicación de escritorio en Rust para crear dibujos vectoriales con plotter de rotuladores.
+A Rust desktop app for creating vector drawings for pen plotters.
 
-![Vectorio · Relieve](assets/branding/vectorio-icon.png)
+![Vectorio · Relief](assets/branding/vectorio-icon.png)
 
-Cuatro espacios comparten el mismo documento:
+Four workspaces share a single document:
 
-- **Diseño**: texto de un solo trazo, formas, mano alzada, capas y tintas independientes.
-- **Crear**: escenas y generadores con semillas reproducibles, juegos de color y vista previa.
-- **Volumen**: modelos OBJ/STL, pasadas combinables, sombras, mapas de lectura, mezcla óptica, isolíneas, perspectiva y hojas multivista. Los objetos 3D conservan su receta editable.
-- **Salida**: recorridos por tinta, simulación, planificación con tiempos de secado y exportación SVG en milímetros.
+- **Design**: single-line text, shapes, freehand drawing, layers, and independent inks.
+- **Create**: scenes and generators with reproducible seeds, color sets, and live previews.
+- **Volume**: OBJ/STL models, composable rendering passes, shadows, reading maps, optical mixing, isolines, perspective, and multiview sheets. 3D objects retain their editable recipes.
+- **Output**: paths grouped by ink, simulation, scheduling with drying times, and SVG export in millimeters.
 
-La interfaz está disponible en español e inglés. La instalación y los controles nativos están preparados para macOS. El envío directo al plotter todavía no está implementado.
+The interface supports Spanish and English. Installation and native controls are designed for macOS. Direct communication with a plotter is not implemented yet.
 
-## Compilar y probar
+## Build and test
 
-Necesitas Rust estable, Python 3 y las herramientas de línea de comandos de Xcode en macOS.
+You need stable Rust, Python 3, and the Xcode command line tools on macOS.
 
 ```sh
 cargo test --workspace --locked
 cargo run --release -p vectorio-app
 ```
 
-Si Rust está instalado mediante Homebrew y `cargo` no aparece en el terminal:
+If Rust was installed through Homebrew and `cargo` is missing from your terminal:
 
 ```sh
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 ```
 
-## Instalar en macOS
+## Install on macOS
 
 ```sh
 python3 scripts/install-macos.py
 ```
 
-Instala o actualiza `/Applications/Vectorio.app`. La aplicación instalada abre directamente su binario: no necesita leer el proyecto ni recompilar al arrancar. Una ventana abierta conserva su versión hasta el siguiente inicio. El instalador mantiene la versión anterior si la compilación falla.
+This installs or updates `/Applications/Vectorio.app`. The installed app runs its binary directly: it does not need to read the source project or rebuild at startup. An open window keeps its current version until the next launch. If the build fails, the installer preserves the previously installed version.
 
-El paquete generado tiene firma local ad hoc; todavía no se publica un instalador notarizado por Apple.
+The generated app uses a local ad hoc signature. An Apple-notarized installer is not available yet.
 
-## Espacio en disco
+## Disk usage
 
-`target/` contiene archivos generados y está excluido de Git. El perfil de desarrollo desactiva los símbolos de depuración y las copias incrementales para limitar su tamaño. Las dependencias compiladas siguen ocupando espacio y se pueden regenerar.
+`target/` contains generated files and is excluded from Git. The development profile disables debug symbols and incremental compilation to limit its size. Compiled dependencies still take up space and can be rebuilt when needed.
 
 ```sh
 cargo clean
 ```
 
-Este comando elimina también los ejemplos y capturas generados dentro de `target/`. Conserva antes cualquier resultado que quieras guardar. No elimina la aplicación instalada en Aplicaciones ni los proyectos guardados fuera de `target/`.
+This also removes examples and screenshots generated inside `target/`. Save any output you want to keep before running it. It does not remove the installed app or projects saved outside `target/`.
 
-## Documentación
+## Documentation
 
-- [Guía de funciones, instalación y atajos](LEEME.md).
-- [Plan y arquitectura de Volumen](docs/plan-volumen-rediseno.md).
-- [Juegos de tintas, mezcla óptica e isolíneas](docs/volumen-ampliacion-g.md).
-- [Formato del plan de salida](docs/formato-salida.md).
+All project documentation is in English. Existing filenames are retained so that paths and links remain valid.
 
-El núcleo está en `crates/vectorio-core` y la interfaz egui en `crates/vectorio-app`. Los proyectos `.vectorio` conservan sus objetos, tintas y recetas.
+- [Features, installation, and keyboard shortcuts](LEEME.md).
+- [Volume redesign plan](docs/plan-volumen-rediseno.md).
+- [Volume architecture](VOLUMETRIC_ARCHITECTURE.md), [test coverage](VOLUMETRIC_TESTS.md), and [roadmap](VOLUMETRIC_ROADMAP.md).
+- [Ink sets, optical mixing, and isolines](docs/volumen-ampliacion-g.md).
+- [Output plan format](docs/formato-salida.md).
 
-## Licencias y créditos
+The core lives in `crates/vectorio-core`; the egui interface lives in `crates/vectorio-app`. `.vectorio` projects preserve objects, inks, and recipes. Historical plans describe the state and intentions at their recorded dates.
 
-El código de Vectorio se distribuye bajo [MIT](LICENSE). Las tipografías de terceros conservan [SIL Open Font License 1.1](crates/vectorio-core/fonts/OFL.txt). La adaptación de FastMarchingTopoPlot conserva su [Unlicense](third_party/FastMarchingTopoPlot/UNLICENSE). Los avisos de meshopt-rs y meshoptimizer se incluyen en [VOLUMETRIC_NOTICES.txt](packaging/macos/VOLUMETRIC_NOTICES.txt).
+## Contributing
+
+Ideas, fixes, new generators and effects, and builds for Windows or Linux are welcome. Only macOS has been tested so far. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licenses and credits
+
+Vectorio is distributed under the [MIT license](LICENSE). Third-party fonts retain the [SIL Open Font License 1.1](crates/vectorio-core/fonts/OFL.txt). The FastMarchingTopoPlot adaptation retains its [Unlicense](third_party/FastMarchingTopoPlot/UNLICENSE). Notices for meshopt-rs and meshoptimizer are included in [VOLUMETRIC_NOTICES.txt](packaging/macos/VOLUMETRIC_NOTICES.txt).

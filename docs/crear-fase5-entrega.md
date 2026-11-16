@@ -1,74 +1,55 @@
-# Crear · fase 5 · entrega
+# Create · Phase 5 delivery
 
-14 de noviembre de 2026.
+14 of November of 2026.
 
-## Escenas
+## Scenes
 
-**Ciudad en fiesta** conserva sus eventos, distritos, costa, avenida diagonal,
-vida en la calle, control de rótulos y juego de bolígrafos. El detalle de su
-revisión visual y los ajustes sucesivos está en `plan-crear-fase5.md`.
+**Party City** preserves its events, districts, coastline, diagonal avenue, street life, label control and pen game. Details of your visual review and subsequent adjustments are in `plan-crear-fase5.md`.
 
-**Cúpulas** añade una receta independiente, editable desde Crear y guardada
-con el documento como las demás. Las referencias aportadas por el usuario
-orientan la jerarquía de tamaños, los mundos habitados y los protagonistas;
-no se incorporan imágenes raster, marcas ni personajes de las referencias.
+**Domes** adds a separate recipe, editable from Create and saved with the document like the others. References provided by the user guide the hierarchy of sizes, inhabited worlds and protagonists; no raster images, brands or characters are incorporated into the references.
 
-- Cinco a nueve cúpulas semiesféricas con zócalo, nervios de vidrio y pasarelas.
-- Seis interiores: pueblo con torre, jardín con fuente, cancha, mercado,
-  huerto y laboratorio. La esfera recorta sus geometrías y el cristal trasero
-  oculta el decorado, conservando visibles los objetos interiores.
-- Mundo Subacuático con superficie, barca, peces, burbujas, arrecife, rocas,
-  buzos y pequeño submarino. Ballena, calamar o reptil marino como protagonista.
-- Mundo Espacial con planetas, galaxia, estrellas, horizonte lunar, cráteres,
-  estación y astronautas. Cohete, estación orbital o ballena estelar.
-- Se puede prescindir del protagonista, regular gente y fondo y elegir cuatro
-  vistas. Los candados y la semilla siguen el comportamiento común de Crear.
-- Juegos Abismo, Órbita y Bolígrafo; reducción de tintas y reutilización de
-  rotuladores sin mezclar objetos con tintas. El cambio de mundo conserva la
-  elección de tintas del usuario.
+- Five to nine semi-spherical domes with sockles, glass nerves and walkways.
+- Six interiors: town with tower, garden with fountain, courtyard, market,
+  Garden and laboratory. The sphere cuts its geometries and the rear glass
+  conceals the decoration, keeping the interior objects visible.
+- Underwater world with surface, boat, fish, bubbles, reef, rocks,
+  divers and a small submarine. Whale, squid or sea reptile as protagonist.
+- Space world with planets, galaxies, stars, lunar horizon, craters,
+  station and astronauts. Rocket, orbital station or star whale.
+- You can dispense with the protagonist, regulate people and background and choose four
+  Views. The locks and seed follow the common behavior of Create.
+- Games Abyss, Orbit and Pen; reduction of inks and reuse of ink
+  pen without mixing objects with inks. Changes in the world
+  the user's choice of inks.
 
-Las piezas compartidas ganan rasgos proyectados sobre la piel de las criaturas
-para evitar ojos y bocas cortados por su propio cuerpo, y ventanillas de cohete.
-El vidrio usa la parte «agua», que cada juego resuelve en su tinta correspondiente.
+Shared pieces gain traits projected onto the creatures' skin to avoid eyes and mouths cut by their own body, and rocket windows. The glass uses the  « water »  part, which each game solves in its corresponding ink.
 
-## Comprobaciones
+## Checks and inspections
 
-- `cargo test --workspace --release`: 214 pruebas superadas (171 del núcleo,
-  42 de interfaz y una de documentación), ocho comprobaciones manuales ignoradas
-  por defecto. Las dos pruebas de 500 semillas se ejecutaron explícitamente.
-- Barrido de 500 semillas por cada uno de los cinco generadores: coordenadas
-  finitas dentro del área y menos de 80 m; sin avisos de construcción en Pueblo,
-  Ciudad ni Cúpulas.
-- Barrido adicional de Cúpulas: 500 semillas en Preview y Final. Máximos de
-  13,50 ms y 13,15 ms respectivamente en este equipo, por debajo de 250 ms y
-  1,5 s. Estos tiempos miden generación, sin renderizado de la interfaz.
-- Casos específicos de ambos mundos, todos los protagonistas, cuatro vistas,
-  cinco a nueve cúpulas, papel vertical/horizontal y rotulador de 0,7 mm;
-  determinismo, conexiones e interiores diferentes; presupuesto de caras y
-  segmentos. Regresión de ojo completo sobre el cuerpo curvado en cuatro vistas.
-- Todos los ejemplos compilados en release.
-- `cargo clippy --workspace --all-targets` termina correctamente. Conserva avisos
-  anteriores en `doc`, `fill`, `optimize`, `raster`, `svg_in`, `vectorize`,
-  `muestra_texto`, `canvas` y una prueba de `vectorize_ui`; sin avisos en Cúpulas
-  ni en las piezas modificadas aquí. La ejecución con `-D warnings` queda
-  bloqueada por esos avisos existentes, no por esta escena.
+- `cargo test --workspace --release`: 214 Tests passed (core 171,
+  42 interface and one documentation), eight manual checks ignored
+  By default. The two tests of 500 seeds were executed explicitly.
+- Drying of 500 seeds by each of the five generators: coordinates
+  finites within the area and less than 80 m; no construction notices in Pueblo,
+  Neither city nor domes.
+- Additional soaking of domes: 500 seeds in Preview and Final. Maximum of
+  13.50 ms and 13.15 ms respectively in this equipment, below 250 ms and
+  1.5 The following points shall be inserted: These times measure generation, without rendering the interface.
+- Specific cases of both worlds, all the protagonists, four views,
+  five to nine domes, vertical/horizontal paper and 0.7 mm pen;
+  It is also important to note that the Commission's proposals in this field are based on a number of factors.
+  segments. Full eye regression over the curved body in four views.
+- All examples compiled in release.
+- `cargo clippy --workspace --all-targets` ends correctly. Save warnings
+  previously in `doc`, `fill`, `optimize`, `raster`, `svg_in`, `vectorize`,
+  `muestra_texto`, `canvas` and a test of `vectorize_ui`; no warnings on domes
+  Not in the modified parts here. The execution with `-D warnings` remains
+  blocked by those existing notices, not this scene.
 
-## Revisión visual y archivos
+## Visual and archival review
 
-Láminas individuales y doce semillas revisadas por cada mundo en
-`target/phase5/domes`, con hojas `contactos-underwater.svg` y
-`contactos-space.svg`. No se observan fugas de fondo a través de los interiores
-ni recortes inesperados en las cúpulas en estas 24 láminas. Los protagonistas
-cruzan detrás de los mundos; algunas ventanillas quedan ocultas por ellos.
-Capturas del propio egui, sin abrir otra instancia ni tocar la ventana del
-usuario: `target/phase5/cupulas-{underwater,space}-{980,1440}.png`.
+Individual sheets and twelve seeds checked by each world in `target/phase5/domes`, with `contactos-underwater.svg` and `contactos-space.svg` sheets. No background leaks through the interiors or unexpected cuts in the domes are observed on these 24 sheets. The protagonists cross behind the worlds; some windows are hidden from them. Captures of the egui itself, without opening another instance or touching the user window: `target/phase5/cupulas-{underwater,space}-{980,1440}.png`.
 
-La adaptación es de dibujo lineal para bolígrafo: no reproduce las grandes
-masas de color de las referencias. Los protagonistas se cruzan por detrás de
-las cúpulas y quedan ocultos donde corresponde; el coral y parte de las
-criaturas pueden continuar a sangre en el borde de la hoja.
+The adaptation is linear drawing for pen: it does not reproduce the large color masses of the references. The protagonists intersect behind the domes and remain hidden where appropriate; the coral and part of the creatures can continue full bleed on the edge of the leaf.
 
-Instalación completada y firma verificada; la huella de fuentes coincide con
-la instalación. Se actualiza con `python3 scripts/install-macos.py` en
-`/Applications/Vectorio.app`. La ventana abierta conserva su versión hasta
-que el usuario vuelva a abrir la aplicación.
+Complete installation and verified signature; source footprint matches the installation. It 's updated with `python3 scripts/install-macos.py` on `/Applications/Vectorio.app`. The open window retains its version until the user reopens the application.
