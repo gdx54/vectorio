@@ -28,4 +28,4 @@ Source: [Vectorio on GitHub](https://github.com/gdx54/vectorio)
 
 ---
 
-Editor note: the GitHub address above is the planned repository. Verify that it is public and accessible before posting. Suggested image order and credits are in [README.md](README.md).
+Editor note: suggested image order and credits are in [README.md](README.md). This is a prepared draft; it has not been posted.

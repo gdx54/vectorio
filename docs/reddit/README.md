@@ -40,7 +40,7 @@ The image-conversion example uses [NASA Blue Marble](https://science.nasa.gov/re
 
 The spider is an imported STL supplied by the project owner. The original model was read from Downloads and is not bundled in this pack. Add its creator/source credit when available. The city, village, domes, and Design demonstration were generated for these screenshots.
 
-The GitHub link in the software draft is the intended public repository address. Repository creation and publication still await the action-time confirmation requested by automatic approval review. Neither Reddit draft has been posted.
+Public repository: [gdx54/vectorio](https://github.com/gdx54/vectorio). Neither Reddit draft has been posted.
 
 ## All screenshots
 
