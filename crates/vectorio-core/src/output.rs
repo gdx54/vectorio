@@ -255,10 +255,12 @@ fn split_path(path: Polyline, max_length: f64) -> Vec<Polyline> {
 
 fn add_stroke(out: &mut Vec<OutputStroke>, path: Polyline, pen: usize, grid: &HeatGrid, radius: f64, cap: u16) {
     let cells = footprint(&path, grid, radius);
-    if cells.iter().any(|&(_, n)| n > cap) {
+    let len = length(&path);
+    // Por debajo de la tolerancia de corte se conserva la geometría. Cada
+    // subdivisión reduce la longitud hasta este límite y termina también con puntos.
+    if len > 1e-6 && cells.iter().any(|&(_, n)| n > cap) {
         // También interrumpe una polilínea que se pisa a sí misma repetidamente.
-        let half = length(&path) / 2.0;
-        for part in split_path(path, half.max(1e-6)) { add_stroke(out, part, pen, grid, radius, cap); }
+        for part in split_path(path, len / 2.0) { add_stroke(out, part, pen, grid, radius, cap); }
     } else { out.push(OutputStroke { pen, path, footprint: cells }); }
 }
 
@@ -472,6 +474,20 @@ mod tests {
         assert_eq!(plan.stats.waits, 0);
         assert_eq!(plan.layers()[0].paths, paths);
         assert_eq!(plan.wet_after.counts, plan.wet_before.counts);
+    }
+    #[test]
+    fn microscopic_loops_and_points_count_as_one_pass_and_keep_their_geometry() {
+        let grid = HeatGrid::new(&Paper::default(), 0.05);
+        let point = p(grid.cell_mm * 0.5, grid.cell_mm * 0.5);
+        for path in [vec![point; 5], (0..100).map(|i| point + p((i % 2) as f64 * 1e-9, 0.0)).collect()] {
+            let mut strokes = Vec::new();
+            add_stroke(&mut strokes, path.clone(), 0, &grid, 0.025, 1);
+            assert_eq!(strokes.len(), 1);
+            assert_eq!(strokes[0].path, path);
+            assert_eq!(strokes[0].footprint.iter().map(|c| c.1).max(), Some(1));
+        }
+        let invalid = OutputSettings { max_wet_passes: 0, ..Default::default() };
+        assert_eq!(prepare(&[], &Paper::default(), &[], &PlotSettings::default(), &invalid).unwrap_err(), OutputError::InvalidSettings);
     }
     #[test]
     fn already_safe_routes_do_not_gain_fragments_or_waits() {

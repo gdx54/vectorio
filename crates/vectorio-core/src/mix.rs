@@ -103,8 +103,22 @@ fn solve(target: [f64; 3], pens: &[[f64; 3]], norms: &[f64], cost: &[f64]) -> Ve
     c
 }
 
+/// La misma separación óptica para un color analítico, sin crear una imagen ni un ráster.
+pub fn color_coverage(color:[u8;3],pens:&[[u8;3]])->Vec<f64>{
+    let densities:Vec<_>=pens.iter().copied().map(density).collect();
+    let norms:Vec<_>=densities.iter().map(|d|d.iter().map(|v|v*v).sum::<f64>().max(1e-6)).collect();
+    let costs:Vec<_>=densities.iter().map(|d|{let lo=d.iter().copied().fold(f64::INFINITY,f64::min);let hi=d.iter().copied().fold(0.,f64::max);0.02+0.3*(hi-lo)/hi.max(1e-6)}).collect();
+    solve(density(color),&densities,&norms,&costs).into_iter().map(|v|if v<0.04{0.}else{v.powf(1.2)}).collect()
+}
+
 /// Mapas de cobertura (uno por rotulador) del tamaño de la imagen.
 pub fn coverage(rgb: &RgbImage, pens: &[[u8; 3]]) -> Vec<Grid<f32>> {
+    coverage_with_cost(rgb, pens, 0.3)
+}
+
+/// Penalización cromática ajustable para las separaciones que reservan el negro
+/// para sombras. La mezcla normal conserva su sustitución de gris original.
+pub(crate) fn coverage_with_cost(rgb: &RgbImage, pens: &[[u8; 3]], chromatic_cost: f64) -> Vec<Grid<f32>> {
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
     let d: Vec<[f64; 3]> = pens.iter().map(|c| density(*c)).collect();
     let norms: Vec<f64> = d.iter().map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).max(1e-6)).collect();
@@ -115,7 +129,7 @@ pub fn coverage(rgb: &RgbImage, pens: &[[u8; 3]]) -> Vec<Grid<f32>> {
         .iter()
         .map(|v| {
             let (lo, hi) = (v[0].min(v[1]).min(v[2]), v[0].max(v[1]).max(v[2]));
-            0.02 + 0.3 * (hi - lo) / hi.max(1e-6)
+            0.02 + chromatic_cost * (hi - lo) / hi.max(1e-6)
         })
         .collect();
     // Tabla de 32³ colores: se resuelve una vez por color cuantizado.

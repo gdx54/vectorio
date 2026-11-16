@@ -1,4 +1,4 @@
-use super::{cross, Camera, Scene, SceneOutput, ScenePart, V3, DEPTH_TOLERANCE_M, FACE_INSET_MM, MIN_STROKE_MM};
+use super::{cross, Camera, Scene, SceneOutput, ScenePart, V3, DEPTH_TOLERANCE_M, FACE_INSET_MM, HOLE_TOLERANCE_M, MIN_STROKE_MM};
 use crate::geom::{length, p, BBox, Polyline, P};
 
 #[derive(Clone, Copy, Debug)]
@@ -10,13 +10,21 @@ pub(super) struct Face {
     pub points: Vec<P>,
     pub bbox: BBox,
     pub min_depth: f64,
-    origin: Vertex,
-    gradient: P,
-    planes: Vec<(P, P)>,
+    pub max_depth: f64,
+    pub solid_id: Option<u64>,
+    pub owner: Option<(u64, super::PartId)>,
+    pub drawn_boundaries: Vec<(P,P)>,
+    pub normal: V3,
+    pub world_origin: V3,
+    pub origin: Vertex,
+    pub gradient: P,
+    pub planes: Vec<(P, P)>,
 }
 impl Face {
     pub fn new(world: &[V3], camera: &Camera) -> Option<Self> {
         if !super::valid_face(world) { return None; }
+        let clipped=camera.clip_polygon(world);let world=clipped.as_slice();
+        if world.len()<3{return None;}
         let vertices: Vec<Vertex> = world.iter().map(|v| Vertex::from(camera.project(*v))).collect();
         let origin = vertices[0];
         let mut gradient = None;
@@ -42,7 +50,8 @@ impl Face {
             let edge = *b - *a;
             if edge.len() > 1e-12 { planes.push((*a, p(-edge.y, edge.x) * (1.0 / edge.len()))); }
         }
-        Some(Self { points, bbox, min_depth: vertices.iter().map(|v| v.depth).fold(f64::INFINITY, f64::min),
+        Some(Self { drawn_boundaries:Vec::new(), solid_id: None, owner: None, normal: super::normal(world), world_origin: world[0],
+            max_depth: vertices.iter().map(|v|v.depth).fold(f64::NEG_INFINITY,f64::max), points, bbox, min_depth: vertices.iter().map(|v| v.depth).fold(f64::INFINITY, f64::min),
             origin, gradient, planes })
     }
     pub fn depth(&self, point: P) -> f64 { self.origin.depth + (point - self.origin.point).dot(self.gradient) }
@@ -85,17 +94,17 @@ pub(super) fn merge_intervals(intervals: &mut Vec<(f64, f64)>) {
     intervals.truncate(n);
 }
 
-struct Grid {
+pub(super) struct Grid {
     paper: BBox,
     cell: f64,
-    cols: usize,
+    pub cols: usize,
     rows: usize,
-    cells: Vec<Vec<usize>>,
+    pub cells: Vec<Vec<usize>>,
     stamps: Vec<u64>,
     stamp: u64,
 }
 impl Grid {
-    fn new(paper: BBox, faces: &[Face]) -> Self {
+    pub fn new(paper: BBox, faces: &[Face]) -> Self {
         let cell = 4.0f64.max(paper.width() / 1024.0).max(paper.height() / 1024.0);
         let (cols, rows) = ((paper.width() / cell).ceil() as usize, (paper.height() / cell).ceil() as usize);
         let mut grid = Self { paper, cell, cols, rows, cells: vec![Vec::new(); cols * rows], stamps: vec![0; faces.len()], stamp: 0 };
@@ -106,7 +115,7 @@ impl Grid {
         }
         grid
     }
-    fn range(&self, bounds: BBox) -> Option<(usize, usize, usize, usize)> {
+    pub fn range(&self, bounds: BBox) -> Option<(usize, usize, usize, usize)> {
         if bounds.max.x < self.paper.min.x || bounds.min.x > self.paper.max.x ||
             bounds.max.y < self.paper.min.y || bounds.min.y > self.paper.max.y { return None; }
         let x = |v: f64| (((v - self.paper.min.x) / self.cell).max(0.0) as usize).min(self.cols - 1);
@@ -180,6 +189,32 @@ impl Grid {
     }
 }
 
+impl Grid {
+    /// Tramos del segmento dentro de un hueco y a su profundidad (± HOLE_TOLERANCE_M).
+    fn cut(&mut self, a: Vertex, b: Vertex, holes: &[Face], sheet: (f64, f64), intervals: &mut Vec<(f64, f64)>) {
+        self.stamp = self.stamp.wrapping_add(1);
+        if self.stamp == 0 { self.stamps.fill(0); self.stamp = 1; }
+        let (near, far) = (a.depth.min(b.depth), a.depth.max(b.depth));
+        for cell in self.segment_cells(a.point.lerp(b.point, sheet.0), a.point.lerp(b.point, sheet.1)) {
+            for &i in &self.cells[cell] {
+                if self.stamps[i] == self.stamp { continue; }
+                self.stamps[i] = self.stamp;
+                let hole = &holes[i];
+                if hole.min_depth > far + HOLE_TOLERANCE_M || hole.max_depth < near - HOLE_TOLERANCE_M { continue; }
+                let Some(mut interval) = hole.clip(a.point, b.point, 0.0) else { continue; };
+                interval.0 = interval.0.max(sheet.0); interval.1 = interval.1.min(sheet.1);
+                // Diferencia de profundidad con el plano del hueco: d0 + t·dd, en [-tol, tol].
+                let d0 = a.depth - hole.depth(a.point);
+                let dd = b.depth - a.depth - (b.point - a.point).dot(hole.gradient);
+                if clip_positive(&mut interval, d0 + HOLE_TOLERANCE_M, dd) &&
+                    clip_positive(&mut interval, HOLE_TOLERANCE_M - d0, -dd) && interval.1 > interval.0 {
+                    intervals.push(interval);
+                }
+            }
+        }
+    }
+}
+
 fn flush(line: &mut Polyline, output: &mut Vec<Polyline>) {
     if length(line) >= MIN_STROKE_MM { output.push(std::mem::take(line)); } else { line.clear(); }
 }
@@ -187,7 +222,7 @@ fn flush(line: &mut Polyline, output: &mut Vec<Polyline>) {
 // Dos sólidos pegados pueden aportar la misma arista (también solo un tramo).
 // Conserva la primera pasada de cada parte sin unir objetos ni cambiar su orden.
 // La rejilla evita comparar entre sí todos los segmentos de una hoja grande.
-fn remove_overlaps(lines: &mut Vec<Polyline>, paper: BBox) {
+fn remove_overlaps(lines: &mut Vec<Polyline>, paper: BBox, cancel: &dyn Fn() -> bool) -> bool {
     let mut index = Grid::new(paper, &[]);
     let mut edges: Vec<(P, P, bool)> = Vec::new();
     let mut candidates = Vec::new();
@@ -199,8 +234,10 @@ fn remove_overlaps(lines: &mut Vec<Polyline>, paper: BBox) {
         ids.clear();
     };
     for source in std::mem::take(lines) {
+        if cancel() { return false; }
         let mut current: Polyline = Vec::new();
         for pair in source.windows(2) {
+            if cancel() { return false; }
             let (a, b) = (pair[0], pair[1]);
             let d = b - a;
             let len = d.len();
@@ -238,25 +275,56 @@ fn remove_overlaps(lines: &mut Vec<Polyline>, paper: BBox) {
         }
         finish(&mut current, &mut pending_ids, &mut edges, lines);
     }
+    true
 }
 
 pub(super) fn render(scene: &Scene) -> SceneOutput {
+    render_cancellable(scene, &|| false).expect("sin cancelación")
+}
+
+/// Expande intervalos de oclusión en longitud de arco, también a través de vértices.
+fn stroke_halo(stroke:&super::Stroke, scene:&Scene, grid:&mut Grid, cancel:&dyn Fn()->bool)->Option<Vec<(f64,f64)>> {
+    let mut intervals=Vec::new();let mut hidden=Vec::new();let mut distance=0.;
+    for pair in stroke.vertices.windows(2){
+        if cancel(){return None;}let(a,b)=(pair[0],pair[1]);let len=a.point.dist(b.point);
+        if len>1e-12 {if let Some(sheet)=clip_paper(a.point,b.point,scene.paper){hidden.clear();grid.hidden(a,b,&scene.faces,sheet,&mut hidden);for(lo,hi)in &hidden{intervals.push((distance+lo*len-scene.halo_mm,distance+hi*len+scene.halo_mm));}}}
+        distance+=len;
+    }
+    if stroke.vertices.first().zip(stroke.vertices.last()).is_some_and(|(a,b)|a.point.dist(b.point)<1e-8)&&distance>0.{
+        let copies=intervals.iter().copied().collect::<Vec<_>>();for(lo,hi)in copies{if lo<0.{intervals.push((distance+lo,distance));}if hi>distance{intervals.push((0.,hi-distance));}}
+    }
+    for interval in &mut intervals{interval.0=interval.0.max(0.);interval.1=interval.1.min(distance);}merge_intervals(&mut intervals);Some(intervals)
+}
+
+pub(super) fn render_cancellable(scene: &Scene, cancel: &dyn Fn() -> bool) -> Option<SceneOutput> {
+    if cancel() { return None; }
     let mut output = SceneOutput { parts: scene.names.iter().enumerate().map(|(i, name)| ScenePart {
         id: super::PartId(i as u16), name: name.clone(), lines: Vec::new(),
     }).collect() };
     let mut grid = Grid::new(scene.paper, &scene.faces);
+    let mut holes = (!scene.holes.is_empty()).then(|| Grid::new(scene.paper, &scene.holes));
     let mut hidden = Vec::new();
     let mut visible = Vec::new();
-    for stroke in &scene.strokes {
+    let intersections = if scene.intersections { super::intersections::strokes(scene, &grid) } else { Vec::new() };
+    for stroke in scene.strokes.iter().chain(&intersections) {
+        if cancel() { return None; }
         let mut lines = Vec::new();
         let mut current = Vec::new();
         let mut rejected = false;
+        let halo=if scene.halo_mm>0.&&!scene.hidden_lines&&!stroke.fill&&!stroke.whole{Some(stroke_halo(stroke,scene,&mut grid,cancel)?)}else{None};
+        let mut distance=0.;
         for segment in stroke.vertices.windows(2) {
+            if cancel() { return None; }
             let (a, b) = (segment[0], segment[1]);
-            if a.point.dist(b.point) < 1e-12 { continue; }
+            let len=a.point.dist(b.point);let start=distance;distance+=len;
+            if len < 1e-12 { continue; }
             let Some(sheet) = clip_paper(a.point, b.point, scene.paper) else { rejected = true; flush(&mut current, &mut lines); continue; };
             hidden.clear();
-            grid.hidden(a, b, &scene.faces, sheet, &mut hidden);
+            if let Some(halo)=&halo {for(lo,hi)in halo{let lo=((lo-start)/len).max(sheet.0);let hi=((hi-start)/len).min(sheet.1);if hi>lo{hidden.push((lo,hi));}}}
+            else {grid.hidden(a,b,&scene.faces,sheet,&mut hidden);}
+            if let Some(holes) = holes.as_mut().filter(|_| !stroke.whole && !stroke.fill) {
+                holes.cut(a, b, &scene.holes, sheet, &mut hidden);
+            }
             merge_intervals(&mut hidden);
             if sheet.0 > 0.0 || sheet.1 < 1.0 || !hidden.is_empty() { rejected = true; }
             if stroke.whole && rejected { break; }
@@ -267,6 +335,7 @@ pub(super) fn render(scene: &Scene) -> SceneOutput {
                 cursor = cursor.max(hi);
             }
             if cursor < sheet.1 { visible.push((cursor, sheet.1)); }
+            if scene.hidden_lines { visible.clone_from(&hidden); }
             for &(lo, hi) in &visible {
                 let (start, end) = (a.point.lerp(b.point, lo), a.point.lerp(b.point, hi));
                 if current.last().is_some_and(|q: &P| q.dist(start) > 1e-8) { flush(&mut current, &mut lines); }
@@ -278,8 +347,11 @@ pub(super) fn render(scene: &Scene) -> SceneOutput {
         flush(&mut current, &mut lines);
         if !stroke.whole || !rejected { output.parts[stroke.part.0 as usize].lines.extend(lines); }
     }
-    for part in &mut output.parts { remove_overlaps(&mut part.lines, scene.paper); }
-    output
+    for part in &mut output.parts {
+        if cancel() { return None; }
+        if !remove_overlaps(&mut part.lines, scene.paper, cancel) { return None; }
+    }
+    Some(output)
 }
 
 #[cfg(test)]

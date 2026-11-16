@@ -42,7 +42,7 @@ pub fn order(paths: Vec<Polyline>, start: P) -> Vec<Polyline> {
                             let l = paths[i].as_ref().unwrap();
                             let q = if rev { l[l.len() - 1] } else { l[0] };
                             let d = q.dist(cur);
-                            if best.map_or(true, |b| d < b.0) {
+                            if best.is_none_or(|b| d < b.0) {
                                 best = Some((d, i, rev));
                             }
                         }

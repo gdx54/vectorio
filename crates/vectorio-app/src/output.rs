@@ -359,10 +359,10 @@ impl OutputUi {
     }
 
     /// Selector de mapa y zoom: una cápsula flotante bajo la barra, sobre el papel.
-    fn controls(&mut self, ctx: &egui::Context, ready: bool) {
+    fn controls(&mut self, ctx: &egui::Context, ready: bool, enabled: bool) {
         let pal = theme::current(ctx);
         let width = (ctx.screen_rect().width() - PANEL_W - 3.0 * theme::INSET).max(300.0);
-        egui::Area::new(egui::Id::new("output-controls")).fixed_pos(Pos2::new(theme::INSET, theme::TOOLBAR_H + theme::INSET)).order(egui::Order::Middle).show(ctx, |ui| {
+        egui::Area::new(egui::Id::new("output-controls")).enabled(enabled).fixed_pos(Pos2::new(theme::INSET, theme::TOOLBAR_H + theme::INSET)).order(egui::Order::Middle).show(ctx, |ui| {
             theme::glass_panel(ui, &pal, |ui| {
                 ui.set_max_width(width - 2.0 * theme::PANEL_PAD);
                 ui.horizontal_wrapped(|ui| {
@@ -385,10 +385,10 @@ impl OutputUi {
     }
 
     /// Leyenda del mapa de calor y reproducción, flotando abajo.
-    fn bottom(&mut self, ctx: &egui::Context, sim: &mut Sim, ready: bool) {
+    fn bottom(&mut self, ctx: &egui::Context, sim: &mut Sim, ready: bool, enabled: bool) {
         let pal = theme::current(ctx);
         let width = (ctx.screen_rect().width() - PANEL_W - 3.0 * theme::INSET).max(300.0);
-        egui::Area::new(egui::Id::new("output-bottom")).anchor(egui::Align2::LEFT_BOTTOM, Vec2::new(theme::INSET, -theme::INSET)).order(egui::Order::Middle).show(ctx, |ui| {
+        egui::Area::new(egui::Id::new("output-bottom")).enabled(enabled).anchor(egui::Align2::LEFT_BOTTOM, Vec2::new(theme::INSET, -theme::INSET)).order(egui::Order::Middle).show(ctx, |ui| {
             ui.set_width(width);
             if self.map != Map::Route {
                 if let Some(plan) = &self.plan {
@@ -483,13 +483,15 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let pal = theme::current(ctx);
     egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
         theme::paint_canvas(ui.painter(), ctx.screen_rect(), &pal);
+        if app.document_modal() { ui.disable(); }
         app.output_ui.map(ui, &app.doc, &app.sim, ready, app.prefs.paper_tint);
     });
-    app.output_ui.controls(ctx, ready);
-    app.output_ui.bottom(ctx, &mut app.sim, ready);
+    let enabled = !app.document_modal();
+    app.output_ui.controls(ctx, ready, enabled);
+    app.output_ui.bottom(ctx, &mut app.sim, ready, enabled);
     let top = theme::TOOLBAR_H + theme::INSET;
     let height = ctx.screen_rect().height() - top - theme::INSET;
-    egui::Area::new(egui::Id::new("output-inspector")).fixed_pos(Pos2::new(ctx.screen_rect().right() - PANEL_W - theme::INSET, top)).order(egui::Order::Middle).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("output-inspector")).enabled(enabled).fixed_pos(Pos2::new(ctx.screen_rect().right() - PANEL_W - theme::INSET, top)).order(egui::Order::Middle).show(ctx, |ui| {
         theme::glass_panel(ui, &pal, |ui| {
             ui.set_width(PANEL_W - 2.0 * theme::PANEL_PAD);
             ui.set_height(height - 2.0 * theme::PANEL_PAD);

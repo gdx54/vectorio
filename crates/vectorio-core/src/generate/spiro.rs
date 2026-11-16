@@ -6,6 +6,7 @@ impl Generator for Spiro {
     fn id(&self) -> &'static str { "spiro" }
     fn name(&self) -> &'static str { "Espirógrafo" }
     fn category(&self) -> &'static str { "Curvas" }
+    fn inks(&self) -> &'static super::InkPlan { &super::inks::SPIRO }
     fn description(&self) -> &'static str { "Curvas cerradas de engranajes, una pasada por capa." }
     fn params(&self) -> Vec<ParamSpec> { vec![
         ParamSpec::Section { label: "Engranajes" },

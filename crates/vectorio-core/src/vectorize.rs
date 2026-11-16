@@ -1,9 +1,12 @@
-//! Foto → dibujo. Cuatro modos:
+//! Foto → dibujo:
 //! - Líneas: esqueleto de los trazos oscuros (dibujos a tinta, bocetos).
 //! - Siluetas: contornos cerrados de las zonas oscuras, listos para rellenar.
 //! - Colores: la imagen se reduce a N colores y cada uno se convierte en formas
 //!   cerradas que se asignan a plumillas y se rellenan.
 //! - Grabado: líneas onduladas cuya amplitud y frecuencia siguen la oscuridad.
+//! - Mezcla: coberturas de tintas para el motor de tramas.
+//! - Retrato: líneas de corriente que siguen el tensor estructural de la foto.
+//! - Topografía: curvas de tiempo de una onda Fast Marching guiada por la luz.
 //!
 //! Los resultados están en píxeles de la imagen de trabajo; la app los escala a mm.
 
@@ -22,10 +25,13 @@ pub enum VecMode {
     Engrave,
     /// Varios rotuladores superpuestos con tramas que se intercalan (mezcla óptica).
     Mix,
+    /// Líneas de corriente guiadas por el tensor estructural de la imagen.
+    Portrait,
+    Topography,
 }
 
 impl VecMode {
-    pub const ALL: [VecMode; 5] = [VecMode::Colors, VecMode::Mix, VecMode::Lines, VecMode::Silhouette, VecMode::Engrave];
+    pub const ALL: [VecMode; 7] = [VecMode::Colors, VecMode::Mix, VecMode::Portrait, VecMode::Topography, VecMode::Lines, VecMode::Silhouette, VecMode::Engrave];
     pub fn label(self) -> &'static str {
         match self {
             VecMode::Lines => "Líneas",
@@ -33,6 +39,8 @@ impl VecMode {
             VecMode::Colors => "Colores",
             VecMode::Engrave => "Grabado",
             VecMode::Mix => "Mezcla",
+            VecMode::Portrait => "Retrato",
+            VecMode::Topography => "Topografía",
         }
     }
     pub fn help(self) -> &'static str {
@@ -42,6 +50,8 @@ impl VecMode {
             VecMode::Colors => "Reduce la foto a pocos colores; cada uno se convierte en formas con relleno de su rotulador.",
             VecMode::Engrave => "Líneas onduladas que se agitan más donde la imagen es más oscura.",
             VecMode::Mix => "Superpone varios rotuladores con tramas cruzadas o puntos intercalados: los colores se mezclan en el papel, como en una cuatricromía.",
+            VecMode::Portrait => "Líneas curvas que siguen las formas de la foto, con pasadas extra en las sombras. En negro o con varias tintas.",
+            VecMode::Topography => "Una onda recorre la foto y dibuja curvas de nivel: se juntan en las sombras y se separan en las luces.",
         }
     }
 }
@@ -76,6 +86,10 @@ pub struct VecParams {
     /// Colores de los rotuladores elegidos para la mezcla con «Mis rotuladores».
     #[serde(default)]
     pub mix_pens: Vec<[u8; 3]>,
+    #[serde(default)]
+    pub portrait: crate::portrait::PortraitParams,
+    #[serde(default)]
+    pub topo: crate::topo::TopoParams,
 }
 
 fn default_palette() -> MixPalette {
@@ -100,6 +114,8 @@ impl Default for VecParams {
             mix_palette: MixPalette::Cmyk,
             adjust: Default::default(),
             mix_pens: vec![],
+            portrait: Default::default(),
+            topo: Default::default(),
         }
     }
 }
@@ -130,6 +146,9 @@ pub struct VecResult {
 }
 
 pub fn working_image(img: &DynamicImage, max_px: u32) -> RgbImage {
+    if img.color().has_alpha() {
+        return flatten_white(&working_rgba(img, max_px));
+    }
     let (w, h) = (img.width(), img.height());
     let scale = (max_px as f64 / w.max(h) as f64).min(1.0);
     let rgb = img.to_rgb8();
@@ -138,6 +157,36 @@ pub fn working_image(img: &DynamicImage, max_px: u32) -> RgbImage {
     }
     let (nw, nh) = (((w as f64 * scale).round() as u32).max(1), ((h as f64 * scale).round() as u32).max(1));
     imageops::resize(&rgb, nw, nh, imageops::FilterType::Triangle)
+}
+
+/// Imagen de trabajo con su transparencia, necesaria para recortar Topografía y
+/// conservar la foto al guardarla. El resto de motores recibe papel blanco.
+pub fn working_rgba(img: &DynamicImage, max_px: u32) -> image::RgbaImage {
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let scale = (max_px.max(1) as f64 / w.max(h).max(1) as f64).min(1.0);
+    if scale >= 1.0 { return rgba; }
+    // Filtrar con alfa premultiplicado impide que el RGB oculto de los píxeles
+    // transparentes cree halos oscuros o de otro color alrededor del recorte.
+    let mut premultiplied = rgba;
+    for px in premultiplied.pixels_mut() {
+        let a = px[3] as u32;
+        for c in 0..3 { px[c] = ((px[c] as u32*a+127)/255) as u8; }
+    }
+    let mut resized = imageops::resize(&premultiplied, (w as f64*scale).round().max(1.0) as u32, (h as f64*scale).round().max(1.0) as u32, imageops::FilterType::Triangle);
+    for px in resized.pixels_mut() {
+        let a = px[3] as u32;
+        for c in 0..3 { px[c] = (px[c] as u32*255+a/2).checked_div(a).unwrap_or(0).min(255) as u8; }
+    }
+    resized
+}
+
+pub(crate) fn flatten_white(rgba: &image::RgbaImage) -> RgbImage {
+    RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let px = rgba.get_pixel(x, y);
+        let a = px[3] as u32;
+        image::Rgb([0, 1, 2].map(|c| ((px[c] as u32*a + 255*(255-a) + 127)/255) as u8))
+    })
 }
 
 fn luma(c: [u8; 3]) -> f64 {
@@ -154,6 +203,7 @@ fn gray_of(rgb: &RgbImage, blur: f32) -> GrayImage {
 }
 
 pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
+    if prm.mode == VecMode::Topography { return crate::topo::render(img, prm); }
     let rgb = prm.adjust.apply(&working_image(img, prm.max_px.clamp(64, 4000)));
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
     let layers = match prm.mode {
@@ -162,6 +212,8 @@ pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
         VecMode::Colors => colors_mode(&rgb, prm),
         VecMode::Engrave => engrave_mode(&rgb, prm),
         VecMode::Mix => mix_mode(&rgb, prm),
+        VecMode::Portrait => crate::portrait::render(&rgb, prm),
+        VecMode::Topography => unreachable!("Topografía conserva el canal alfa antes de convertir a RGB"),
     };
     VecResult { width: w as f64, height: h as f64, layers }
 }
@@ -316,8 +368,8 @@ pub fn kmeans(pixels: &[[u8; 3]], k: usize, seed: u64) -> Vec<[f64; 3]> {
                 || vec![([0.0f64; 3], 0usize); centers.len()],
                 |mut acc, s| {
                     let (bi, _) = centers.iter().enumerate().map(|(i, c)| (i, d2(s, c))).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
-                    for j in 0..3 {
-                        acc[bi].0[j] += s[j];
+                    for (sum, value) in acc[bi].0.iter_mut().zip(s) {
+                        *sum += value;
                     }
                     acc[bi].1 += 1;
                     acc
@@ -444,7 +496,7 @@ fn engrave_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     vec![VecLayer::lines([20, 20, 24], false, row_dir)]
 }
 
-fn mix_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
+pub(crate) fn mix_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     let blurred = if prm.blur > 0.05 { imageops::blur(rgb, prm.blur) } else { rgb.clone() };
     let mut pens: Vec<(Option<&'static str>, [u8; 3])> = prm.mix_palette.pens().into_iter().map(|(n, c)| (Some(n), c)).collect();
     if prm.mix_palette == MixPalette::Mine {
@@ -473,6 +525,18 @@ fn mix_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
 mod tests {
     use super::*;
     use image::{Rgb, RgbImage};
+
+    #[test]
+    fn transparent_pixels_are_white_and_resizing_does_not_add_colored_fringes() {
+        let img = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(4, 1, |x, _| {
+            image::Rgba(match x { 0 | 1 => [255, 0, 0, 255], 2 => [0, 0, 255, 0], _ => [0, 0, 0, 0] })
+        }));
+        let full = working_image(&img, 4);
+        assert_eq!(full.get_pixel(3, 0).0, [255; 3]);
+        let resized = working_image(&img, 2);
+        assert_eq!(resized.dimensions(), (2, 1));
+        assert!(resized.pixels().all(|px| px[0] == 255 && px[1] == px[2]));
+    }
 
     fn test_image() -> DynamicImage {
         let mut img = RgbImage::from_pixel(200, 120, Rgb([250, 250, 250]));

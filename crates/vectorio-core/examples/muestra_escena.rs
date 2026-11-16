@@ -50,6 +50,9 @@ fn build(elevation: f64, fitted: Option<Camera>) -> Scene {
     scene.set_part(roof);
     let faces = scene.extrude(&[v(-4.2, -3.2, 2.4), v(-0.8, -3.2, 2.4), v(-2.5, -3.2, 4.0)], v(0.0, 3.4, 0.0));
     shade(&mut scene, faces, parts);
+    scene.set_part(PartId(0));
+    let faces=scene.box3(v(-1.9,-1.5,2.8),v(-1.3,-0.9,4.5));
+    shade(&mut scene,faces,parts);
     scene.set_part(details);
     // Libre, sobre la fachada que mira hacia +y.
     scene.whole_line(&[v(-3.2, 0.0, 0.8), v(-2.4, 0.0, 0.8), v(-2.4, 0.0, 1.6), v(-3.2, 0.0, 1.6), v(-3.2, 0.0, 0.8)]);
@@ -72,7 +75,7 @@ fn build(elevation: f64, fitted: Option<Camera>) -> Scene {
     let faces = scene.lathe(v(6.0, -0.8, 0.0), &profile, true);
     shade_surface(&mut scene, faces, parts);
 
-    // Cajas solapadas en proyección, de distintas alturas.
+    // Cajas que se interpenetran a propósito, para comprobar sus aristas de encuentro.
     for (min, max) in [
         (v(-4.0, 3.0, 0.0), v(-2.0, 5.0, 2.8)),
         (v(-2.7, 4.5, 0.0), v(-0.7, 6.5, 1.6)),

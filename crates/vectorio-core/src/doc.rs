@@ -8,6 +8,8 @@ use crate::shapes::Shape;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub const MAX_PROJECT_BYTES: usize = 256 * 1024 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Pen {
     pub name: String,
@@ -126,7 +128,7 @@ pub enum Geometry {
     /// «Convertir en trazos»). Son recorridos de tinta, no contornos.
     Screened { lines: Vec<Polyline>, screen: crate::mix::Screen },
     /// Tinta de una foto viva: mapa de cobertura y trama que se puede retocar.
-    Traced(crate::trace::Traced),
+    Traced(Box<crate::trace::Traced>),
     Text(TextSpec),
     Shape(Shape),
 }
@@ -273,11 +275,13 @@ pub struct Document {
     pub photos: Vec<crate::photo::Photo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub generated: Vec<crate::generate::GeneratedGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<crate::volumetric::VolumeObject>,
 }
 
 impl Default for Document {
     fn default() -> Self {
-        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), output: Default::default(), next_id: 1, photos: vec![], generated: vec![] }
+        Document { paper: Paper::default(), pens: default_pens(), items: vec![], plot: PlotSettings::default(), output: Default::default(), next_id: 1, photos: vec![], generated: vec![], volumes:vec![] }
     }
 }
 
@@ -355,6 +359,7 @@ impl Document {
             it.fill.pen = fix(it.fill.pen);
         }
         for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
+        self.remap_volume_pens(fix);
     }
 
     /// Intercambia dos plumillas manteniendo los colores de cada objeto.
@@ -369,6 +374,7 @@ impl Document {
             it.fill.pen = fix(it.fill.pen);
         }
         for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
+        self.remap_volume_pens(fix);
     }
 
     /// Reordena las tintas para el plotter sin alterar el orden visual de los objetos.
@@ -392,6 +398,7 @@ impl Document {
             it.fill.pen = fix(it.fill.pen);
         }
         for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(fix); } }
+        self.remap_volume_pens(fix);
         new_of
     }
 
@@ -470,6 +477,7 @@ impl Document {
             it.fill.pen = new_of.get(it.fill.pen).copied().unwrap_or(it.fill.pen);
         }
         for group in &mut self.generated { for ink in group.inks.values_mut() { *ink = ink.map(|p| new_of.get(p).copied().unwrap_or(p)); } }
+        self.remap_volume_pens(|p|new_of.get(p).copied().unwrap_or(p));
         // Dentro de sus posiciones, los objetos quedan en el orden de las pasadas.
         let places: Vec<usize> = (0..self.items.len()).filter(|i| ids.contains(&self.items[*i].id)).collect();
         let mut moving: Vec<Item> = places.iter().map(|i| self.items[*i].clone()).collect();
@@ -573,9 +581,12 @@ impl Document {
 
     pub fn to_json(&self) -> String {
         // Las fotos de las que ya no queda ninguna tinta no se guardan.
-        if self.photos.iter().any(|ph| !self.items.iter().any(|it| it.group == Some(ph.id))) {
+        if self.photos.iter().any(|ph| !self.items.iter().any(|it| it.group == Some(ph.id))) ||
+            self.generated.iter().any(|g| !self.items.iter().any(|it| it.group == Some(g.id))) || self.volumes.iter().any(|g| !self.items.iter().any(|it|it.group==Some(g.id))) {
             let mut doc = self.clone();
             doc.photos.retain(|ph| self.items.iter().any(|it| it.group == Some(ph.id)));
+            doc.generated.retain(|g| self.items.iter().any(|it| it.group == Some(g.id)));
+            doc.volumes.retain(|g|self.items.iter().any(|it|it.group==Some(g.id)));
             return serde_json::to_string_pretty(&doc).unwrap_or_default();
         }
         serde_json::to_string_pretty(self).unwrap_or_default()
@@ -647,11 +658,15 @@ impl Document {
                     }),
                 };
                 it.group = group.or_else(|| {
+                    if let Some(mut volume)=self.volume(old).cloned(){let g=self.next_id;self.next_id+=1;volume.id=g;volume.name=format!("{} copia",volume.name);volume.placement.pos=volume.placement.pos+offset;volume.bindings.clear();self.volumes.push(volume);groups.push((old,g));return Some(g);}
                     let mut recipe = self.generated_group(old)?.clone();
                     let g = self.next_id; self.next_id += 1; recipe.id = g;
                     recipe.name = format!("{} copia", recipe.name);
                     recipe.parts.clear(); self.generated.push(recipe); groups.push((old, g)); Some(g)
                 });
+                if let Some(g)=it.group {
+                    if let Some(mut binding)=self.volume(old).and_then(|v|v.bindings.iter().find(|b|b.item==*id)).cloned(){binding.item=self.next_id;if let Some(v)=self.volumes.iter_mut().find(|v|v.id==g){v.bindings.push(binding);}}
+                }
                 if let Some(g) = it.group {
                     let name = self.generated_group(old).and_then(|recipe| recipe.parts.iter().find(|(_, value)| **value == *id)).map(|(name, _)| name.clone());
                     if let Some(name) = name {
@@ -666,13 +681,132 @@ impl Document {
     }
 
     pub fn from_json(s: &str) -> Result<Document, String> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
+        if s.len() > MAX_PROJECT_BYTES { return Err("el proyecto supera el límite de 256 MB".into()); }
+        // Cuenta los mapas comprimidos antes de expandir el primero: muchas imágenes
+        // pequeñas en disco también pueden superar juntas la memoria disponible.
+        let payload: serde_json::Value = serde_json::from_str(s).map_err(|e| e.to_string())?;
+        let mut pixels = 0u64;
+        if let Some(items) = payload.get("items").and_then(|v| v.as_array()) {
+            for item in items {
+                if let Some(coverage) = item.pointer("/geometry/Traced/coverage") {
+                    let count = coverage.get("w").and_then(|v| v.as_u64()).zip(coverage.get("h").and_then(|v| v.as_u64()))
+                        .and_then(|(w, h)| w.checked_mul(h)).ok_or("dimensiones de cobertura no válidas")?;
+                    pixels = pixels.checked_add(count).filter(|n| *n <= 64 * 1024 * 1024)
+                        .ok_or("los mapas de cobertura del proyecto superan el límite de memoria")?;
+                }
+            }
+        }
+        let mut doc:Document=serde_json::from_value(payload).map_err(|e|e.to_string())?;
+        doc.validate_loaded()?;
+        // Las recetas de Manzanas ya guardadas conservan su encuadre y estilo de fase 2.
+        for group in &mut doc.generated {
+            if group.generator=="blocks" && !group.params.0.contains_key(crate::generate::SCENE_VERSION) {
+                group.params.set(crate::generate::SCENE_VERSION,crate::generate::ParamValue::Number(2.0));
+            }
+        }
+        Ok(doc)
+    }
+
+    /// Comprueba las invariantes antes de entregar un proyecto a la interfaz.
+    fn validate_loaded(&mut self) -> Result<(), String> {
+        if self.pens.is_empty() || self.pens.iter().any(|p| !p.width_mm.is_finite() || p.width_mm <= 0.0 || p.width_mm > 100.0) {
+            return Err("el proyecto necesita tintas con un grosor válido".into());
+        }
+        if ![self.paper.width_mm, self.paper.height_mm].iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 10000.0)
+            || !self.paper.margin_mm.is_finite() || self.paper.margin_mm < 0.0 {
+            return Err("las dimensiones del papel no son válidas".into());
+        }
+        if ![self.plot.draw_speed, self.plot.travel_speed].iter().all(|v| v.is_finite() && *v > 0.0)
+            || ![self.plot.lift_time, self.plot.join_tolerance].iter().all(|v| v.is_finite() && *v >= 0.0) {
+            return Err("los ajustes del plotter no son válidos".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        for id in self.items.iter().map(|it| it.id).chain(self.photos.iter().map(|ph| ph.id)).chain(self.generated.iter().map(|g| g.id)).chain(self.volumes.iter().map(|g|g.id)) {
+            if id == 0 || !ids.insert(id) { return Err("el proyecto contiene identificadores vacíos o repetidos".into()); }
+        }
+        let groups: std::collections::HashSet<_> = self.photos.iter().map(|ph| ph.id).chain(self.generated.iter().map(|g| g.id)).chain(self.volumes.iter().map(|g|g.id)).collect();
+        for it in &self.items {
+            if it.stroke.is_some_and(|pen| pen >= self.pens.len()) || it.fill.pen >= self.pens.len()
+                || it.group.is_some_and(|group| !groups.contains(&group)) {
+                return Err("un objeto hace referencia a una tinta o un grupo inexistente".into());
+            }
+            if ![it.place.pos.x, it.place.pos.y, it.place.scale, it.place.rotation_deg].iter().all(|v| v.is_finite()) || it.place.scale <= 0.0 {
+                return Err("la posición o escala de un objeto no es válida".into());
+            }
+            let lines = match &it.geometry {
+                Geometry::Path { lines, .. } | Geometry::Screened { lines, .. } => Some(lines.as_slice()),
+                Geometry::Traced(t) => Some(t.lines.as_slice()),
+                _ => None,
+            };
+            if lines.is_some_and(|lines| lines.iter().flatten().any(|p| !p.x.is_finite() || !p.y.is_finite())) {
+                return Err("un objeto contiene coordenadas no válidas".into());
+            }
+        }
+        for volume in &mut self.volumes {
+            volume.recipe=crate::volumetric::Recipe::from_json(&volume.recipe.to_json()?)?;
+            if volume.name.len()>4096||!volume.placement.scale.is_finite()||volume.placement.scale<=0.||![volume.placement.pos.x,volume.placement.pos.y,volume.placement.rotation_deg].iter().all(|v|v.is_finite())||volume.recipe.passes.iter().any(|p|p.pen>=self.pens.len()||p.reading.as_ref().is_some_and(|m|m.pens.iter().any(|i|*i>=self.pens.len()))) {return Err("El objeto 3D contiene una receta o transformación no válida.".into());}
+        }
+        // Las recetas conservan identidades de partes eliminadas para futuras regeneraciones.
+        let max_id = ids.into_iter().chain(self.generated.iter().flat_map(|g| g.parts.values().copied())).max().unwrap_or(0);
+        let next = max_id.checked_add(1).filter(|id| *id < u64::MAX).ok_or("se agotaron los identificadores del proyecto")?;
+        self.next_id = self.next_id.max(next);
+        if self.next_id == u64::MAX { return Err("se agotaron los identificadores del proyecto".into()); }
+        Ok(())
+    }
+
+    /// La exportación debe esperar también a las claves aún no recogidas por la interfaz.
+    pub fn traces_current(&self) -> bool {
+        let keys = self.trace_keys();
+        self.items.iter().all(|it| it.traced().is_none_or(|t| t.made.as_ref() == keys.get(&it.id)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_repairs_next_id_and_rejects_duplicate_ids_and_broken_references() {
+        let mut doc = Document::default();
+        doc.add(Item::new("Uno", Geometry::Path { lines: vec![], closed: false }, P::default()));
+        doc.next_id = 1;
+        let mut restored = Document::from_json(&doc.to_json()).unwrap();
+        assert_eq!(restored.add(Item::new("Dos", Geometry::Path { lines: vec![], closed: false }, P::default())), 2);
+        restored.items[1].id = restored.items[0].id;
+        assert!(Document::from_json(&restored.to_json()).is_err());
+        doc.items[0].stroke = Some(doc.pens.len());
+        assert!(Document::from_json(&doc.to_json()).is_err());
+        doc.items[0].stroke = Some(0);
+        doc.items[0].group = Some(99);
+        assert!(Document::from_json(&doc.to_json()).is_err());
+        doc.items[0].group = None;
+        doc.pens.clear();
+        assert!(Document::from_json(&doc.to_json()).is_err());
+    }
+
+    #[test]
+    fn loaded_ids_cannot_overflow_and_paper_dimensions_must_be_positive() {
+        let mut doc = Document::default();
+        doc.add(Item::new("Uno", Geometry::Path { lines: vec![], closed: false }, P::default()));
+        doc.items[0].id = u64::MAX;
+        assert!(Document::from_json(&doc.to_json()).is_err());
+        doc.items[0].id = 1;
+        doc.paper.width_mm = -1.0;
+        assert!(Document::from_json(&doc.to_json()).is_err());
+    }
+
+    #[test]
+    fn coverage_memory_budget_is_checked_before_expanding_any_png() {
+        let mut doc = Document::default();
+        let traced = crate::Traced::new(crate::Coverage { map: crate::raster::Grid::new(2, 2), mm_per_px: 1.0 }, Default::default(), 42);
+        doc.add(Item::new("Tinta", Geometry::Traced(Box::new(traced)), P::default()));
+        let mut value = serde_json::to_value(doc).unwrap();
+        let mut item = value["items"][0].clone();
+        item["geometry"]["Traced"]["coverage"]["w"] = 4096.into();
+        item["geometry"]["Traced"]["coverage"]["h"] = 4096.into();
+        value["items"] = serde_json::Value::Array(vec![item; 5]);
+        assert!(Document::from_json(&value.to_string()).err().unwrap().contains("límite de memoria"));
+    }
 
     fn photo_stub(name: &str) -> crate::photo::Photo {
         crate::photo::Photo { id: 0, name: name.into(), image: crate::Shared::new(crate::photo::EncodedImage { bytes: vec![1, 2, 3] }), params: Default::default(), size_pct: 80.0 }
@@ -685,13 +819,28 @@ mod tests {
     }
 
     #[test]
+    fn boxed_traced_keeps_the_existing_project_format() {
+        let traced = crate::trace::Traced::new(
+            crate::trace::Coverage { map: crate::raster::Grid::new(2, 2), mm_per_px: 0.5 },
+            Default::default(), 42,
+        );
+        let old_payload = serde_json::json!({ "Traced": traced });
+        let geometry: Geometry = serde_json::from_value(old_payload.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&geometry).unwrap(), old_payload);
+        let mut doc = Document::default();
+        let id = doc.add(Item::new("Tinta", geometry, crate::p(10.0, 20.0)));
+        let restored = Document::from_json(&doc.to_json()).unwrap();
+        assert_eq!(restored.get(id).unwrap().traced(), doc.get(id).unwrap().traced());
+    }
+
+    #[test]
     fn relay_inks_share_the_first_ink_look_and_edit_together() {
         use crate::raster::Grid;
         use crate::trace::{Coverage, TraceParams, Traced};
         let mut doc = Document::default();
         let live = |relay: bool, angle: f64| {
             let cov = Coverage { map: Grid::new(4, 4), mm_per_px: 1.0 };
-            let mut it = Item::new("t", Geometry::Traced(Traced::new(cov, TraceParams { relay, angle_deg: angle, ..Default::default() }, 0)), crate::p(0.0, 0.0));
+            let mut it = Item::new("t", Geometry::Traced(Box::new(Traced::new(cov, TraceParams { relay, angle_deg: angle, ..Default::default() }, 0))), crate::p(0.0, 0.0));
             it.group = Some(0);
             it
         };

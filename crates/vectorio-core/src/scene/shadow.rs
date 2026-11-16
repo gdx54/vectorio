@@ -9,7 +9,7 @@ pub(super) struct ShadowGroup {
     clip: Option<[f64; 4]>,
     angle: f64,
     sun: V3,
-    polygons: Vec<Vec<V3>>,
+    pub(super) polygons: Vec<Vec<V3>>,
 }
 
 fn hull(mut points: Vec<P>) -> Vec<P> {
@@ -61,6 +61,13 @@ impl Scene {
         if let Some(b) = world_clip { if !b.iter().all(|v| v.is_finite()) || b[0] >= b[2] || b[1] >= b[3] { return; } }
         let Some(sun) = self.sun else { return; };
         self.shadow_group = Some(ShadowGroup { z: ground_z, clip: world_clip, angle: hatch_angle_deg, sun, polygons: Vec::new() });
+    }
+    /// Sombra de un cuerpo que no se dibuja como sólido, como una figura plana:
+    /// basta con los vértices de un volumen que la envuelva. Sin grupo abierto no
+    /// hace nada.
+    pub fn cast_shadow(&mut self, vertices: &[V3]) {
+        if !self.enabled || !vertices.iter().all(|v| v.finite()) { return; }
+        self.collect_shadow(vertices);
     }
     pub(super) fn collect_shadow(&mut self, vertices: &[V3]) {
         let Some(group) = &mut self.shadow_group else { return; };

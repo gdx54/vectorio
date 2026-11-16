@@ -493,4 +493,225 @@ fn benchmark_long_diagonals_and_shaded_boxes() {
     for _ in 0..5 { let t=std::time::Instant::now();std::hint::black_box(s.render());times.push(t.elapsed()); }
     times.sort(); eprintln!("500 cajas tramadas + sombras + 2.000 diagonales: mediana {:?}, máximo {:?}",times[2],times[4]);
     assert!(times[2].as_millis()<100);
+    s.set_intersections(false);let mut control=Vec::new();
+    for _ in 0..7 {let t=std::time::Instant::now();std::hint::black_box(s.render());control.push(t.elapsed());}
+    control.sort();let ratio=times[2].as_secs_f64()/control[3].as_secs_f64();
+    eprintln!("Sin intersecciones {:?}; relación activadas/desactivadas {:.3}",control[3],ratio);
+    assert!(ratio<1.2,"Las intersecciones no deben empeorar más de un 20 % esta carga");
+}
+
+fn intersections_only(scene:&Scene)->SceneOutput{
+    let grid=super::hidden::Grid::new(scene.paper,&scene.faces);
+    let strokes=super::intersections::strokes(scene,&grid);
+    let mut only=scene.clone();only.strokes=strokes;only.set_intersections(false);only.render()
+}
+#[test]
+fn interpenetrating_boxes_have_exact_analytical_intersection_in_later_part(){
+    let mut s=scene();s.box3(v(0.0,0.0,0.0),v(2.0,2.0,3.0));
+    let later=s.part("caja baja");s.set_part(later);s.box3(v(1.0,1.0,0.0),v(3.0,3.0,1.0));
+    let out=intersections_only(&s);
+    assert!(out.parts[0].lines.is_empty());let lines=&out.parts[later.0 as usize].lines;
+    assert_eq!(lines.len(),1);assert_eq!(lines[0].len(),3);
+    assert!((out.length_m(later)*1000.0-2.0*20.0*(2.0f64/3.0).sqrt()).abs()<1e-6);
+    for part in s.render().parts {assert_no_overlaps(&SceneOutput{parts:vec![part]});}
+}
+#[test]
+fn chimney_roof_and_lathe_intersections_join_and_are_occluded_normally(){
+    let mut s=scene();
+    s.extrude(&[v(-2.0,-2.0,2.0),v(2.0,-2.0,2.0),v(0.0,-2.0,4.0)],v(0.0,4.0,0.0));
+    let chimney=s.part("chimenea");s.set_part(chimney);s.box3(v(0.5,-0.5,2.0),v(1.0,0.5,5.0));
+    let out=intersections_only(&s);let lines=&out.parts[chimney.0 as usize].lines;
+    assert_eq!(lines.len(),1);assert_eq!(lines[0].len(),3);
+    for part in s.render().parts {assert_no_overlaps(&SceneOutput{parts:vec![part]});}
+    // Una tapa nueva delante debe cortar también el encuentro añadido.
+    let full=s.render();let mut shafts=0;
+    for line in &full.parts[chimney.0 as usize].lines {for pair in line.windows(2) {
+        if (pair[0].x-pair[1].x).abs()>1e-8 || pair[0].dist(pair[1])<3.0 {continue;}
+        for x in [0.5,1.0] {for y in [-0.5,0.5] {
+            let origin=s.camera.project(v(x,y,0.0)).0;
+            if (origin.x-pair[0].x).abs()<1e-7 {
+                let z=|q:P|(origin.y-q.y)/(s.camera.scale*s.camera.elev_deg.to_radians().cos());
+                assert!(z(pair[0]).min(z(pair[1]))>=4.0-x-0.01,"Fuste dentro del tejado");shafts+=1;
+            }
+        }}
+    }}assert!(shafts>=2);
+    let before=out.length_m(chimney);s.set_quiet(true);s.box3(v(0.6,0.3,3.0),v(1.3,0.8,4.0));
+    assert!(intersections_only(&s).length_m(chimney)<before);
+    let mut s=scene();s.box3(v(-2.0,-2.0,0.0),v(2.0,2.0,1.0));
+    let cylinder=s.part("cilindro");s.set_part(cylinder);s.lathe(V3::default(),&[(0.7,0.5),(0.7,3.0)],true);
+    let out=intersections_only(&s);let lines=&out.parts[cylinder.0 as usize].lines;
+    assert_eq!(lines.len(),1);assert!(lines[0].len()>10);
+    for part in s.render().parts {assert_no_overlaps(&SceneOutput{parts:vec![part]});}
+}
+#[test]
+fn contacts_quiet_coplanar_and_disabled_solids_do_not_duplicate_intersections(){
+    let mut s=scene();s.box3(v(0.0,0.0,0.0),v(3.0,1.0,1.0));
+    for i in 0..3{s.box3(v(i as f64,0.0,1.0),v(i as f64+0.6,1.0,1.6));}
+    assert!(segments(&intersections_only(&s)).is_empty());for part in s.render().parts {assert_no_overlaps(&SceneOutput{parts:vec![part]});}
+    for quiet in [false,true]{let mut s=scene();s.box3(v(0.0,0.0,0.0),v(2.0,2.0,3.0));
+        s.set_quiet(quiet);if !quiet{s.set_intersections(false);}
+        s.box3(v(1.0,1.0,0.0),v(3.0,3.0,1.0));assert!(segments(&intersections_only(&s)).is_empty());}
+    let mut s=scene();for _ in 0..2{s.box3(V3::default(),v(1.0,1.0,1.0));}
+    assert!(segments(&intersections_only(&s)).is_empty());for part in s.render().parts {assert_no_overlaps(&SceneOutput{parts:vec![part]});}
+}
+
+#[test]
+fn holes_cut_only_coplanar_strokes_and_keep_frames_and_fill() {
+    let mut s = scene(); let cam = *s.camera();
+    let w = |x, y, d| cam.unproject(p(x, y), d);
+    s.hole(&[w(90.0, 90.0, 0.0), w(110.0, 90.0, 0.0), w(110.0, 110.0, 0.0), w(90.0, 110.0, 0.0)]);
+    let wall = s.part("pared"); s.set_part(wall);
+    s.line(&[w(80.0, 100.0, 0.0), w(120.0, 100.0, 0.0)]);
+    // Cruza el plano del hueco en x = 100: solo se borra el tramo dentro de la holgura.
+    s.line(&[w(80.0, 95.0, -0.5), w(120.0, 95.0, 0.5)]);
+    let near = s.part("delante"); s.set_part(near);
+    s.line(&[w(80.0, 105.0, -1.0), w(120.0, 105.0, -1.0)]);
+    let far = s.part("detrás"); s.set_part(far);
+    s.line(&[w(80.0, 102.0, 1.0), w(120.0, 102.0, 1.0)]);
+    let frame = s.part("marco"); s.set_part(frame);
+    s.whole_line(&[w(90.0, 90.0, 0.0), w(110.0, 90.0, 0.0), w(110.0, 110.0, 0.0), w(90.0, 110.0, 0.0), w(90.0, 90.0, 0.0)]);
+    s.whole_line(&[w(100.0, 90.0, 0.0), w(100.0, 110.0, 0.0)]);
+    let out = s.render();
+    let len = |id: PartId| out.length_m(id) * 1000.0;
+    // 20 mm fuera del hueco, más la diagonal menos 2·0,01 m / (1 m / 40 mm) = 0,8 mm.
+    assert!((len(wall) - 20.0 - 39.2).abs() < 1e-6, "pared: {}", len(wall));
+    assert!(out.parts[wall.0 as usize].lines.iter().flatten().all(|q| !(q.x > 90.0 + 1e-6 && q.x < 110.0 - 1e-6 && (q.y - 100.0).abs() < 1e-9)));
+    assert!((len(near) - 40.0).abs() < 1e-9 && (len(far) - 40.0).abs() < 1e-9);
+    assert!((len(frame) - 100.0).abs() < 1e-9);
+}
+
+#[test]
+fn window_hole_clears_wall_hatching_but_not_its_dark_fill() {
+    let mut s = scene();
+    let faces = s.box3(v(0.0, 0.0, 0.0), v(4.0, 4.0, 3.0));
+    let face = faces.iter().find(|f| { let n = normal(f); n.z.abs() < 1e-9 && s.camera().facing(n) }).unwrap().clone();
+    let (o, h, u) = (face[0], face[1] - face[0], face[3] - face[0]);
+    let window = [o + h * 0.3 + u * 0.3, o + h * 0.7 + u * 0.3, o + h * 0.7 + u * 0.7, o + h * 0.3 + u * 0.7];
+    let trama = s.part("trama"); s.set_part(trama);
+    s.hatch_face(&face, h, 0.6);
+    s.hole(&window);
+    let inside = |q: P, s: &Scene| {
+        let poly: Vec<P> = window.iter().map(|w| s.camera().project(*w).0).collect();
+        let sign = (0..4).map(|i| cross(poly[(i + 1) % 4] - poly[i], q - poly[i])).collect::<Vec<_>>();
+        sign.iter().all(|c| *c > 1e-6) || sign.iter().all(|c| *c < -1e-6)
+    };
+    let mids = |out: &SceneOutput| out.parts[trama.0 as usize].lines.iter().flat_map(|l| l.windows(2).map(|w| w[0].lerp(w[1], 0.5))).collect::<Vec<_>>();
+    let out = s.render();
+    assert!(!mids(&out).is_empty() && mids(&out).iter().all(|q| !inside(*q, &s)));
+    let relleno = s.part("relleno"); s.set_part(relleno);
+    s.hatch_hole(&window, u, 0.4);
+    let out = s.render();
+    assert!(out.parts[relleno.0 as usize].lines.len() >= 3);
+    assert!(mids(&out).iter().all(|q| !inside(*q, &s)));
+}
+
+#[test]
+fn lathe_parts_group_faces_by_band_and_meridian_with_caps_apart() {
+    let profile = [(1.0, 0.0), (0.6, 1.0), (0.9, 2.0), (0.0, 3.0)];
+    let mut s = scene();
+    let lathe = s.lathe_parts(V3::default(), &profile, true).unwrap();
+    assert_eq!(lathe.bands.len(), profile.len() - 1);
+    assert!(lathe.bands.iter().all(|band| band.len() == lathe.segments));
+    // La punta superior no tiene tapa; la base, sí.
+    assert_eq!(lathe.caps.len(), 1);
+    assert!(lathe.caps[0].iter().all(|q| q.z.abs() < 1e-12));
+    let step = std::f64::consts::TAU / lathe.segments as f64;
+    for (k, band) in lathe.bands.iter().enumerate() {
+        for (m, face) in band.iter().enumerate() {
+            assert!(face.iter().all(|q| q.z >= profile[k].1 - 1e-9 && q.z <= profile[k + 1].1 + 1e-9), "tramo {k}");
+            let rim: Vec<_> = face.iter().filter(|q| q.x.hypot(q.y) > 1e-9).collect();
+            let mean = rim.iter().map(|q| V3::new(q.x, q.y, 0.0).normalized()).fold(V3::default(), |a, b| a + b);
+            let angle = mean.y.atan2(mean.x).rem_euclid(std::f64::consts::TAU);
+            assert!((angle - (m as f64 + 0.5) * step).abs() < 1e-6, "meridiano {m}");
+        }
+    }
+    let mut flat = scene();
+    assert_eq!(flat.lathe(V3::default(), &profile, true), lathe.clone().into_faces());
+    assert!(scene().lathe_parts(V3::default(), &[(1.0, 1.0), (1.0, 0.0)], true).is_none());
+}
+
+fn cube_with_split_top(size: f64) -> Vec<Vec<V3>> {
+    let s = size;
+    vec![
+        vec![v(0.0, 0.0, 0.0), v(0.0, s, 0.0), v(s, s, 0.0), v(s, 0.0, 0.0)],
+        vec![v(0.0, 0.0, s), v(s, 0.0, s), v(s, s, s)],
+        vec![v(0.0, 0.0, s), v(s, s, s), v(0.0, s, s)],
+        vec![v(0.0, 0.0, 0.0), v(s, 0.0, 0.0), v(s, 0.0, s), v(0.0, 0.0, s)],
+        vec![v(s, 0.0, 0.0), v(s, s, 0.0), v(s, s, s), v(s, 0.0, s)],
+        vec![v(s, s, 0.0), v(0.0, s, 0.0), v(0.0, s, s), v(s, s, s)],
+        vec![v(0.0, s, 0.0), v(0.0, 0.0, 0.0), v(0.0, 0.0, s), v(0.0, s, s)],
+    ]
+}
+
+#[test]
+fn coplanar_pieces_of_one_solid_share_no_visible_edge() {
+    let mut s = scene();
+    let groups = s.polyhedron(&cube_with_split_top(2.0));
+    assert_eq!(groups.len(), 7);
+    let out = s.render();
+    // La diagonal de la tapa no se dibuja: quedan las nueve aristas de una caja.
+    assert_eq!(out.parts[0].lines.len(), 9, "{:?}", out.parts[0].lines);
+    assert!(s.seams(&out).is_empty());
+    // Dos cajas adosadas sí conservan su junta.
+    let mut s = scene();
+    s.box3(V3::default(), v(2.0, 2.0, 2.0));
+    s.box3(v(2.0, 0.0, 0.0), v(4.0, 2.0, 3.0));
+    assert!(!s.seams(&s.render()).is_empty());
+}
+
+#[test]
+fn polyhedron_orients_mixed_windings_and_rejects_open_shells() {
+    let mut faces = cube_with_split_top(2.0);
+    for face in faces.iter_mut().step_by(2) { face.reverse(); }
+    let mut s = scene();
+    let groups = s.polyhedron(&faces);
+    assert_eq!(groups.len(), 7);
+    let center = v(1.0, 1.0, 1.0);
+    for group in &groups { for piece in group {
+        let n = (piece[1] - piece[0]).cross(piece[2] - piece[0]);
+        assert!(n.dot(piece[0] - center) > 0.0);
+    } }
+    let mut open = cube_with_split_top(2.0);
+    open.pop();
+    assert!(scene().polyhedron(&open).is_empty());
+}
+
+#[test]
+fn stepped_prism_is_one_solid_with_convex_pieces_and_no_seams() {
+    // Perfil de escalera de tres peldaños en el plano yz, extruido a lo largo de x.
+    let profile = [v(0.0, 0.0, 0.0), v(0.0, 3.0, 0.0), v(0.0, 3.0, 1.5), v(0.0, 2.0, 1.5), v(0.0, 2.0, 1.0),
+        v(0.0, 1.0, 1.0), v(0.0, 1.0, 0.5), v(0.0, 0.0, 0.5)];
+    let mut s = scene();
+    let groups = s.prism(&profile, v(2.0, 0.0, 0.0));
+    assert_eq!(groups.len(), 2 + profile.len());
+    assert!(groups[0].len() > 1 && groups[0].len() <= 3, "{}", groups[0].len());
+    for piece in groups.iter().flatten() { assert!(super::valid_face(piece)); }
+    let out = s.render();
+    assert!(s.seams(&out).is_empty(), "{:?}", s.seams(&out));
+    assert!(s.construction_issues(1.5).is_empty());
+    // Ni perfiles planos degenerados ni vectores tangentes.
+    assert!(scene().prism(&profile, v(0.0, 1.0, 0.0)).is_empty());
+    assert!(scene().prism(&profile[..2], v(1.0, 0.0, 0.0)).is_empty());
+}
+
+#[test]
+fn hatching_a_split_face_gives_one_continuous_family_of_lines() {
+    let whole = vec![v(0.0, 0.0, 0.0), v(4.0, 0.0, 0.0), v(4.0, 0.0, 3.0), v(0.0, 0.0, 3.0)];
+    let pieces = [vec![v(0.0, 0.0, 0.0), v(4.0, 0.0, 0.0), v(4.0, 0.0, 3.0)], vec![v(0.0, 0.0, 0.0), v(4.0, 0.0, 3.0), v(0.0, 0.0, 3.0)]];
+    // La cara mira a la cámara en el giro que sea necesario.
+    let flip = !camera().facing(super::normal(&whole));
+    let turned = |face: &Vec<V3>| { let mut f = face.clone(); if flip { f.reverse(); } f };
+    let (whole, pieces) = (turned(&whole), pieces.iter().map(turned).collect::<Vec<_>>());
+    let lines = |split: bool| {
+        let mut s = scene();
+        if split { s.hatch_faces(&pieces, v(1.0, 0.0, 0.3), 0.7); } else { s.hatch_face(&whole, v(1.0, 0.0, 0.3), 0.7); }
+        s.render().parts[0].lines.clone()
+    };
+    let (one, two) = (lines(false), lines(true));
+    assert!(one.len() > 10);
+    assert_eq!(one.len(), two.len());
+    for (a, b) in one.iter().zip(&two) {
+        assert_eq!(b.len(), 2);
+        assert!((length(a) - length(b)).abs() < 1e-6);
+    }
 }

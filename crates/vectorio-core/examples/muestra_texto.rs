@@ -5,8 +5,10 @@ use vectorio_core::{font, svg_out, p, Align, Document, Geometry, Item, Paper, Te
 fn main() {
     let folder = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("target/texto-demo"));
     std::fs::create_dir_all(&folder).unwrap();
-    let mut doc = Document::default();
-    doc.paper = Paper::presets().into_iter().find(|paper| paper.name == "A4 vertical").unwrap();
+    let mut doc = Document {
+        paper: Paper::presets().into_iter().find(|paper| paper.name == "A4 vertical").unwrap(),
+        ..Default::default()
+    };
     let paragraph = "La escritura dibuja un recorrido sobre el papel. Cada palabra mantiene su carácter, mientras las líneas se adaptan al espacio disponible. Una caja de texto permite componer una carta completa, separar sus párrafos y continuar en otra hoja sin perder el contenido.";
     let spec = TextSpec {
         text: std::iter::repeat_n(paragraph, 16).collect::<Vec<_>>().join("\n"),

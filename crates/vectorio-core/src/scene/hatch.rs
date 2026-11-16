@@ -39,17 +39,26 @@ impl Scene {
     /// proyecta sobre el plano de la cara; la separación es siempre en mm del papel.
     /// No añade un oclusor: permite decorar una cara ya añadida por solid.
     pub fn hatch_face(&mut self, points: &[V3], direction: V3, spacing_mm: f64) {
-        if !spacing_mm.is_finite() || spacing_mm <= 0.0 || !direction.finite() { return; }
-        let n = normal(points);
+        self.hatch_faces(std::slice::from_ref(&points.to_vec()), direction, spacing_mm);
+    }
+    /// Como `hatch_face`, para una cara partida en trozos coplanarios: cada línea
+    /// cruza los trozos de un solo trazo, como si la cara fuera una.
+    pub fn hatch_faces(&mut self, pieces: &[Vec<V3>], direction: V3, spacing_mm: f64) {
+        if pieces.is_empty() || !spacing_mm.is_finite() || spacing_mm <= 0.0 || !direction.finite() { return; }
+        let n = normal(&pieces[0]);
         if !self.camera.facing(n) { return; }
         let direction = direction - n * direction.dot(n);
-        let Some(face) = Face::new(points, &self.camera) else { return; };
+        let faces: Vec<Face> = pieces.iter().filter_map(|piece| Face::new(piece, &self.camera)).collect();
+        if faces.len() != pieces.len() { return; }
         let origin = self.camera.project(V3::default()).0;
         let projected = self.camera.project(direction).0 - origin;
         if projected.len() < 1e-12 { return; }
         let angle = projected.y.atan2(projected.x).to_degrees();
-        for line in hatch_polygons(std::slice::from_ref(&face), self.paper, angle, spacing_mm, super::FACE_INSET_MM) {
-            self.add_stroke(line.iter().map(|q| Vertex { point: *q, depth: face.depth(*q) }).collect(), false);
+        // Una cara sola se encoge un poco, como siempre; entre trozos no puede haber
+        // holgura, o cada línea se partiría en sus juntas.
+        let inset = if faces.len() == 1 { super::FACE_INSET_MM } else { 0.0 };
+        for line in hatch_polygons(&faces, self.paper, angle, spacing_mm, inset) {
+            self.add_stroke(line.iter().map(|q| Vertex { point: *q, depth: faces[0].depth(*q) }).collect(), false);
         }
     }
 }

@@ -30,19 +30,21 @@ pub struct Camera {
     pub scale: f64,
     pub world_center: V3,
     pub paper_center: P,
+    /// Distancia focal y plano cercano en unidades del mundo; None conserva la ortográfica.
+    pub perspective: Option<[f64; 2]>,
 }
 
 impl Default for Camera {
     fn default() -> Self {
         Self { yaw_deg: 45.0, elev_deg: (1.0 / 2f64.sqrt()).atan().to_degrees(), scale: 10.0,
-            world_center: V3::default(), paper_center: p(105.0, 148.5) }
+            perspective: None, world_center: V3::default(), paper_center: p(105.0, 148.5) }
     }
 }
 
 impl Camera {
     pub(super) fn valid(&self) -> bool {
         self.yaw_deg.is_finite() && self.elev_deg > 0.0 && self.elev_deg < 90.0 && self.scale.is_finite() && self.scale > 0.0 &&
-            self.world_center.finite() && self.paper_center.x.is_finite() && self.paper_center.y.is_finite()
+            self.perspective.is_none_or(|[d,n]|d.is_finite()&&n.is_finite()&&d>0.&&n>0.) && self.world_center.finite() && self.paper_center.x.is_finite() && self.paper_center.y.is_finite()
     }
     // Base ortonormal: derecha, abajo y lejos. Evita fórmulas distintas para la inversa.
     pub(super) fn basis(&self) -> (V3, V3, V3) {
@@ -50,23 +52,57 @@ impl Camera {
         let (se, ce) = self.elev_deg.to_radians().sin_cos();
         (V3::new(-sy, cy, 0.0), V3::new(se * cy, se * sy, -ce), V3::new(-ce * cy, -ce * sy, -se))
     }
+    /// Ejes del mundo que van a la derecha y hacia abajo en la hoja, y hacia el fondo.
+    pub fn axes(&self) -> (V3, V3, V3) { self.basis() }
     pub fn project(&self, point: V3) -> (P, f64) {
         if !self.valid() || !point.finite() { return (p(0.0, 0.0), 0.0); }
         let (right, down, away) = self.basis();
         let q = point - self.world_center;
-        (self.paper_center + p(q.dot(right), q.dot(down)) * self.scale, q.dot(away))
+        let z=q.dot(away);
+        if let Some([d, near])=self.perspective {
+            let w=(d+z).max(near*1e-6);
+            return (self.paper_center+p(q.dot(right),q.dot(down))*(self.scale*d/w),d-d*d/w);
+        }
+        (self.paper_center + p(q.dot(right), q.dot(down)) * self.scale, z)
     }
     pub fn facing(&self, normal: V3) -> bool { normal.dot(self.basis().2) < -1e-12 }
-    pub(super) fn unproject(&self, point: P, depth: f64) -> V3 {
+    pub fn unproject(&self, point: P, depth: f64) -> V3 {
         let (right, down, away) = self.basis();
-        let q = (point - self.paper_center) * (1.0 / self.scale);
+        let mut q = (point - self.paper_center) * (1.0 / self.scale);
+        let depth=if let Some([d,_])=self.perspective {let z=depth/(1.-depth/d);q=q*((d+z)/d);z}else{depth};
         self.world_center + right * q.x + down * q.y + away * depth
+    }
+    pub fn facing_at(&self, normal:V3, point:V3)->bool {
+        if let Some([d,_])=self.perspective { normal.dot(self.world_center-self.basis().2*d-point)>1e-12 }
+        else {self.facing(normal)}
+    }
+    pub fn near_value(&self,q:V3)->f64 {self.perspective.map_or(1.,|[d,n]|d+(q-self.world_center).dot(self.basis().2)-n)}
+    /// Recorte de polígonos convexos antes de dividir por la profundidad.
+    pub fn clip_polygon(&self,points:&[V3])->Vec<V3> {
+        if self.perspective.is_none(){return points.to_vec();}
+        let mut out=Vec::new();
+        for (&a,&b) in points.iter().zip(points.iter().cycle().skip(1)).take(points.len()) {
+            let (va,vb)=(self.near_value(a),self.near_value(b));
+            if va>=0.{out.push(a);}
+            if (va>=0.)!=(vb>=0.) {out.push(a+(b-a)*(va/(va-vb)));}
+        }
+        out
+    }
+    pub fn clip_segment(&self,a:V3,b:V3)->Option<[V3;2]> {
+        let (va,vb)=(self.near_value(a),self.near_value(b));
+        if va<0.&&vb<0.{return None;}let mut edge=[a,b];
+        if (va>=0.)!=(vb>=0.){edge[usize::from(va>=0.)]=a+(b-a)*(va/(va-vb));}Some(edge)
+    }
+    /// Pesos baricéntricos corregidos para atributos en perspectiva.
+    pub fn weights(&self,mut w:[f64;3],points:[V3;3])->[f64;3]{
+        if let Some([d,_])=self.perspective {for i in 0..3{w[i]/=d+(points[i]-self.world_center).dot(self.basis().2);}let sum:f64=w.iter().sum();if sum.abs()>1e-15{for v in &mut w{*v/=sum;}}}w
     }
     /// Intersección del rayo de pantalla con el plano horizontal de altura z.
     pub fn ground(&self, point: P, z: f64) -> V3 {
         if !self.valid() || !point.x.is_finite() || !point.y.is_finite() || !z.is_finite() { return V3::default(); }
         let q = self.unproject(point, 0.0);
-        q + self.basis().2 * ((z - q.z) / self.basis().2.z)
+        let direction=if let Some([d,_])=self.perspective {q-(self.world_center-self.basis().2*d)}else{self.basis().2};
+        if direction.z.abs()<1e-12{return q;}q + direction * ((z - q.z) / direction.z)
     }
     /// Ajusta los ocho vértices de una caja [mínimo, máximo] dentro del área en mm.
     /// Conserva los ángulos. El margen se aplica a los cuatro lados.

@@ -4,6 +4,8 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
 
 ## Qué hace
 
+- **Volumen (⌘4)**: primitivas y modelos OBJ/STL, pasadas combinables con tintas independientes, secciones reales, ondas, malla, luz y sombras. Incluye mapas de curvatura, pendiente, oclusión ambiental y espesor; mezcla óptica, isolíneas, halos, eco y temblor reproducible. Tiene cámara orbital ortográfica o con perspectiva, hojas multivista, cartelas vectoriales y 32 estilos organizados por categorías. Las recetas se guardan con los objetos 3D para reabrirlos desde Diseño. Las escenas de Crear pueden abrirse en Volumen. Las coordenadas de Sección técnica se ocultan con «Mostrar cotas XYZ». Conserva el modelo original, admite OBJ/STL de hasta 512 MB y 5 millones de triángulos y ofrece calidad interactiva, detallada u original. [Plan de Volumen](docs/plan-volumen-rediseno.md) y [última ampliación](docs/volumen-ampliacion-g.md).
+
 - **Texto manuscrito en cajas**, con 11 tipografías de un solo trazo:
   - 8 de trazo sencillo de Evil Mad Scientist y Hershey: Capitol (cursiva unida), Allure, Society, Hershey Script, Pepita, Casual, Neato y Arquitecto.
   - 3 propias: Vectorio manuscrita, cuidada y técnica.
@@ -32,12 +34,17 @@ Aplicación de escritorio en Rust para hacer "cosas bonitas" con un plotter de r
   - Colores: k-means; cada color se convierte en un rotulador con relleno. Sin contorno por defecto y con todos los rayados en el mismo ángulo (ajustable, o uno distinto por color).
   - Mezcla: superpone tramas de rayado o puntos de varios rotuladores (CMYK, RYB o los colores de la foto) para mezclar los colores en el ojo, con colores más vivos que un relleno plano. Prefiere el negro para las sombras. Las capas importadas se identifican como tramas de relleno, con su tinta en la muestra de relleno. La importación conserva los mismos trazos y grosores que la vista previa.
   - Líneas: centro de los trazos.
+  - Retrato: campo de direcciones calculado con el tensor estructural RGB suavizado; las líneas de corriente siguen los bordes y formas de la imagen. Las sombras reciben pasadas adicionales, cruzadas si se desea, y las luces conservan el papel. Funciona en negro, RYB (amarillo, rojo, azul y negro), CMYK, colores de la foto o rotuladores elegidos. Densidad, fluidez, seguimiento de formas, ángulo de las zonas sin estructura, pasadas, largo y reserva de luces ajustables. Genera trazos abiertos por tinta; la foto y sus ajustes se conservan para regenerarla desde Capas. Para empezar: RYB, 240 de densidad, 3 pasadas, punta de 0,35 mm; conviene una foto nítida y con contraste. La densidad es relativa al tamaño de imagen: al reducir mucho el dibujo en el papel también hay que reducirla para que el grosor físico no cierre las luces.
   - Siluetas: formas cerradas.
   - Grabado: ondas moduladas.
+  - Topografía: adaptación nativa en Rust de FastMarchingTopoPlot. Una onda recorre la imagen con una velocidad guiada por el brillo y sus tiempos generan curvas de nivel, más juntas en las sombras. Número de curvas, gamma, velocidad mínima, suavizado y origen ajustables; también se puede colocar el origen pulsando sobre la imagen. Conserva el alfa de PNG para omitir zonas transparentes y guarda foto y parámetros para regenerar el dibujo. Sale como trazos por tinta, compatibles con SVG y Salida. Detalles y atribución en `docs/topografia.md`.
   - Al añadirlo, el dibujo queda seleccionado entero para moverlo o borrarlo de una vez.
 - **Selección múltiple**: arrastrar en vacío selecciona con un recuadro; ⇧ o ⌘ clic añade o quita. Se mueven, duplican, borran y editan juntos.
 - **Menú nativo de macOS** con todas las órdenes y la hoja de atajos (⌘/).
-- **Crear** (⌘2): generadores con vista previa y cálculo en segundo plano. Manzanas combina bloques, torres, tramas y sombras; Espirógrafo dibuja curvas continuas por capa. Ajusta parámetros, bloquea los que quieras conservar y usa Aleatorio (N cuando no estás escribiendo). Colocar añade un grupo con una parte por objeto; cada parte conserva su propia tinta. «Editar en Crear…» en Capas permite actualizar la receta conservando tintas, posición, escala, visibilidad y bloqueo. El último generador y sus parámetros se recuerdan entre sesiones.
+- **Crear** (⌘2): generadores con vista previa y cálculo en segundo plano. Pueblo blanco compone una ladera de bancales con calles, callejones con escaleras, farolas y gente, una plaza con fuente, árboles, bancos e iglesia de nave alargada con el campanario en una esquina de los pies y una pareja de cipreses; cada bancal tiene una hilera de casas adosadas a lo largo de la calle, de una o dos plantas y alturas escalonadas (con balcones, zócalo, la puerta a la calle y el tejado volado sobre la fachada), que de vez en cuando se abre en una casa con patio o en un huerto tapiado con olivos, y en las azoteas hay pérgolas, tendederos, casetones de escalera y depósitos de agua, huertos tapiados y, alrededor, parcelas de surcos, olivares y cipreses. En «Cartel» la fachada al sol queda blanca y los costados reciben sombra fría; tejados, sombras, plantas y terreno van cada uno en su tinta; en «Grabado» todas las caras llevan una trama ligera. El sol de serie depende de la vista: deja en blanco las fachadas de la calle y en tono medio, con una trama abierta, la otra cara visible; «Giro del sol» lo gira a partir de ahí. Los estratos, irregulares, ondulados y con alguna lente, solo van en las caras del borde de la maqueta; entre bancales hay muros de contención con albardilla. «Terreno» elige entre bancales y llano, «Calles» cuántas hay y «Densidad de sombras» junta o abre las líneas de las sombras arrojadas. El encuadre «A sangre» llena toda la hoja de terreno, y «Campo alrededor» aleja la cámara para rodear el pueblo de huertas y olivares; «Maqueta» lo corta como un bloque de terreno con margen en la hoja. Manzanas combina bloques y torres; Espirógrafo dibuja curvas continuas por capa. Las escenas nuevas comparten estilo de cal blanca y tramas por superficie; cada casa, escalera, tapia o banco es una sola pieza, sin juntas entre muro, hastial, pretil o peldaños (las casas adosadas sí conservan su junta); las ventanas y puertas apartan la trama de su pared y pueden quedar en blanco o rellenas («Ventanas oscuras»). La galería muestra miniaturas calculadas en segundo plano. Ajusta parámetros, bloquea los que quieras conservar y usa Aleatorio (N cuando no estás escribiendo). Cada generador trae juegos de tintas a juego con la escena (Cal y añil, Tierra y olivo, Tinta china, Atardecer, Vectorio…) y eliges cuántos rotuladores usar: con menos, las partes se agrupan en los que hay (la vegetación antes que la trama, la trama antes que el terreno). «Rotuladores del documento» reparte las tintas existentes. Colocar añade un grupo con una parte por objeto y suma al documento los rotuladores del juego que falten, reutilizando los del mismo color; cada parte conserva su propia tinta, y al actualizar con el mismo juego se respetan las tintas que hayas cambiado. «Editar en Crear…» en Capas permite actualizar la receta conservando tintas, posición, escala, visibilidad y bloqueo. El último generador, sus parámetros y los candados se recuerdan entre sesiones. Editar un grupo trabaja sobre una copia y conserva los ajustes recordados al actualizar o cancelar.
+  **Megastructuras** construye una masa continua con estratos desiguales, galerías, lamas, vaciados, cubiertas y maquinaria: Torre estratificada, Patio interior o Gran pórtico. **Puerto y ciudadela** añade un frente marítimo Pesquero, de Almacenes con grúa, o Ciudadela, con plaza, muelles, veleros, faro y fachadas con toldos. «Intensidad de tinta», compartida por las escenas, refuerza cubiertas y sombras respetando el ancho del rotulador; las escenas densas separan tejados cálidos y sombras frías.
+  En Ciudad en fiesta, «Mostrar rótulos» permite quitar todos los textos de tiendas, puestos, recintos y meta conservando la arquitectura y los adornos. Los dos personajes altos de «Cabalgata» son los gigantes del desfile. «Vida en la calle» también añade pequeños aparcabicis en las aceras del núcleo; las copas de la mediana dejan libres los pasos y el parque se aligera durante la feria. El juego «Bolígrafo», disponible en todos los generadores, usa negro, azul, rojo y verde con cuatro rotuladores; con cinco añade amarillo para el terreno. Contornos y textos quedan negros, las tramas y sombras azules, los acentos rojos y la vegetación verde.
+  Cúpulas conecta de cinco a nueve pequeños mundos: pueblo, jardín, cancha, mercado, huerto y laboratorio, con gente en su interior. «Mundo» cambia entre Subacuático (peces, coral, buzos, barca y una ballena, calamar o reptil marino) y Espacial (planetas, galaxia, astronautas y un cohete, estación o ballena estelar). Se pueden quitar los protagonistas, regular la gente y el fondo, y girar la vista. El vidrio deja ver los interiores y oculta el fondo; las pasarelas llegan a los bordes de las cúpulas. Juegos de tintas Abismo, Órbita y Bolígrafo.
 - **Salida** (⌘3): espacio dedicado a preparar el EasyDraw, sin driver ni conexión todavía. Usa el mismo lienzo y paneles de vidrio que Diseño: inspector a la derecha con resumen, ajustes y exportación, controles de vista sobre el papel y simulación en el panel inferior.
   - **Mapa de tinta total**, con el criterio y la escala de Linear: gris (1 pasada), amarillo (2), naranja (3), rojo (4–5), carmín (6–9) y morado (10 o más). Cuenta la huella física de cada rotulador más el empape ajustable; permanecer dentro de una celda no multiplica las pasadas. Los focos conservan su máximo al alejar la vista.
   - **Mapas de humedad estimada**, antes y después del plan: muestran el máximo de pasadas aún húmedas por zona. Esperar no reduce la tinta total depositada.
@@ -85,7 +92,7 @@ La lista completa está en la app con ⌘/.
 | ⌘, | Ajustes |
 | ⌘S · ⇧⌘S · ⌘O · ⌘E · ⇧⌘E · ⌘N | Guardar · Guardar como · Abrir · Exportar SVG · uno por rotulador · Nuevo |
 | Flechas (⇧) | Mover 1 mm (10 mm) |
-| ⌘1 · ⌘2 · ⌘3 | Diseño · Crear · Salida |
+| ⌘1 · ⌘2 · ⌘3 · ⌘4 | Diseño · Crear · Salida · Volumen |
 | N (en Crear, fuera de campos de texto) | Parámetros y semilla aleatorios, respetando candados |
 | ⌘= · ⌘− · Pellizco · ⌘ + rueda | Zoom |
 | Espacio + arrastrar | Desplazar (en Salida, Espacio reproduce la simulación) |
@@ -96,7 +103,7 @@ La lista completa está en la app con ⌘/.
 
 ```bash
 export PATH=/opt/homebrew/opt/rustup/bin:$PATH
-cargo test -p vectorio-core
+cargo test --workspace --locked
 cargo run --release -p vectorio-app
 ```
 
@@ -106,9 +113,9 @@ cargo run --release -p vectorio-app
 python3 scripts/install-macos.py
 ```
 
-Instala o actualiza `/Applications/Vectorio.app`, con el icono Relieve. Después de cada cambio del proyecto se actualiza esta misma aplicación. También comprueba el código al abrir: si ha cambiado, compila antes de iniciar; si la compilación falla, abre la última versión instalada. Los registros están en `~/Library/Logs/Vectorio/updates.log`.
+Instala o actualiza `/Applications/Vectorio.app`, con el icono Relieve. La app instalada abre directamente su binario: no lee el proyecto ni recompila al arrancar. Si falla una compilación, el instalador conserva la versión anterior. Una ventana ya abierta conserva su versión hasta el siguiente inicio.
 
-La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan disponibles en este Mac. Si el proyecto no está disponible, abre el binario instalado. Una ventana ya abierta conserva su versión hasta cerrarla; guarda el proyecto antes de reiniciar para cargar una actualización.
+Los perfiles de desarrollo y pruebas no generan símbolos de depuración ni copias incrementales para limitar el espacio ocupado. Las cachés de `target/` se pueden regenerar y no se publican en GitHub. `cargo clean` las elimina, incluidos los ejemplos y las capturas guardados allí; conserva antes los resultados que quieras guardar.
 
 ## Estructura
 
@@ -136,6 +143,8 @@ La comprobación al abrir depende de que esta carpeta del proyecto y Rust sigan 
 - Cachear el dibujo del recorrido en Salida para fotos con muchísimos trazos.
 
 ## Créditos
+
+- Topografía: algoritmo de [FastMarchingTopoPlot](https://github.com/rolandblok/FastMarchingTopoPlot) de Roland Blok, adaptado a Rust. Licencia Unlicense, conservada en `third_party/FastMarchingTopoPlot/UNLICENSE`.
 
 - Tipografías EMS (Allure, Capitol, Casual Hand, Neato, Pepita, Society, Tech) de Evil Mad Scientist Laboratories, y Hershey Script derivada de las fuentes del Dr. A. V. Hershey. Licencia SIL Open Font License 1.1 (`crates/vectorio-core/fonts/OFL.txt`).
   - https://gitlab.com/oskay/svg-fonts

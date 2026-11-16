@@ -6,8 +6,11 @@ rust_i18n::i18n!("locales", fallback = "es");
 mod i18n;
 
 mod app;
+mod files;
+mod recovery;
 mod fmt;
 mod canvas;
+mod catalog;
 mod colorpanel;
 mod commands;
 mod create;
@@ -20,6 +23,7 @@ mod prefs_ui;
 mod styles;
 mod theme;
 mod vectorize_ui;
+mod volumetric_ui;
 
 fn main() -> eframe::Result<()> {
     // En macOS eframe usa este icono en el Dock y en ⌘⇥ por encima del del paquete, así

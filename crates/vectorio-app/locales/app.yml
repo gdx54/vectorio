@@ -1,4 +1,20 @@
 _version: 2
+"Cambios sin guardar":
+  en: "Unsaved changes"
+"Descartar cambios":
+  en: "Discard changes"
+"Guarda el proyecto antes de continuar para conservar tus cambios.":
+  en: "Save the project before continuing to keep your changes."
+"Sin guardar":
+  en: "Unsaved"
+"Espera a que terminen de actualizarse las tintas antes de exportar.":
+  en: "Wait for the inks to finish updating before exporting."
+"Editar color %{color}":
+  en: "Edit color %{color}"
+"Bloquear %{param} en Aleatorio":
+  en: "Lock %{param} when randomizing"
+"Densidad":
+  en: "Density"
 "Blanco":
   en: "White"
 "Marfil":
@@ -1313,8 +1329,6 @@ _version: 2
   en: "Edit in Create…"
 "El papel puede saturarse: más de 80 m.":
   en: "The paper may become saturated: over 80 m."
-"GENERADORES":
-  en: "GENERATORS"
 "Generadores de dibujo":
   en: "Drawing generators"
 "Grupo generado: clic para seleccionar sus partes":
@@ -1371,6 +1385,48 @@ _version: 2
   en: "Dimetric"
 "Ángulo del sol":
   en: "Sun angle"
+"Giro del sol":
+  en: "Sun turn"
+"Ciudad en fiesta":
+  en: "Festival city"
+"Manzanas comerciales, multitudes y tráfico alrededor de una plaza en fiesta.":
+  en: "Shopping blocks, crowds and traffic around a festive square."
+"Gente":
+  en: "People"
+"Hitos":
+  en: "Landmarks"
+"Carrera urbana":
+  en: "Street race"
+"Costa":
+  en: "Coast"
+"Sin costa":
+  en: "No coast"
+"Playa":
+  en: "Beach"
+"Puerto":
+  en: "Harbour"
+"Uno de los lados delanteros da al mar":
+  en: "One of the front sides faces the sea"
+"Avenida diagonal":
+  en: "Diagonal avenue"
+"Cruza la cuadrícula con edificios en cuña y un parque":
+  en: "Cuts across the grid with wedge-shaped buildings and a park"
+"Evento":
+  en: "Event"
+"Lo que pasa en la plaza":
+  en: "What is happening in the square"
+"Verbena":
+  en: "Street party"
+"Mercadillo":
+  en: "Market"
+"Feria":
+  en: "Fair"
+"Cabalgata":
+  en: "Parade"
+"Vida en la calle":
+  en: "Street life"
+"Relativo a la luz de serie, que deja blancas las fachadas de la calle en cualquier vista":
+  en: "Relative to the default light, which keeps the street façades white in any view"
 "Separación de trama":
   en: "Hatch spacing"
 "Curvas cerradas de engranajes, una pasada por capa.":
@@ -1429,3 +1485,931 @@ _version: 2
   en: "Hide its parts"
 "Seleccionar sus partes":
   en: "Select its parts"
+"Pueblo blanco":
+  en: "White village"
+"Pueblo y ladera":
+  en: "Village and hillside"
+"Tamaño del pueblo":
+  en: "Village size"
+"Bancales":
+  en: "Terraces"
+"Campo alrededor":
+  en: "Surrounding countryside"
+"Aleja la cámara para que el pueblo quede rodeado de huertas y olivares":
+  en: "Pulls the camera back so the village is surrounded by orchards and olive groves"
+"Terreno":
+  en: "Ground"
+"Llano":
+  en: "Flat"
+"Bancales: ladera escalonada con muros y escaleras. Llano: el pueblo sobre terreno plano":
+  en: "Terraces: stepped hillside with walls and stairs. Flat: the village on level ground"
+"Calles":
+  en: "Streets"
+"Número de calles; en ladera, cada una en su bancal":
+  en: "Number of streets; on a hillside, each on its own terrace"
+"Densidad de sombras":
+  en: "Shadow density"
+"Más alto, líneas de sombra más juntas; más bajo, más abiertas":
+  en: "Higher packs shadow lines closer; lower spreads them out"
+"Pendiente":
+  en: "Slope"
+"Densidad de casas":
+  en: "Housing density"
+"Plantas máximas":
+  en: "Maximum storeys"
+"Vegetación":
+  en: "Vegetation"
+"Profundidad del terreno":
+  en: "Terrain depth"
+"Tejados":
+  en: "Roofs"
+"Azoteas con pretil":
+  en: "Flat roofs with parapets"
+"Tejados a un agua":
+  en: "Shed roofs"
+"Tejados a dos aguas":
+  en: "Gable roofs"
+"Tejados a cuatro aguas":
+  en: "Hip roofs"
+"Iglesia":
+  en: "Church"
+"Remate del campanario":
+  en: "Bell tower top"
+"Cúpula":
+  en: "Dome"
+"Chapitel":
+  en: "Spire"
+"Cuarta vista":
+  en: "Fourth view"
+"Altura del sol":
+  en: "Sun elevation"
+"Versión de escena":
+  en: "Scene version"
+"detalle":
+  en: "details"
+"trama":
+  en: "hatching"
+"vegetación":
+  en: "vegetation"
+"terreno":
+  en: "terrain"
+"línea":
+  en: "line"
+"Cal y añil":
+  en: "Lime and indigo"
+"Tierra y olivo":
+  en: "Earth and olive"
+"Tinta china":
+  en: "India ink"
+"Atardecer":
+  en: "Dusk"
+"Océano":
+  en: "Ocean"
+"Brasas":
+  en: "Embers"
+"Rotuladores del documento":
+  en: "Document pens"
+"Reparte las tintas que ya tiene el documento":
+  en: "Uses the inks the document already has"
+"Se añaden al documento al colocar, reutilizando los del mismo color.":
+  en: "Added to the document when placed, reusing pens of the same color."
+"Vectorio":
+  en: "Vectorio"
+"Juego de tintas":
+  en: "Ink set"
+"Ventanas oscuras":
+  en: "Dark windows"
+"Rellena ventanas y puertas con trama densa; si no, quedan en blanco":
+  en: "Fills windows and doors with dense hatching; otherwise they stay blank"
+"Cartel":
+  en: "Poster"
+"Cal y teja":
+  en: "Lime and tile"
+"Cartel: fachada al sol blanca, cubiertas cálidas y sombras frías. Grabado: trama de luz en todas las caras":
+  en: "Poster: white sunlit facade, warm roofs and cool shadows. Engraving: light hatching on every face"
+"Encuadre":
+  en: "Framing"
+"A sangre":
+  en: "Full bleed"
+"Maqueta":
+  en: "Model"
+"A sangre: la ladera sigue más allá de la hoja. Maqueta: bloque de terreno cortado":
+  en: "Full bleed: the hillside runs past the sheet. Model: a cut block of terrain"
+"Gente en la calle":
+  en: "People in the street"
+"Ladera de bancales con calles, plaza, iglesia, huertos y olivares.":
+  en: "Terraced hillside with streets, a square, a church, gardens and olive groves."
+"acento":
+  en: "accent"
+
+"Distrito":
+  en: "District"
+"Comercial":
+  en: "Commercial"
+"Residencial":
+  en: "Residential"
+"Ocio":
+  en: "Leisure"
+
+"Bolígrafo":
+  en: "Ballpoint"
+"Mostrar rótulos":
+  en: "Show signs"
+"Textos de tiendas, puestos, recintos y meta":
+  en: "Text on shops, stalls, venues and the finish line"
+
+"Cúpulas":
+  en: "Domes"
+
+"Pequeños mundos conectados bajo el mar o entre las estrellas.":
+  en: "Small worlds connected under the sea or among the stars."
+
+"Mundo":
+  en: "World"
+
+"Subacuático":
+  en: "Underwater"
+
+"Espacial":
+  en: "Space"
+
+"Número de cúpulas":
+  en: "Number of domes"
+
+"Densidad de fondo":
+  en: "Background density"
+
+"Criatura":
+  en: "Creature"
+
+"Ballena":
+  en: "Whale"
+
+"Calamar":
+  en: "Squid"
+
+"Reptil marino":
+  en: "Marine reptile"
+
+"Sin criatura":
+  en: "No creature"
+
+"Protagonista":
+  en: "Main attraction"
+
+"Cohete":
+  en: "Rocket"
+
+"Estación orbital":
+  en: "Orbital station"
+
+"Ballena estelar":
+  en: "Space whale"
+
+"Sin protagonista":
+  en: "No main attraction"
+
+"Abismo":
+  en: "Abyss"
+
+"Órbita":
+  en: "Orbit"
+
+"Fiesta":
+  en: "Festival"
+"Retrato":
+  en: "Portrait"
+"Líneas curvas que siguen las formas de la foto, con pasadas extra en las sombras. En negro o con varias tintas.":
+  en: "Curved lines follow the shapes in the photo, with extra passes in shadows. In black or multiple inks."
+"Varias tintas":
+  en: "Multiple inks"
+"Fluidez":
+  en: "Flow smoothing"
+"Suaviza el campo de direcciones: valores altos crean curvas más amplias.":
+  en: "Smooth the direction field: higher values produce broader curves."
+"Seguir formas":
+  en: "Follow shapes"
+"Ángulo base":
+  en: "Base angle"
+"Dirección del rayado donde la imagen no tiene una estructura clara.":
+  en: "Hatching direction where the image has no clear structure."
+"Cruzar las sombras":
+  en: "Crosshatch shadows"
+"Largo máx.":
+  en: "Max. length"
+"Longitud máxima de cada trazo respecto al lado mayor de la foto.":
+  en: "Maximum stroke length relative to the longest side of the photo."
+"Luces":
+  en: "Highlights"
+"Valores altos reservan más papel blanco en las zonas claras.":
+  en: "Higher values preserve more white paper in highlights."
+
+"Megastructuras":
+  en: "Megastructures"
+
+"Puerto y ciudadela":
+  en: "Harbour and citadel"
+
+"Costa viva":
+  en: "Vivid coast"
+
+"Intensidad de tinta":
+  en: "Ink intensity"
+
+"Más color en tejados y sombras, con separación adaptada al rotulador":
+  en: "More colour on roofs and shadows, with spacing adapted to the pen"
+
+"Estratos, vacíos, pórticos y máquinas en una arquitectura monumental.":
+  en: "Strata, voids, portals and machinery in a monumental architecture."
+
+"Muelles, velas y tejados alrededor de una plaza abierta al agua.":
+  en: "Piers, sails and rooftops around a square open to the water."
+
+"Composición":
+  en: "Composition"
+
+"Torre estratificada":
+  en: "Layered tower"
+
+"Patio interior":
+  en: "Inner courtyard"
+
+"Gran pórtico":
+  en: "Grand portal"
+
+"Estratos":
+  en: "Strata"
+
+"Retranqueos":
+  en: "Setbacks"
+
+"Equipamiento":
+  en: "Equipment"
+
+"Pesquero":
+  en: "Fishing village"
+
+"Almacenes":
+  en: "Warehouses"
+
+"Ciudadela":
+  en: "Citadel"
+
+"Altura":
+  en: "Height"
+"Topografía":
+  en: "Topography"
+"Una onda recorre la foto y dibuja curvas de nivel: se juntan en las sombras y se separan en las luces.":
+  en: "A wave travels through the photo and draws contour lines: closer in shadows, farther apart in highlights."
+"Gamma":
+  en: "Gamma"
+"Valores altos juntan más las curvas en los tonos medios y oscuros.":
+  en: "Higher values bring contours closer in midtones and shadows."
+"Velocidad mín.":
+  en: "Min. speed"
+"Evita que la onda se detenga en el negro; valores bajos aumentan la densidad de las sombras.":
+  en: "Keep the wave moving through black; lower values increase shadow density."
+"Origen X":
+  en: "Origin X"
+"Origen Y":
+  en: "Origin Y"
+"Elegir origen en la imagen":
+  en: "Choose origin on image"
+"Pulsa sobre la foto para colocar el origen de la onda.":
+  en: "Click the photo to place the wave origin."
+"Omitir zonas transparentes":
+  en: "Skip transparent areas"
+"%{n} aristas no manifold; pueden quedar contornos abiertos.":
+  en: "%{n} non-manifold edges; contours may remain open."
+"%{n} caras degeneradas o repetidas omitidas.":
+  en: "%{n} degenerate or duplicate faces omitted."
+"Abrir receta…":
+  en: "Open recipe…"
+"Alzado":
+  en: "Front"
+"Azimut":
+  en: "Azimuth"
+"Bloquear cámara":
+  en: "Lock camera"
+"Centrar dibujo":
+  en: "Center drawing"
+"Cilindro":
+  en: "Cylinder"
+"Composición de volúmenes":
+  en: "Volume composition"
+"Composición y tintas":
+  en: "Composition and inks"
+"Cono":
+  en: "Cone"
+"Cortes":
+  en: "Cuts"
+"Cubo / prisma":
+  en: "Cube / prism"
+"Curva principal cada":
+  en: "Major contour every"
+"Curvas principales":
+  en: "Major contours"
+"Curvas secundarias":
+  en: "Minor contours"
+"Desplazar estratos (mm)":
+  en: "Shift strata (mm)"
+"Dirección personalizada":
+  en: "Custom direction"
+"Distancia al centro":
+  en: "Distance to center"
+"Esfera":
+  en: "Sphere"
+"Espera al dibujo actualizado antes de exportar.":
+  en: "Wait for the updated drawing before exporting."
+"Estructura":
+  en: "Structure"
+"Final del rango":
+  en: "Range end"
+"Fondo":
+  en: "Depth"
+"Giro en el papel":
+  en: "Rotation on paper"
+"Guardar receta…":
+  en: "Save recipe…"
+"Importar OBJ / STL…":
+  en: "Import OBJ / STL…"
+"Inicio del rango":
+  en: "Range start"
+"Malla abierta: %{n} aristas de frontera.":
+  en: "Open mesh: %{n} boundary edges."
+"Margen (mm)":
+  en: "Margin (mm)"
+"Modelo":
+  en: "Model"
+"Mostrar ejes":
+  en: "Show axes"
+"No hay curvas en este rango. Cambia el campo o la orientación.":
+  en: "No contours in this range. Change the field or direction."
+"No hay dibujo para exportar.":
+  en: "There is no drawing to export."
+"Perfil":
+  en: "Side"
+"Plano":
+  en: "Plane"
+"Planta":
+  en: "Top"
+"Posición X (mm)":
+  en: "Position X (mm)"
+"Posición Y (mm)":
+  en: "Position Y (mm)"
+"Profundidad de cámara":
+  en: "Camera depth"
+"Separación 3D":
+  en: "3D spacing"
+"Simplificar (mm)":
+  en: "Simplify (mm)"
+"Sin tinta":
+  en: "No ink"
+"Toroide":
+  en: "Torus"
+"Ángulo de arista":
+  en: "Edge angle"
+"Calidad interactiva":
+  en: "Interactive quality"
+"Calidad detallada":
+  en: "Detailed quality"
+"Malla original completa":
+  en: "Full original mesh"
+"Malla de trabajo: %{n} triángulos. El original se conserva.":
+  en: "Working mesh: %{n} triangles. The original is preserved."
+"La calidad elegida se usa en el dibujo y el SVG. Original conserva todo el detalle y tarda más.":
+  en: "The chosen quality is used in the drawing and SVG. Original keeps every detail and takes longer."
+"Tono intermedio":
+  en: "Middle tone"
+
+"Contorno opcional":
+  en: "Optional outline"
+
+"Dirección de luz":
+  en: "Light direction"
+
+"Altura de luz":
+  en: "Light elevation"
+
+"Cantidad de sombra":
+  en: "Shadow amount"
+
+"Sombra en el suelo":
+  en: "Ground shadow"
+
+"Acabado y trazos":
+  en: "Finish and paths"
+
+"Añadir tono intermedio":
+  en: "Add middle tone"
+
+"Añadir contorno":
+  en: "Add outline"
+
+"Separar del suelo":
+  en: "Ground clearance"
+
+"Separación de trazos (mm)":
+  en: "Path spacing (mm)"
+
+"Ángulo de trazos":
+  en: "Path angle"
+
+"Luz":
+  en: "Light"
+
+"Facetas":
+  en: "Facets"
+
+"Malla · grupo 1":
+  en: "Mesh · group 1"
+
+"Malla · grupo 2":
+  en: "Mesh · group 2"
+
+"Malla · grupo 3":
+  en: "Mesh · group 3"
+
+"Ondas de superficie":
+  en: "Surface waves"
+
+"Ondas principales":
+  en: "Major waves"
+
+"Ondas secundarias":
+  en: "Minor waves"
+
+"Silueta":
+  en: "Silhouette"
+
+"Triángulos":
+  en: "Triangles"
+
+"Ondas geodésicas":
+  en: "Geodesic waves"
+
+"Interferencias":
+  en: "Interference"
+
+"Origen y variación":
+  en: "Origin and variation"
+
+"Frecuencia":
+  en: "Frequency"
+
+"Repartir las tintas por":
+  en: "Split inks by"
+
+"Orientación de caras":
+  en: "Face orientation"
+
+"Altura del volumen":
+  en: "Volume height"
+
+"Objetos del modelo":
+  en: "Model objects"
+
+"%{n} triángulos":
+  en: "%{n} triangles"
+"%{strokes} trazos · %{inks} tintas · ~%{minutes} min · %{ms} ms":
+  en: "%{strokes} strokes · %{inks} inks · ~%{minutes} min · %{ms} ms"
+"Aristas":
+  en: "Edges"
+"Avanzado":
+  en: "Advanced"
+"Azimut de origen":
+  en: "Origin azimuth"
+"Añadir pasada":
+  en: "Add pass"
+"Bajar pasada":
+  en: "Move pass down"
+"Campo":
+  en: "Field"
+"Curvas de campo":
+  en: "Field curves"
+"Cámara":
+  en: "Camera"
+"Desfase de cortes":
+  en: "Section offset"
+"Duplicar pasada":
+  en: "Duplicate pass"
+"Elevación de origen":
+  en: "Origin elevation"
+"Eliminar pasada":
+  en: "Delete pass"
+"Escena":
+  en: "Scene"
+"Estimación con los ajustes de Salida.":
+  en: "Estimate using Output settings."
+"Exportar SVG":
+  en: "Export SVG"
+"Familia de curvas":
+  en: "Curve family"
+"Familia de esta pasada":
+  en: "This pass's family"
+"Familias de tinta":
+  en: "Ink families"
+"Guardar estilo":
+  en: "Save style"
+"Guardar estilo…":
+  en: "Save style…"
+"Líneas visibles":
+  en: "Visible lines"
+"Malla":
+  en: "Mesh"
+"Malla de color":
+  en: "Color mesh"
+"Mostrar pasada":
+  en: "Show pass"
+"No se encuentra la carpeta de usuario.":
+  en: "User data folder not found."
+"Nombre de la pasada":
+  en: "Pass name"
+"Nombre del estilo":
+  en: "Style name"
+"Ocultar pasada":
+  en: "Hide pass"
+"Ondas y malla":
+  en: "Waves and mesh"
+"Papel":
+  en: "Paper"
+"Plegar":
+  en: "Collapse"
+"Principales":
+  en: "Primary"
+"Rayos X":
+  en: "X-ray"
+"Recalcular":
+  en: "Recalculate"
+"Receta importada":
+  en: "Imported recipe"
+"Rotación %{axis}":
+  en: "%{axis} rotation"
+"Secciones":
+  en: "Sections"
+"Secundarias":
+  en: "Secondary"
+"Selecciona una pasada para editarla.":
+  en: "Select a pass to edit it."
+"Sombra arrojada":
+  en: "Cast shadow"
+"Sombra plana":
+  en: "Flat shadow"
+"Sombra única · objeto y suelo":
+  en: "Unified shadow · object and ground"
+"Subir pasada":
+  en: "Move pass up"
+"Tinta":
+  en: "Ink"
+"Todas":
+  en: "All"
+"Todas las líneas":
+  en: "All lines"
+"Trama":
+  en: "Hatching"
+"Ver todas":
+  en: "Show all"
+"Visibilidad":
+  en: "Visibility"
+"Vista dividida":
+  en: "Split view"
+"Volumen":
+  en: "Volume"
+"Volumen 3D":
+  en: "3D volume"
+"Añade una pasada para empezar.":
+  en: "Add a pass to get started."
+"Más":
+  en: "More"
+"Orientar la luz":
+  en: "Orient the light"
+"Arrastra el sol · flechas para ajustar la luz.":
+  en: "Drag the sun · use arrow keys to adjust the light."
+"Orbitar cámara":
+  en: "Orbit camera"
+"Cámara bloqueada":
+  en: "Camera locked"
+"Arrastra para orbitar · doble clic para ampliar.":
+  en: "Drag to orbit · double-click to expand."
+"Mover dibujo en el papel":
+  en: "Move drawing on paper"
+"Arrastra para mover · rueda o pellizco para escalar.":
+  en: "Drag to move · scroll or pinch to scale."
+"Aguafuerte cruzado":
+  en: "Crosshatch etching"
+"Plano técnico":
+  en: "Technical drawing"
+"Topografía en sombra":
+  en: "Shadow topography"
+"Trama de forma":
+  en: "Form hatching"
+"Trama cruzada":
+  en: "Crosshatching"
+"Aristas visibles":
+  en: "Visible edges"
+"Aristas ocultas":
+  en: "Hidden edges"
+"Curvas en sombra":
+  en: "Curves in shadow"
+"Trama por niveles":
+  en: "Tonal hatching"
+"Ocultas discontinuas":
+  en: "Dashed hidden lines"
+"Guion (mm)":
+  en: "Dash (mm)"
+"Hueco (mm)":
+  en: "Gap (mm)"
+"Sigue la forma":
+  en: "Follow the form"
+"Niveles de luz":
+  en: "Light levels"
+"Ángulo del nivel %{n}":
+  en: "Level %{n} angle"
+"Máscara tonal":
+  en: "Tonal mask"
+"Toda la superficie":
+  en: "Entire surface"
+"Solo en luz":
+  en: "Light only"
+"Solo en sombra":
+  en: "Shadow only"
+"Banda de luz":
+  en: "Light band"
+"Luz mínima":
+  en: "Minimum light"
+"Luz máxima":
+  en: "Maximum light"
+"Profundidad":
+  en: "Depth"
+"Distancia geodésica":
+  en: "Geodesic distance"
+"Curvatura media":
+  en: "Mean curvature"
+"Curvatura gaussiana":
+  en: "Gaussian curvature"
+"Orientación de pendiente":
+  en: "Slope aspect"
+"Oclusión ambiental":
+  en: "Ambient occlusion"
+"Espesor":
+  en: "Thickness"
+"Objetos":
+  en: "Objects"
+"Mapa de curvatura":
+  en: "Curvature map"
+"Mapa gaussiano":
+  en: "Gaussian map"
+"Mapa de luz":
+  en: "Light map"
+"Mapa de pendientes":
+  en: "Slope map"
+"Luz ambiente":
+  en: "Ambient light"
+"Mapa térmico":
+  en: "Thermal map"
+"Hachuras de relieve":
+  en: "Relief hachures"
+"Mapa de agujas":
+  en: "Needle map"
+"Líneas de horizonte":
+  en: "Horizon lines"
+"Crestas y valles":
+  en: "Ridges and valleys"
+"Anaglifo":
+  en: "Anaglyph"
+"Desarrollo":
+  en: "Unfolding"
+"Estela de giro":
+  en: "Rotation trail"
+"Sección técnica":
+  en: "Technical section"
+"Mapa de lectura":
+  en: "Reading map"
+"Medida":
+  en: "Measure"
+"Codificación":
+  en: "Encoding"
+"Fronteras exactas":
+  en: "Exact boundaries"
+"Transición difuminada":
+  en: "Dithered transition"
+"Densidad de trazos":
+  en: "Line density"
+"Rampa":
+  en: "Ramp"
+"Por luminosidad":
+  en: "By lightness"
+"Divergente · papel en cero":
+  en: "Diverging · paper at zero"
+"De oscuro a claro, según las tintas reales.":
+  en: "Dark to light, using the actual inks."
+"Invertir medida":
+  en: "Invert measure"
+"Cartela en el papel":
+  en: "Legend on paper"
+"Ecualizar por histograma":
+  en: "Histogram equalization"
+"Combinar otra medida":
+  en: "Combine another measure"
+"Peso de medida %{n}":
+  en: "Measure %{n} weight"
+"Rango manual":
+  en: "Manual range"
+"Mínimo / máximo":
+  en: "Minimum / maximum"
+"Umbral de medida":
+  en: "Measure threshold"
+"Muestras de oclusión ambiental":
+  en: "Ambient occlusion samples"
+"Fecha de la cartela (UTC)":
+  en: "Legend date (UTC)"
+"Longitud de hachura (mm)":
+  en: "Hachure length (mm)"
+"Longitud de aguja (mm)":
+  en: "Needle length (mm)"
+"Relieve del perfil (mm)":
+  en: "Profile relief (mm)"
+"Perfiles":
+  en: "Profiles"
+"Umbral de crestas":
+  en: "Ridge threshold"
+"Separación de cámaras (grados)":
+  en: "Camera separation (degrees)"
+"Par estereoscópico":
+  en: "Stereo pair"
+"Pestañas de pegado (mm)":
+  en: "Glue tabs (mm)"
+"Giro entre vistas (grados)":
+  en: "Rotation between views (degrees)"
+"Vistas":
+  en: "Views"
+"Posición del corte":
+  en: "Section position"
+"Añadir mapa de lectura":
+  en: "Add reading map"
+"Límite absoluto":
+  en: "Absolute limit"
+"Tintas · %{n}":
+  en: "Inks · %{n}"
+"Ondas con halo":
+  en: "Waves with halo"
+"Eco de contorno":
+  en: "Contour echo"
+"Trazo a mano":
+  en: "Hand-drawn strokes"
+"Ondas con gradiente":
+  en: "Gradient waves"
+"Acabado artístico":
+  en: "Artistic finish"
+"Halo al ocultarse (mm)":
+  en: "Occlusion halo (mm)"
+"Ecos del contorno":
+  en: "Contour echoes"
+"Desplazamiento del eco (mm)":
+  en: "Echo offset (mm)"
+"Tinta del eco":
+  en: "Echo ink"
+"Temblor de mano (mm)":
+  en: "Hand jitter (mm)"
+"Suavidad del temblor (mm)":
+  en: "Jitter wavelength (mm)"
+"Longitud irregular":
+  en: "Irregular length"
+"Pequeños huecos":
+  en: "Small gaps"
+"Tamaño del hueco (mm)":
+  en: "Gap size (mm)"
+"Semilla del acabado":
+  en: "Finish seed"
+"Aplicar gradiente de tintas":
+  en: "Apply ink gradient"
+
+"Actualizar objeto 3D":
+  en: "Update 3D object"
+
+"Perspectiva":
+  en: "Perspective"
+
+"Distancia focal":
+  en: "Focal distance"
+
+"Plano cercano":
+  en: "Near plane"
+
+"Vistas en la hoja":
+  en: "Views on the sheet"
+
+"Una vista":
+  en: "Single view"
+
+"Planta, alzado, perfil e isométrica":
+  en: "Top, front, side and isometric"
+
+"Giro completo":
+  en: "Full rotation"
+
+"Número de vistas":
+  en: "Number of views"
+
+"Separación de vistas (mm)":
+  en: "View spacing (mm)"
+
+"Editar en Volumen…":
+  en: "Edit in Volume…"
+
+"Abrir en Volumen":
+  en: "Open in Volume"
+
+"Recuperar proyecto":
+  en: "Recover project"
+
+"Hay una copia automática de una sesión interrumpida. ¿Quieres recuperarla?":
+  en: "An interrupted session has an automatic copy. Would you like to recover it?"
+
+"Recuperar":
+  en: "Recover"
+
+"Descartar copia":
+  en: "Discard copy"
+
+"Más tarde":
+  en: "Later"
+
+"Buscar por nombre o categoría…":
+  en: "Search by name or category…"
+
+"No hay resultados":
+  en: "No results"
+
+"Familia %{n}":
+  en: "Family %{n}"
+
+"Líneas y superficies":
+  en: "Lines and surfaces"
+
+"Tono y textura":
+  en: "Tone and texture"
+
+"Mapas de lectura":
+  en: "Reading maps"
+
+"Mis estilos":
+  en: "My styles"
+
+"Preparando miniatura…":
+  en: "Preparing preview…"
+
+"Grafito":
+  en: "Graphite"
+
+"Cuatricromía":
+  en: "Four-color process"
+
+"Colores primarios":
+  en: "Primary colors"
+
+"Térmica":
+  en: "Thermal"
+
+"Tierra y añil":
+  en: "Earth and indigo"
+
+"Mezcla óptica":
+  en: "Optical mixing"
+
+"Isolíneas del campo":
+  en: "Field isolines"
+
+"Mapa de color":
+  en: "Color map"
+
+"Grises":
+  en: "Grayscale"
+
+"Frío y cálido":
+  en: "Cool and warm"
+
+"Niveles del campo":
+  en: "Field levels"
+
+"Rotular valores":
+  en: "Label values"
+
+"Isolíneas de curvatura":
+  en: "Curvature isolines"
+
+"Isolíneas de luz":
+  en: "Light isolines"
+
+"Mezcla óptica térmica":
+  en: "Thermal optical mix"
+
+"Mostrar cotas XYZ":
+  en: "Show XYZ dimensions"
+
+"Distribución del campo":
+  en: "Field distribution"
+"Secuencial":
+  en: "Sequential"
+"Escala de trama (mm)":
+  en: "Screen scale (mm)"

@@ -1,0 +1,29 @@
+name: Comprobaciones Rust
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Pruebas en macOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Preparar Rust estable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Ejecutar pruebas
+        run: cargo test --workspace --locked

@@ -236,8 +236,10 @@ mod tests {
                 output = Some(ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| { editor.show(ctx, &mut pen); }));
             }
             let output = output.unwrap();
-            for label in ["Cancelar", "Hecho"] {
-                let (clip, rect) = output.shapes.iter().find_map(|shape| find_text(&shape.shape, label).map(|r| (shape.clip_rect, r))).expect("Acción visible");
+            // Otras pruebas cambian el idioma global: se busca la etiqueta en cualquiera de los dos.
+            for labels in [["Cancelar", "Cancel"], ["Hecho", "Done"]] {
+                let label = labels[0];
+                let (clip, rect) = output.shapes.iter().find_map(|shape| labels.iter().find_map(|l| find_text(&shape.shape, l)).map(|r| (shape.clip_rect, r))).expect("Acción visible");
                 assert!(screen.contains_rect(rect) && clip.contains_rect(rect), "{label} queda fuera de la ventana de {height} puntos: {rect:?}");
             }
         }

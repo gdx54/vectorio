@@ -20,6 +20,7 @@ impl Scene {
         let center = vertices.iter().copied().fold(V3::default(), |sum, v| sum + v) * (1.0 / vertices.len() as f64);
         let mut oriented = Vec::with_capacity(faces.len());
         let mut front = Vec::with_capacity(faces.len());
+        let mut normals = Vec::with_capacity(faces.len());
         let mut edges: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
         for (i, indices) in faces.iter().enumerate() {
             if indices.len() < 3 || !indices.iter().all(|&j| j < vertices.len()) { return Vec::new(); }
@@ -27,7 +28,8 @@ impl Scene {
             let n = normal(&points);
             if !super::valid_face(&points) { return Vec::new(); }
             let outward = if !keep_winding && n.dot(points[0] - center) < 0.0 { points.reverse(); n * -1.0 } else { n };
-            front.push(self.camera.facing(outward));
+            front.push(self.camera.facing_at(outward,points[0]));
+            normals.push(outward);
             for (&a, &b) in indices.iter().zip(indices.iter().cycle().skip(1)).take(indices.len()) {
                 if a == b { return Vec::new(); }
                 edges.entry((a.min(b), a.max(b))).or_default().push(i);
@@ -36,13 +38,38 @@ impl Scene {
         }
         // Validar antes de añadir nada impide dejar media geometría si falta una cara.
         if !edges.values().all(|neighbors| neighbors.len() == 2) { return Vec::new(); }
-        for (i, points) in oriented.iter().enumerate() { if keep_winding || front[i] { self.occluder(points); } }
+        // Una arista solo se dibuja si separa caras de distinta orientación: entre
+        // dos trozos coplanarios de una misma cara partida no hay nada que ver.
+        let drawn = |i: usize, j: usize| {
+            let smooth = !smoothing.is_empty() && smoothing[i] > 0 && smoothing[i] == smoothing[j];
+            let flat = normals[i].dot(normals[j]) > 1.0 - 1e-9;
+            (front[i] || front[j]) && !flat && (!smooth || front[i] != front[j])
+        };
+        let mut boundaries=vec![Vec::new();faces.len()];
+        if !quiet && self.intersections {
+            for (&(a,b),neighbors) in &edges {
+                let (i,j)=(neighbors[0],neighbors[1]);
+                if drawn(i,j) {
+                    let edge=(self.camera.project(vertices[a]).0,self.camera.project(vertices[b]).0);
+                    boundaries[i].push(edge);boundaries[j].push(edge);
+                }
+            }
+        }
+        let id = self.next_solid; self.next_solid = self.next_solid.wrapping_add(1);
+        if let Some(geometry)=&mut self.geometry{geometry.extend(oriented.iter().cloned().map(|face|(id,face)));}
+        for (i, points) in oriented.iter().enumerate() {
+            if keep_winding || front[i] {
+                if let Some(mut face) = super::hidden::Face::new(points, &self.camera) {
+                    face.solid_id=Some(id);face.drawn_boundaries=std::mem::take(&mut boundaries[i]);
+                    if front[i] && !quiet && self.intersections { face.owner = Some((id, self.active)); }
+                    self.faces.push(face);
+                }
+            }
+        }
         self.collect_shadow(vertices);
         if !quiet {
             for ((a, b), neighbors) in edges {
-                let (i, j) = (neighbors[0], neighbors[1]);
-                let smooth = !smoothing.is_empty() && smoothing[i] > 0 && smoothing[i] == smoothing[j];
-                if (front[i] || front[j]) && (!smooth || front[i] != front[j]) { self.line(&[vertices[a], vertices[b]]); }
+                if drawn(neighbors[0], neighbors[1]) { self.line(&[vertices[a], vertices[b]]); }
             }
         }
         oriented
@@ -84,14 +111,19 @@ impl Scene {
     /// Las alturas crecen estrictamente; los radios nulos son puntas únicas, solo
     /// en los extremos. Cierra automáticamente las tapas de radio distinto de cero.
     pub fn lathe(&mut self, center: V3, profile: &[(f64, f64)], smooth: bool) -> Vec<Vec<V3>> {
+        self.lathe_parts(center, profile, smooth).map(Lathe::into_faces).unwrap_or_default()
+    }
+    /// Como `lathe`, pero separa las caras exteriores: por tramo del perfil y
+    /// meridiano, y las tapas aparte. `None` si el perfil no es válido.
+    pub fn lathe_parts(&mut self, center: V3, profile: &[(f64, f64)], smooth: bool) -> Option<Lathe> {
         if !center.finite() || profile.len() < 2 || profile.len() > 4096 ||
             !profile.iter().all(|&(r, h)| r.is_finite() && h.is_finite() && r >= 0.0) ||
             !profile.windows(2).all(|w| w[0].1 < w[1].1) ||
-            !profile[1..profile.len() - 1].iter().all(|v| v.0 > 0.0) { return Vec::new(); }
+            !profile[1..profile.len() - 1].iter().all(|v| v.0 > 0.0) { return None; }
         let radius = profile.iter().map(|v| v.0).fold(0.0, f64::max);
-        if radius <= 0.0 { return Vec::new(); }
+        if radius <= 0.0 { return None; }
         let segments = self.circle_segments(radius);
-        if profile.len().saturating_mul(segments) > 200_000 { return Vec::new(); }
+        if profile.len().saturating_mul(segments) > 200_000 { return None; }
         let mut vertices = Vec::new();
         let mut rings = Vec::new();
         for &(r, h) in profile {
@@ -121,6 +153,23 @@ impl Scene {
                 faces.push(cap); groups.push(0);
             }
         }
-        self.solid_oriented(&vertices, &faces, &groups, self.quiet)
+        let mut oriented = self.solid_oriented(&vertices, &faces, &groups, self.quiet);
+        // `solid_oriented` conserva el orden de entrada: primero los tramos, luego las tapas.
+        if oriented.len() != faces.len() { return None; }
+        let caps = oriented.split_off((profile.len() - 1) * segments);
+        let mut rest = oriented.into_iter();
+        let bands = (0..profile.len() - 1).map(|_| rest.by_ref().take(segments).collect()).collect();
+        Some(Lathe { segments, bands, caps })
     }
+}
+
+/// Caras de un torno: `bands[tramo][meridiano]`, de abajo arriba, y las tapas.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Lathe {
+    pub segments: usize,
+    pub bands: Vec<Vec<Vec<V3>>>,
+    pub caps: Vec<Vec<V3>>,
+}
+impl Lathe {
+    pub fn into_faces(self) -> Vec<Vec<V3>> { self.bands.into_iter().flatten().chain(self.caps).collect() }
 }

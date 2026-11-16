@@ -92,6 +92,7 @@ impl Xf {
 pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
     let pal = theme::current(ui.ctx());
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
+    app.canvas_id = Some(resp.id);
     let rect = resp.rect;
     app.view.rect = rect;
     let untouched = app.view.fit_state.is_some_and(|(size, zoom, offset)| size != rect.size() && zoom == app.view.zoom && offset == app.view.offset);
@@ -99,7 +100,7 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
         fit(app, rect);
     }
     // Con la ventana Foto → dibujo abierta el lienzo solo se pinta.
-    let modal = app.vec_ui.open;
+    let modal = app.document_modal();
     if !modal {
         navigate(app, ui, &resp);
     }
@@ -252,22 +253,6 @@ fn paint_items(app: &VectorioApp, painter: &egui::Painter, xf: &Xf, clip: Rect) 
         }
     }
     painter.extend(shapes);
-}
-
-#[cfg(test)]
-mod rendering_tests {
-    use super::*;
-
-    #[test]
-    fn tiny_vectorized_dots_stay_visible_when_zoomed_out() {
-        // Puntillismo importado: un círculo de radio 0,15 mm, visto al 39 %.
-        let circle: Vec<P> = (0..=6).map(|i| p(0.15, 0.0).rotate(i as f64 / 6.0 * std::f64::consts::TAU)).collect();
-        let xf = Xf { origin: Pos2::new(100.0, 100.0), zoom: 1.47 };
-        let points = screen_line(&circle, &xf, &|q| q);
-        let mut shapes = Vec::new();
-        add_line(&mut shapes, points, Stroke::new(0.8f32, Color32::BLACK));
-        assert!(matches!(shapes.as_slice(), [EShape::Circle(circle)] if circle.radius > 0.0));
-    }
 }
 
 /// Una tinta arrastrada desde la paleta se puede soltar sobre un objeto del dibujo.
@@ -551,12 +536,14 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
             }
         }
     }
-    if resp.double_clicked() && app.tool == Tool::Select {
-        if app.selected_item().is_some_and(|it| matches!(it.geometry, Geometry::Text(_))) {
-            app.focus_text = true;
-        }
+    if resp.double_clicked() && app.tool == Tool::Select
+        && app.selected_item().is_some_and(|it| matches!(it.geometry, Geometry::Text(_))) {
+        app.focus_text = true;
     }
 
+    if resp.double_clicked()&&app.tool==Tool::Select {
+        if let Some(group)=app.selected_item().and_then(|it|it.group).filter(|g|app.doc.volume(*g).is_some()) {crate::volumetric_ui::reopen(app,group);}
+    }
     // Resaltado al pasar por encima y selección.
     if app.tool == Tool::Select && matches!(app.interaction, Interaction::None) {
         if let Some(s) = resp.hover_pos() {
@@ -711,4 +698,20 @@ fn finish_shape(app: &mut VectorioApp, a: P, b: P) {
     item.fill.pen = app.active_pen;
     app.add_item(item);
     app.tool = Tool::Select;
+}
+
+#[cfg(test)]
+mod rendering_tests {
+    use super::*;
+
+    #[test]
+    fn tiny_vectorized_dots_stay_visible_when_zoomed_out() {
+        // Puntillismo importado: un círculo de radio 0,15 mm, visto al 39 %.
+        let circle: Vec<P> = (0..=6).map(|i| p(0.15, 0.0).rotate(i as f64 / 6.0 * std::f64::consts::TAU)).collect();
+        let xf = Xf { origin: Pos2::new(100.0, 100.0), zoom: 1.47 };
+        let points = screen_line(&circle, &xf, &|q| q);
+        let mut shapes = Vec::new();
+        add_line(&mut shapes, points, Stroke::new(0.8f32, Color32::BLACK));
+        assert!(matches!(shapes.as_slice(), [EShape::Circle(circle)] if circle.radius > 0.0));
+    }
 }

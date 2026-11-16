@@ -8,13 +8,18 @@
 #![doc = include_str!("README.md")]
 mod camera;
 mod hidden;
+mod intersections;
 mod solids;
+mod polyhedron;
 mod hatch;
 mod shadow;
+mod clip;
 #[cfg(test)]
 mod tests;
 
 pub use camera::{Camera, V3};
+pub use solids::Lathe;
+pub use clip::{Load, Mark, FACE_BUDGET, SEGMENT_BUDGET};
 use crate::geom::{length, BBox, Polyline, P};
 use hidden::{Face, Vertex};
 use shadow::ShadowGroup;
@@ -26,6 +31,9 @@ pub const DEPTH_TOLERANCE_M: f64 = 0.002;
 /// de 1e-6 mm, incluso en los cortes analíticos de las pruebas.
 pub const FACE_INSET_MM: f64 = 1e-9;
 pub const MIN_STROKE_MM: f64 = 0.05;
+/// Un hueco borra lo que está en su plano con esta holgura, en metros: la trama
+/// de la pared sí, un objeto delante o un edificio detrás no.
+pub const HOLE_TOLERANCE_M: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PartId(pub u16);
@@ -39,7 +47,7 @@ pub struct ToneThresholds { pub lit: f64, pub dark: f64 }
 impl Default for ToneThresholds { fn default() -> Self { Self { lit: 0.65, dark: 0.15 } } }
 
 #[derive(Clone, Debug)]
-struct Stroke { vertices: Vec<Vertex>, part: PartId, whole: bool }
+struct Stroke { vertices: Vec<Vertex>, part: PartId, whole: bool, fill: bool }
 
 /// El orden de partes es el de su registro; el de trazos, el de su adición.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,15 +61,28 @@ impl SceneOutput {
     }
 }
 
+thread_local! {static CAPTURE_GEOMETRY:std::cell::Cell<bool>=const{std::cell::Cell::new(false)};}
+/// La conversión de Crear solicita las caras completas sin cargar los renders normales.
+pub fn capture_geometry<T>(build:impl FnOnce()->T)->T{
+    struct Reset(bool);impl Drop for Reset{fn drop(&mut self){CAPTURE_GEOMETRY.with(|v|v.set(self.0));}}
+    let _reset=Reset(CAPTURE_GEOMETRY.with(|v|v.replace(true)));build()
+}
 #[derive(Clone, Debug)]
 pub struct Scene {
+    geometry:Option<Vec<(u64,Vec<V3>)>>,
     enabled: bool,
+    intersections: bool,
+    hidden_lines: bool,
+    halo_mm: f64,
+    next_solid: u64,
     camera: Camera,
     paper: BBox,
     names: Vec<String>,
     active: PartId,
     faces: Vec<Face>,
+    holes: Vec<Face>,
     strokes: Vec<Stroke>,
+    filling: bool,
     sun: Option<V3>,
     thresholds: ToneThresholds,
     quiet: bool,
@@ -70,14 +91,37 @@ pub struct Scene {
 
 impl Scene {
     /// Crea también la parte inicial «contorno». El rectángulo debe tener área finita.
-    pub fn new(camera: Camera, paper: BBox) -> Self {
+    pub fn new(camera: impl Into<Camera>, paper: BBox) -> Self {
+        let camera=camera.into();
         let enabled = camera.valid() && valid_area(paper);
         let camera = if camera.valid() { camera } else { Camera::default() };
         let paper = if valid_area(paper) { paper } else { BBox { min: crate::p(0.0, 0.0), max: crate::p(1.0, 1.0) } };
-        Self { enabled, camera, paper, names: vec!["contorno".into()], active: PartId(0), faces: Vec::new(), strokes: Vec::new(),
+        Self { geometry:CAPTURE_GEOMETRY.with(|v|v.get().then(Vec::new)), enabled, halo_mm: 0., hidden_lines: false, intersections: true, next_solid: 0, camera, paper, names: vec!["contorno".into()], active: PartId(0), faces: Vec::new(), holes: Vec::new(), strokes: Vec::new(), filling: false,
             sun: None, thresholds: ToneThresholds::default(), quiet: false, shadow_group: None }
     }
+    /// Activa los encuentros analíticos. Los sólidos añadidos con el interruptor
+    /// apagado no los generan aunque después se vuelva a activar.
+    pub fn set_intersections(&mut self, enabled: bool) { self.intersections = enabled; }
+    /// Dibuja únicamente los intervalos ocultos, con el mismo recorte analítico.
+    pub fn set_hidden_lines(&mut self, enabled: bool) { self.hidden_lines = enabled; }
+    /// Reserva un halo físico junto a los intervalos ocultos; no altera trazos delanteros.
+    pub fn set_line_halo(&mut self, mm: f64) { self.halo_mm=if mm.is_finite(){mm.clamp(0.,5.)}else{0.}; }
     pub fn camera(&self) -> &Camera { &self.camera }
+    /// Malla real de las superficies de la escena, incluidas las caras ocultas.
+    pub fn volume_mesh(&self,name:&str)->Result<crate::volumetric::Mesh,String>{
+        let mut mesh=crate::volumetric::Mesh{name:name.into(),vertices:Vec::new(),triangles:Vec::new(),objects:Vec::new(),face_objects:Vec::new()};
+        let mut owners=std::collections::BTreeMap::new();
+        let geometry=self.geometry.as_ref().ok_or("La escena no conserva geometría 3D. Vuelve a generarla desde Crear.")?;
+        for (solid,points) in geometry {
+            if points.len()<3{continue;}
+            let index=mesh.vertices.len();mesh.vertices.extend(points.iter().map(|q|[q.x,q.y,q.z]));
+            let next=owners.len();let owner=*owners.entry(*solid).or_insert(next);
+            for i in 1..points.len()-1{mesh.triangles.push([index,index+i,index+i+1]);mesh.face_objects.push(owner);}
+        }
+        mesh.objects=(0..owners.len()).map(|i|format!("Objeto {}",i+1)).collect();
+        mesh.validated().map(|(m,_)|m)
+    }
+
     pub fn paper(&self) -> BBox { self.paper }
     pub fn part(&mut self, name: &str) -> PartId {
         if let Some(i) = self.names.iter().position(|n| n == name) { return PartId(i as u16); }
@@ -116,29 +160,48 @@ impl Scene {
         (std::f64::consts::PI / (2.0 * (0.02 / radius).sqrt().asin())).ceil().clamp(8.0, 8192.0) as usize
     }
     fn add_stroke(&mut self, vertices: Vec<Vertex>, whole: bool) {
-        if self.enabled && vertices.iter().all(|v| v.point.x.is_finite() && v.point.y.is_finite() && v.depth.is_finite()) && vertices.len() >= 2 { self.strokes.push(Stroke { vertices, part: self.active, whole }); }
+        if self.enabled && vertices.iter().all(|v| v.point.x.is_finite() && v.point.y.is_finite() && v.depth.is_finite()) && vertices.len() >= 2 { self.strokes.push(Stroke { vertices, part: self.active, whole, fill: self.filling }); }
     }
     pub fn line(&mut self, points: &[V3]) {
         if !self.enabled || !points.iter().all(|v| v.finite()) { return; }
+        if self.camera.perspective.is_some()&&points.iter().any(|q|self.camera.near_value(*q)<0.){for pair in points.windows(2){if let Some(edge)=self.camera.clip_segment(pair[0],pair[1]){self.add_stroke(edge.iter().map(|q|Vertex::from(self.camera.project(*q))).collect(),false);}}return;}
         self.add_stroke(points.iter().map(|q| Vertex::from(self.camera.project(*q))).collect(), false);
     }
     pub fn closed(&mut self, points: &[V3]) {
         if !self.enabled || !points.iter().all(|v| v.finite()) { return; }
         if points.len() < 2 { return; }
+        if self.camera.perspective.is_some()&&points.iter().any(|q|self.camera.near_value(*q)<0.){let mut ring=points.to_vec();if ring.first()!=ring.last(){ring.push(ring[0]);}self.line(&ring);return;}
         let mut vertices: Vec<_> = points.iter().map(|q| Vertex::from(self.camera.project(*q))).collect();
         if points.first() != points.last() { vertices.push(vertices[0]); }
         self.add_stroke(vertices, false);
     }
     pub fn whole_line(&mut self, points: &[V3]) {
         if !self.enabled || !points.iter().all(|v| v.finite()) { return; }
+        if points.iter().any(|p|self.camera.near_value(*p)<0.){return;}
         self.add_stroke(points.iter().map(|q| Vertex::from(self.camera.project(*q))).collect(), true);
     }
     /// Polígono plano y convexo. El sentido de giro no afecta a la ocultación.
     pub fn occluder(&mut self, points: &[V3]) {
         if !self.enabled || !points.iter().all(|v| v.finite()) { return; }
+        if let Some(geometry)=&mut self.geometry{if valid_face(points){geometry.push((self.next_solid,points.to_vec()));self.next_solid+=1;}}
         if let Some(face) = Face::new(points, &self.camera) { self.faces.push(face); }
     }
+    /// Hueco plano y convexo sobre una cara (ventana, puerta). Borra de los trazos
+    /// no atómicos lo que cae dentro y en su plano: la trama de la pared, las sombras
+    /// sobre ella. No oculta lo que está delante ni lo que está detrás, así que un
+    /// hueco en una fachada trasera no perfora otros edificios. Los marcos dibujados
+    /// con `whole_line` y el relleno de `hatch_hole` se conservan.
+    pub fn hole(&mut self, points: &[V3]) {
+        if !self.enabled || !points.iter().all(|v| v.finite()) { return; }
+        if let Some(face) = Face::new(points, &self.camera) { self.holes.push(face); }
+    }
+    /// Relleno de un hueco: como `hatch_face`, pero sin que los huecos lo recorten.
+    pub fn hatch_hole(&mut self, points: &[V3], direction: V3, spacing_mm: f64) {
+        self.filling = true; self.hatch_face(points, direction, spacing_mm); self.filling = false;
+    }
     pub fn render(&self) -> SceneOutput { hidden::render(self) }
+    /// Variante cancelable para previsualizaciones interactivas.
+    pub fn render_cancellable(&self, cancel: &dyn Fn() -> bool) -> Option<SceneOutput> { hidden::render_cancellable(self, cancel) }
 }
 
 pub(super) fn cross(a: P, b: P) -> f64 { a.x * b.y - a.y * b.x }

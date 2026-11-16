@@ -119,9 +119,7 @@ impl Preferences {
     pub fn save_to(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let file = dir.join(FILE);
-        let temp = file.with_extension("json.tmp");
-        std::fs::write(&temp, serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        std::fs::rename(temp, file).map_err(|e| e.to_string())
+        crate::files::atomic_write(&file, &serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
     }
 }
 

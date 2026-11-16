@@ -33,6 +33,7 @@ project(point: V3) -> (P, f64)
 facing(normal: V3) -> bool
 ground(point: P, z: f64) -> V3
 fit(&mut self, world: [V3; 2], paper: BBox, margin: f64)
+axes() -> (V3, V3, V3)  // derecha y abajo en el papel, y hacia el fondo
 
 PartId(pub u16)
 Tone::{Lit, Mid, Dark}
@@ -46,6 +47,8 @@ set_sun(&mut self, sun: Option<V3>)
 set_tone_thresholds(&mut self, thresholds: ToneThresholds)
 tone(normal: V3) -> Tone
 set_quiet(&mut self, quiet: bool)
+set_intersections(&mut self, enabled: bool)
+construction_issues(&self, minimum_mm: f64) -> Vec<String>
 paper_mm(meters: f64) -> f64
 visible(meters: f64, minimum_mm: f64) -> bool
 circle_segments(radius_m: f64) -> usize
@@ -53,6 +56,8 @@ line(&mut self, points: &[V3])
 closed(&mut self, points: &[V3])
 whole_line(&mut self, points: &[V3])
 occluder(&mut self, points: &[V3])
+hole(&mut self, points: &[V3])
+hatch_hole(&mut self, points: &[V3], direction: V3, spacing_mm: f64)
 solid(&mut self, vertices: &[V3], faces: &[Vec<usize>], smoothing: &[u16], quiet: bool) -> Vec<Vec<V3>>
 box3(&mut self, min: V3, max: V3) -> Vec<Vec<V3>>
 rotated_box(&mut self, min: V3, max: V3, yaw_deg: f64) -> Vec<Vec<V3>>
@@ -61,9 +66,18 @@ lathe(&mut self, center: V3, profile: &[(f64, f64)], smooth: bool) -> Vec<Vec<V3
 hatch_surface(&mut self, faces: &[Vec<V3>], angle_deg: f64, spacing_mm: f64)
 solid_oriented(&mut self, vertices: &[V3], faces: &[Vec<usize>], smoothing: &[u16], quiet: bool) -> Vec<Vec<V3>>
 hatch_face(&mut self, points: &[V3], direction: V3, spacing_mm: f64)
+hatch_faces(&mut self, pieces: &[Vec<V3>], direction: V3, spacing_mm: f64)
+polyhedron(&mut self, faces: &[Vec<V3>]) -> Vec<Vec<Vec<V3>>>
+prism(&mut self, profile: &[V3], vector: V3) -> Vec<Vec<Vec<V3>>>
+lathe_parts(&mut self, center: V3, profile: &[(f64, f64)], smooth: bool) -> Lathe
 begin_shadows(&mut self, ground_z: f64, world_clip: Option<[f64; 4]>, hatch_angle_deg: f64)
 hatch_shadows(&mut self, spacing_mm: f64)
+load() -> Load; mark() -> Mark
+clip_to_sphere(&mut self, mark: Mark, center: V3, radius: f64)
 render() -> SceneOutput
+
+Load { faces: usize, segments: usize }; Load::within_budget() -> bool
+FACE_BUDGET = 8.000; SEGMENT_BUDGET = 40.000  // tope de una lámina densa
 
 SceneOutput { parts: Vec<ScenePart> }
 ScenePart { id: PartId, name: String, lines: Vec<Polyline> }
@@ -81,8 +95,15 @@ SceneOutput::length_m(&self, id: PartId) -> f64
 - Los sólidos son convexos, cerrados y no degenerados. La API comprueba índices,
   caras degeneradas y dos caras por arista; la planitud y convexidad son
   precondiciones del generador. El perfil de revolución admite cuellos y cambios de convexidad,
-  con alturas crecientes y radios nulos solo en las puntas. No se triangulan caras
-  cóncavas ni se hacen operaciones booleanas entre sólidos.
+  con alturas crecientes y radios nulos solo en las puntas. No se hacen operaciones
+  booleanas entre sólidos.
+- `polyhedron` y `prism` admiten caras lógicas no convexas (planas y simples): las
+  parten en trozos convexos y devuelven los trozos agrupados por cara lógica. La
+  arista entre dos caras de un mismo sólido con la misma normal no se dibuja, así
+  que las particiones no dejan costura; la de dos sólidos distintos (dos casas
+  adosadas) sí. `hatch_faces` trama los trozos de una cara como una sola.
+- `lathe_parts` devuelve un `Lathe` con `segments`, las facetas en
+  `bands[tramo][meridiano]` y las tapas aparte.
 - `set_quiet` afecta a los atajos siguientes; `solid` recibe su propia opción.
   Las superficies curvas usan un mismo grupo de suavizado lateral; las tapas
   tienen grupo cero. Se conservan sus bordes y las generatrices de silueta.
@@ -106,8 +127,24 @@ SceneOutput::length_m(&self, id: PartId) -> f64
 - Si un sólido cruza el plano de suelo, solo arroja sombra su porción superior.
   Los objetos por debajo del plano no arrojan sombra. `occluder` por sí solo no
   arroja sombra. Sin sol, `tone` devuelve `Mid`.
-- Quedan para las siguientes fases el panel Crear, los generadores y la conexión
-  con el documento, tal como pide el plan.
+- Un `hole` (ventana, puerta) no es un oclusor: borra de los trazos no atómicos
+  lo que cae dentro de su polígono y a su profundidad (± **0,01 m**), es decir, la
+  trama y las sombras de su pared. Lo que está delante o detrás sigue visible, así
+  que un hueco de una fachada trasera no perfora otros edificios. Se conservan
+  los trazos de `whole_line` (marcos) y el relleno de `hatch_hole`.
+- El módulo `generate` aporta generadores, estilo y kit. La interfaz y la persistencia
+  viven fuera del motor; esta capa sigue sin depender de egui ni del documento.
+
+## Presupuesto y recorte
+
+`load` cuenta las caras y los segmentos de trazo que lleva la escena; una lámina
+densa no debe pasar de `FACE_BUDGET` caras ni de `SEGMENT_BUDGET` segmentos. Con
+mucha gente se llega antes al tope de segmentos que al de caras.
+
+`mark` guarda dónde acaba la escena en ese momento y `clip_to_sphere` descarta lo
+añadido después que quede fuera de una esfera: caras, huecos y sombras por su
+centro, y trazos cortados justo en el borde. Lo usa la cúpula de vidrio del kit
+para que su interior no asome por fuera del cristal.
 
 ## Comprobación y ejemplo
 
@@ -139,3 +176,35 @@ Como protección de recursos, hay hasta 8.192 segmentos por círculo y 200.000
 líneas por trama; las áreas enormes adaptan el tamaño de celda (hasta 1024 por eje).
 La prueba `benchmark_long_diagonals_and_shaded_boxes` complementa la de segmentos
 cortos con 500 cajas tramadas, sombras y 2.000 diagonales largas.
+Solo en pruebas, `lit_wall_fraction(part, step_mm)` muestrea la hoja y devuelve la
+fracción del muro vertical visible de esa parte que queda en Lit, es decir, sin trama.
+
+## Encuentros entre volúmenes
+
+Cada sólido válido recibe un identificador, incluso si es `quiet`. Las caras
+sueltas no pertenecen a un sólido. Por defecto, `render` busca encuentros entre
+caras delanteras de sólidos distintos con cajas de hoja y profundidad comunes.
+La misma rejilla evita comparar parejas que no comparten celdas.
+
+La recta `depth_a(x,y) = depth_b(x,y)` se calcula en la hoja y se recorta contra
+ambos polígonos. Se excluyen planos paralelos/coplanares, tramos inferiores a
+0,05 mm y encuentros que ya están cubiertos por una arista emitida de esas caras.
+Esto último se comprueba sobre aristas realmente dibujables; las uniones suaves
+entre facetas no impiden dibujar una intersección legítima.
+
+Los segmentos contiguos de cada pareja de sólidos forman polilíneas, con unión
+de extremos a 1e-7 mm y profundidad a 1e-8 m. Pasan por la ocultación y la
+eliminación de pasadas repetidas habituales. Se añaden después de los trazos
+solicitados, en la parte activa al construir el sólido **más reciente**.
+Las partes distintas conservan su identidad aunque se les asigne la misma tinta.
+
+`set_intersections(false)` apaga la salida de encuentros y excluye de futuros
+encuentros los sólidos añadidos mientras está apagado. Los sólidos `quiet` solo
+ocultan y nunca participan en el cálculo de encuentros.
+
+`construction_issues` es un diagnóstico explícito del kit, fuera del render:
+busca caras de igual normal con huella común, coplanares o separadas menos del
+mínimo indicado en papel. Las normales opuestas en un contacto son lícitas.
+La comprobación usa las caras delanteras que pueden intervenir en el dibujo;
+no pretende validar booleanas de volúmenes arbitrarios ni sustituir el diseño
+de las piezas. Pueblo blanco la aplica en pruebas y compilaciones de depuración.

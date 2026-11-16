@@ -21,7 +21,7 @@ pub struct Photo {
     pub size_pct: f64,
 }
 
-/// Imagen comprimida (JPEG) tal como se guarda en el archivo.
+/// Imagen comprimida (JPEG, o PNG cuando hay transparencia).
 #[derive(Clone, Debug, PartialEq)]
 pub struct EncodedImage {
     pub bytes: Vec<u8>,
@@ -30,6 +30,14 @@ pub struct EncodedImage {
 impl EncodedImage {
     /// Reduce la foto a [`STORED_PX`] y la comprime para guardarla.
     pub fn from_image(img: &DynamicImage) -> Result<Self, String> {
+        if img.color().has_alpha() {
+            let rgba = crate::vectorize::working_rgba(img, STORED_PX);
+            if rgba.pixels().any(|px| px[3] < 255) {
+                let mut bytes = Vec::new();
+                rgba.write_with_encoder(image::codecs::png::PngEncoder::new(&mut bytes)).map_err(|e| e.to_string())?;
+                return Ok(EncodedImage { bytes });
+            }
+        }
         let rgb = crate::vectorize::working_image(img, STORED_PX);
         let mut bytes = Vec::new();
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 92);

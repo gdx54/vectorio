@@ -70,8 +70,8 @@ struct PlotPreview {
 /// Cámara de la vista previa. El zoom es relativo al encuadre inicial y `center`
 /// indica el punto de la imagen que se mantiene en el centro al redimensionar.
 #[derive(Clone, Copy)]
-struct PreviewView {
-    zoom: f32,
+pub(crate) struct PreviewView {
+    pub(crate) zoom: f32,
     center: Vec2,
 }
 
@@ -80,13 +80,13 @@ impl Default for PreviewView {
 }
 
 impl PreviewView {
-    fn image_rect(&self, viewport: Rect, source: Vec2) -> Rect {
+    pub(crate) fn image_rect(&self, viewport: Rect, source: Vec2) -> Rect {
         let fit = ((viewport.width() - 24.0).max(1.0) / source.x).min((viewport.height() - 24.0).max(1.0) / source.y);
         let size = source * fit * self.zoom;
         Rect::from_min_size(viewport.center() - self.center * size, size)
     }
 
-    fn zoom_at(&mut self, factor: f32, anchor: Pos2, viewport: Rect, source: Vec2) {
+    pub(crate) fn zoom_at(&mut self, factor: f32, anchor: Pos2, viewport: Rect, source: Vec2) {
         let image = self.image_rect(viewport, source);
         let point = (anchor - image.min) / image.size();
         self.zoom = (self.zoom * factor).clamp(0.25, 32.0);
@@ -94,13 +94,14 @@ impl PreviewView {
         self.center = point - (anchor - viewport.center()) / size;
     }
 
-    fn pan(&mut self, delta: Vec2, viewport: Rect, source: Vec2) {
+    pub(crate) fn pan(&mut self, delta: Vec2, viewport: Rect, source: Vec2) {
         self.center -= delta / self.image_rect(viewport, source).size();
     }
 }
 
 pub struct VectorizeUi {
     pub open: bool,
+    load_error: Option<String>,
     name: String,
     image: Option<Arc<DynamicImage>>,
     texture: Option<egui::TextureHandle>,
@@ -124,6 +125,8 @@ pub struct VectorizeUi {
     view: PreviewView,
     /// Grupo de foto que se sustituye al aceptar («Volver a separar»).
     replacing: Option<u64>,
+    /// Siguiente clic sobre la foto: origen de la onda topográfica.
+    choosing_seed: bool,
 }
 
 /// Lo que se añade al documento al aceptar.
@@ -139,6 +142,7 @@ impl Default for VectorizeUi {
     fn default() -> Self {
         VectorizeUi {
             open: false,
+            load_error: None,
             name: String::new(),
             image: None,
             texture: None,
@@ -158,6 +162,7 @@ impl Default for VectorizeUi {
             size_pct: 100.0,
             view: PreviewView::default(),
             replacing: None,
+            choosing_seed: false,
         }
     }
 }
@@ -179,9 +184,15 @@ impl VectorizeUi {
             .add_filter("Imagen", IMAGE_EXT)
             .pick_file()
         {
-            let _ = self.load(ctx, &path);
+            self.load_from_dialog(ctx, &path);
         }
     }
+
+    fn load_from_dialog(&mut self, ctx: &egui::Context, path: &Path) {
+        self.load_error = self.load(ctx, path).err().map(|error| tr!("No se pudo abrir la imagen: %{error}", error = error));
+    }
+
+    pub fn take_load_error(&mut self) -> Option<String> { self.load_error.take() }
 
     pub fn load(&mut self, ctx: &egui::Context, path: &Path) -> Result<(), String> {
         let img = image::open(path).map_err(|e| e.to_string())?;
@@ -217,6 +228,7 @@ impl VectorizeUi {
         self.plot_job = None;
         self.pending_key = None;
         self.view = PreviewView::default();
+        self.choosing_seed = false;
         self.open = true;
     }
 
@@ -463,6 +475,16 @@ impl VectorizeUi {
         } else if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Grab); }
         if response.double_clicked() { self.view = PreviewView::default(); }
         let img_rect = self.view.image_rect(rect, ts);
+        if self.params.mode == VecMode::Topography && self.choosing_seed {
+            if let Some(pos) = response.hover_pos().filter(|pos| img_rect.contains(*pos)) {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                if response.clicked() {
+                    let uv = (pos-img_rect.min)/img_rect.size();
+                    self.params.topo.seed = [uv.x as f64, uv.y as f64];
+                    self.choosing_seed = false;
+                }
+            }
+        }
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         match self.preview {
             Preview::Original => {
@@ -511,6 +533,14 @@ impl VectorizeUi {
                 painter.extend(shapes);
             }
         }
+        if self.params.mode == VecMode::Topography {
+            let seed = self.params.topo.seed;
+            let center = img_rect.min + Vec2::new(seed[0] as f32, seed[1] as f32)*img_rect.size();
+            painter.circle_filled(center, 5.0, Color32::WHITE);
+            painter.circle_stroke(center, 5.0, Stroke::new(1.5_f32, pal.accent));
+            painter.line_segment([center-Vec2::new(8.0, 0.0), center+Vec2::new(8.0, 0.0)], Stroke::new(1.0_f32, pal.accent));
+            painter.line_segment([center-Vec2::new(0.0, 8.0), center+Vec2::new(0.0, 8.0)], Stroke::new(1.0_f32, pal.accent));
+        }
         if self.plot_job.is_some() && self.job.is_none() {
             let c = rect.right_top() + Vec2::new(-24.0, 24.0);
             painter.add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
@@ -530,8 +560,13 @@ impl VectorizeUi {
     /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
     /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
     fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
-        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix);
-        let width = if self.params.mode == VecMode::Mix { self.look.screen.pen_width_mm } else { 0.8 };
+        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography);
+        let width = match self.params.mode {
+            VecMode::Mix => self.look.screen.pen_width_mm,
+            VecMode::Portrait => self.params.portrait.pen_width_mm,
+            VecMode::Topography => self.params.topo.pen_width_mm,
+            _ => 0.8,
+        };
         res.layers
             .iter()
             .map(|l| {
@@ -651,6 +686,7 @@ impl VectorizeUi {
                 }
             });
         ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.tertiary));
+        if self.params.mode != VecMode::Topography { self.choosing_seed = false; }
         let prm = &mut self.params;
         match prm.mode {
             VecMode::Colors => {
@@ -700,6 +736,53 @@ impl VectorizeUi {
                 field(ui, ts!("Líneas"), |ui| ui.add(egui::Slider::new(&mut prm.engrave_rows, 20..=300)));
                 field(ui, ts!("Intensidad"), |ui| ui.add(egui::Slider::new(&mut prm.engrave_amp, 0.1..=2.0)));
                 ui.checkbox(&mut prm.invert, ts!("Invertir"));
+            }
+            VecMode::Portrait => {
+                ui.checkbox(&mut prm.portrait.color, ts!("Varias tintas"));
+                if prm.portrait.color {
+                    field(ui, ts!("Rotuladores"), |ui| {
+                        egui::ComboBox::from_id_salt("portrait-palette").icon(crate::theme::combo_icon)
+                            .width(ui.available_width())
+                            .selected_text(crate::i18n::ts(prm.portrait.palette.label()))
+                            .show_ui(ui, |ui| {
+                                for palette in MixPalette::ALL {
+                                    ui.selectable_value(&mut prm.portrait.palette, palette, crate::i18n::ts(palette.label()));
+                                }
+                            }).response
+                    });
+                    if prm.portrait.palette == MixPalette::Photo {
+                        field(ui, ts!("Colores"), |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=8)));
+                    }
+                    if prm.portrait.palette == MixPalette::Mine { my_pens(ui, prm, doc); }
+                }
+                field(ui, ts!("Densidad"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.density, 40..=500)));
+                field(ui, ts!("Fluidez"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.field_smooth, 0.5..=16.0))
+                    .on_hover_text(ts!("Suaviza el campo de direcciones: valores altos crean curvas más amplias.")));
+                field(ui, ts!("Seguir formas"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.follow, 0.0..=1.0)));
+                field(ui, ts!("Ángulo base"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.angle_deg, 0.0..=180.0).suffix("°"))
+                    .on_hover_text(ts!("Dirección del rayado donde la imagen no tiene una estructura clara.")));
+                field(ui, ts!("Pasadas"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.passes, 1..=4)));
+                ui.checkbox(&mut prm.portrait.cross, ts!("Cruzar las sombras"));
+                field(ui, ts!("Largo máx."), |ui| ui.add(egui::Slider::new(&mut prm.portrait.length_pct, 2.0..=100.0).suffix(" %"))
+                    .on_hover_text(ts!("Longitud máxima de cada trazo respecto al lado mayor de la foto.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.tone, 0.4..=2.5))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.pen_width_mm, 0.1..=1.2).suffix(" mm"))
+                    .on_hover_text(ts!("Grosor de los rotuladores nuevos")));
+            }
+            VecMode::Topography => {
+                field(ui, ts!("Curvas de nivel"), |ui| ui.add(egui::Slider::new(&mut prm.topo.lines, 10..=500)));
+                field(ui, ts!("Gamma"), |ui| ui.add(egui::Slider::new(&mut prm.topo.gamma, 0.2..=4.0))
+                    .on_hover_text(ts!("Valores altos juntan más las curvas en los tonos medios y oscuros.")));
+                field(ui, ts!("Velocidad mín."), |ui| ui.add(egui::Slider::new(&mut prm.topo.speed_offset, 0.01..=1.0).logarithmic(true))
+                    .on_hover_text(ts!("Evita que la onda se detenga en el negro; valores bajos aumentan la densidad de las sombras.")));
+                field(ui, ts!("Origen X"), |ui| ui.add(egui::Slider::new(&mut prm.topo.seed[0], 0.0..=1.0).fixed_decimals(2)));
+                field(ui, ts!("Origen Y"), |ui| ui.add(egui::Slider::new(&mut prm.topo.seed[1], 0.0..=1.0).fixed_decimals(2)));
+                ui.toggle_value(&mut self.choosing_seed, ts!("Elegir origen en la imagen"));
+                if self.choosing_seed { ui.label(RichText::new(ts!("Pulsa sobre la foto para colocar el origen de la onda.")).small().color(pal.secondary)); }
+                ui.checkbox(&mut prm.topo.skip_transparent, ts!("Omitir zonas transparentes"));
+                field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut prm.topo.pen_width_mm, 0.05..=1.5).suffix(" mm"))
+                    .on_hover_text(ts!("Grosor de los rotuladores nuevos")));
             }
         }
 
@@ -756,9 +839,9 @@ impl VectorizeUi {
             colors.dedup();
             let new = colors.len();
             let help = match (self.params.mode, new) {
-                (VecMode::Colors | VecMode::Mix, 0) => ts!("Usa rotuladores que ya tienes.").to_string(),
-                (VecMode::Colors | VecMode::Mix, 1) => ts!("Se añadirá 1 tinta nueva al panel de tintas.").to_string(),
-                (VecMode::Colors | VecMode::Mix, n) => tr!("Se añadirán %{n} tintas nuevas al panel de tintas.", n = n),
+                (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, 0) => ts!("Usa rotuladores que ya tienes.").to_string(),
+                (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, 1) => ts!("Se añadirá 1 tinta nueva al panel de tintas.").to_string(),
+                (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, n) => tr!("Se añadirán %{n} tintas nuevas al panel de tintas.", n = n),
                 _ => ts!("Se usará tu rotulador más parecido.").to_string(),
             };
             ui.label(RichText::new(help).small().color(pal.tertiary));
@@ -776,8 +859,11 @@ impl VectorizeUi {
 
         theme::section(ui, ts!("DETALLE"));
         let prm = &mut self.params;
-        field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=4.0)));
-        if prm.mode != VecMode::Mix {
+        let blur_max = if prm.mode == VecMode::Topography { 20.0 } else { 4.0 };
+        field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
+        if prm.mode == VecMode::Topography {
+            field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.topo.detail, 0.02..=1.0)));
+        } else if !matches!(prm.mode, VecMode::Mix | VecMode::Portrait) {
             field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.detail, 0.2..=3.0)));
             field(ui, ts!("Curvas"), |ui| ui.add(egui::Slider::new(&mut prm.smooth, 0..=4)));
         }
@@ -847,7 +933,7 @@ impl VectorizeUi {
                     let trace = mix::trace_params(&key.look.screen, i, res.layers.len());
                     let mut ink = Traced::new(Coverage { map: (**cov).clone(), mm_per_px: s }, trace.clone(), i);
                     ink.set_lines(TraceKey { trace, pen_width_mm: key.widths.get(i).copied().unwrap_or(0.8), relay: None }, lines);
-                    Item::new(label, Geometry::Traced(ink), center)
+                    Item::new(label, Geometry::Traced(Box::new(ink)), center)
                 }
                 None => Item::new(label, Geometry::Path { lines: layer.lines.iter().map(to_local).collect(), closed: layer.closed }, center),
             };
@@ -1002,7 +1088,140 @@ fn close_button(ui: &mut egui::Ui, pal: &theme::Palette) -> egui::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_image_dialog_load_reports_the_error_and_preserves_the_previous_photo() {
+        let ctx = egui::Context::default();
+        let mut view = VectorizeUi::default();
+        view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::new(8, 6)), "Anterior".into());
+        let image = view.image.as_ref().unwrap().clone();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rota.png");
+        std::fs::write(&path, b"imagen rota").unwrap();
+        view.load_from_dialog(&ctx, &path);
+        assert!(view.take_load_error().is_some());
+        assert!(view.take_load_error().is_none());
+        assert!(Arc::ptr_eq(view.image.as_ref().unwrap(), &image));
+        assert_eq!(view.name, "Anterior");
+    }
     use vectorio_core::raster::Grid;
+
+    #[test]
+    fn topography_import_and_live_photo_keep_alpha_settings_and_the_preview_paths() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::default();
+        doc.pens.clear();
+        let mut view = VectorizeUi::default();
+        view.set_image(&ctx, DynamicImage::ImageRgba8(image::RgbaImage::from_fn(64, 48, |x, y| {
+            image::Rgba([80, (x*3) as u8, (y*4) as u8, if x > 8 && x < 55 { 255 } else { 0 }])
+        })), "Topografía".into());
+        view.params.mode = VecMode::Topography;
+        view.params.topo.lines = 30;
+        view.params.topo.seed = [0.2, 0.8];
+        view.params.topo.gamma = 1.8;
+        view.params.topo.pen_width_mm = 0.175;
+        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.params));
+        view.result = Some(result.clone());
+        let expected = plot_lines(&result, &view.key(&doc, &result));
+        let (items, pens) = view.build(&doc).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(pens.len(), 1);
+        assert_eq!(pens[0].width_mm, 0.175);
+        doc.pens.extend(pens);
+        let item = &items[0];
+        assert!(matches!(item.geometry, Geometry::Path { closed: false, .. }) && !item.has_fill());
+        let scale = view.scale(&doc, &result);
+        let offset = item.place.pos-p(result.width*scale/2.0, result.height*scale/2.0);
+        let plotted = item.plot(&doc.pens);
+        assert_eq!(plotted[0].1.len(), expected.layers[0].len());
+        for (actual, shown) in plotted[0].1.iter().zip(&expected.layers[0]) {
+            assert_eq!(actual.len(), shown.len());
+            for (a, b) in actual.iter().zip(shown) { assert!(a.dist(*b+offset) < 1e-9); }
+        }
+        doc.add_photo_items(items, view.photo(), None);
+        let saved = Document::from_json(&doc.to_json()).unwrap();
+        let photo = &saved.photos[0];
+        let mut reopened = VectorizeUi::default();
+        reopened.reopen(&ctx, photo).unwrap();
+        assert_eq!(reopened.params, view.params);
+        assert_eq!(reopened.image.as_ref().unwrap().to_rgba8(), view.image.as_ref().unwrap().to_rgba8());
+        assert_eq!(vectorize::vectorize(reopened.image.as_ref().unwrap(), &reopened.params).layers[0].lines, result.layers[0].lines);
+        let svg = vectorio_core::svg_out::export(&saved, &saved.layers());
+        assert!(svg.contains("stroke-width=\"0.175\"") && svg.contains("fill=\"none\"") && svg.contains("<path"));
+    }
+
+    #[test]
+    fn topography_origin_can_be_picked_after_zooming_and_panning() {
+        let ctx = egui::Context::default();
+        let mut view = VectorizeUi::default();
+        view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::from_pixel(80, 100, image::Rgb([100; 3]))), "Origen".into());
+        view.params.mode = VecMode::Topography;
+        view.preview = Preview::Original;
+        view.choosing_seed = true;
+        view.view.zoom = 2.0;
+        view.view.center = Vec2::new(0.4, 0.6);
+        let frame = |view: &mut VectorizeUi, events| ctx.run(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))), events, ..Default::default()
+        }, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.preview_area(ui, Vec2::new(400.0, 300.0), &Document::default())); });
+        let output = frame(&mut view, vec![]);
+        let texture = view.texture.as_ref().unwrap().id();
+        let image = output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Mesh(mesh) if mesh.texture_id == texture => Some(mesh.calc_bounds()),
+            _ => None,
+        }).unwrap();
+        let point = image.min+image.size()*Vec2::new(0.42, 0.53);
+        frame(&mut view, vec![egui::Event::PointerMoved(point), egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
+        frame(&mut view, vec![egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
+        assert!((view.params.topo.seed[0]-0.42).abs() < 1e-5 && (view.params.topo.seed[1]-0.53).abs() < 1e-5);
+        assert!(!view.choosing_seed);
+        assert_eq!(view.view.zoom, 2.0);
+    }
+
+    #[test]
+    fn portrait_import_preserves_preview_paths_inks_and_regeneration_settings() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::default();
+        let mut view = VectorizeUi::default();
+        view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::from_fn(80, 100, |x, y| {
+            image::Rgb(if x < 40 { [180, (y+35) as u8, 35] } else { [35, 55, 160] })
+        })), "Retrato de prueba".into());
+        view.params.mode = VecMode::Portrait;
+        view.params.portrait.density = 55;
+        view.params.portrait.field_smooth = 6.5;
+        view.params.portrait.length_pct = 32.0;
+        view.size_pct = 65.0;
+        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.params));
+        let expected = plot_lines(&result, &view.key(&doc, &result));
+        view.result = Some(result.clone());
+        let (items, pens) = view.build(&doc).unwrap();
+        assert!(!items.is_empty());
+        doc.pens.extend(pens);
+        let scale = view.scale(&doc, &result);
+        let half = p(result.width*scale/2.0, result.height*scale/2.0);
+        for (item, preview) in items.iter().zip(&expected.layers) {
+            assert!(matches!(item.geometry, Geometry::Path { closed: false, .. }));
+            assert!(!item.has_fill() && item.stroke.is_some());
+            let paths = item.plot(&doc.pens);
+            assert_eq!(paths.len(), 1);
+            let offset = item.place.pos-half;
+            for (actual, shown) in paths[0].1.iter().zip(preview) {
+                assert_eq!(actual.len(), shown.len());
+                for (a, b) in actual.iter().zip(shown) { assert!(a.dist(*b+offset) < 1e-9); }
+            }
+        }
+        let photo = view.photo().unwrap();
+        doc.add_photo_items(items, Some(photo), None);
+        let loaded = Document::from_json(&doc.to_json()).unwrap();
+        let saved = &loaded.photos[0];
+        assert_eq!(saved.params, view.params);
+        let mut reopened = VectorizeUi::default();
+        reopened.reopen(&ctx, saved).unwrap();
+        assert_eq!(reopened.params, view.params);
+        assert_eq!(reopened.size_pct, 65.0);
+        assert_eq!(reopened.replacing, Some(saved.id));
+        let svg = vectorio_core::svg_out::export(&loaded, &loaded.layers());
+        assert!(svg.contains("<path") && svg.contains("fill=\"none\""));
+    }
 
     fn mixed_result(color: [u8; 3]) -> Arc<VecResult> {
         let mut coverage = Grid::new(8, 6);
@@ -1046,9 +1265,11 @@ mod tests {
     #[test]
     fn pinch_events_only_navigate_inside_the_preview() {
         let ctx = egui::Context::default();
-        let mut view = VectorizeUi::default();
-        view.texture = Some(ctx.load_texture("test-preview", egui::ColorImage::new([8, 6], Color32::WHITE), Default::default()));
-        view.preview = Preview::Original;
+        let mut view = VectorizeUi {
+            texture: Some(ctx.load_texture("test-preview", egui::ColorImage::new([8, 6], Color32::WHITE), Default::default())),
+            preview: Preview::Original,
+            ..Default::default()
+        };
         let doc = Document::default();
         let mut frame = |time: f64, events| {
             let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))), time: Some(time), events, ..Default::default() };

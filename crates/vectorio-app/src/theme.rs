@@ -239,17 +239,37 @@ pub fn glass_panel_with<R>(ui: &mut egui::Ui, pal: &Palette, radius: f32, margin
     let inner = egui::Frame::none().inner_margin(margin).show(ui, add);
     let rect = inner.response.rect;
     ui.painter().set(background, glass(rect, radius, material, pal));
-    // El papel que queda bajo el vidrio se intuye como una mancha difusa: egui no
-    // desenfoca, pero sabemos qué hay debajo y podemos imitar el desenfoque.
+    // El reflejo comparte la silueta redondeada del vidrio. El recorte de egui
+    // solo admite rectángulos: usarlo como máscara dejaba parches en las esquinas.
     if let Some((paper, color)) = backdrop(ui.ctx()) {
-        let clip = rect.shrink(1.0);
-        if paper.intersects(clip) {
+        if paper.expand(24.0).intersects(rect) {
             let strength = if ui.visuals().dark_mode { 0.2 } else { 0.35 };
-            let blob = Shadow { offset: Vec2::ZERO, blur: 24.0, spread: 0.0, color: color.gamma_multiply(strength) };
-            ui.painter().with_clip_rect(clip).set(see_through, egui::Shape::from(blob.as_shape(paper, Rounding::same(2.0))));
+            ui.painter().set(see_through, glass_backdrop(rect.shrink(1.0), (radius - 1.0).max(0.0), paper, color, strength));
         }
     }
     inner
+}
+
+/// Mancha difusa del papel, triangulada dentro del mismo contorno que el vidrio.
+/// La distancia al papel suaviza el reflejo sin pintar fuera de las esquinas.
+fn glass_backdrop(rect: egui::Rect, radius: f32, paper: egui::Rect, color: Color32, strength: f32) -> egui::Shape {
+    let tint = |point: egui::Pos2| {
+        let dx = (paper.left() - point.x).max(point.x - paper.right()).max(0.0);
+        let dy = (paper.top() - point.y).max(point.y - paper.bottom()).max(0.0);
+        let fade = (-(dx * dx + dy * dy) / (2.0 * 12.0 * 12.0)).exp();
+        color.gamma_multiply(strength * fade)
+    };
+    let outline = rounded_outline(rect, radius);
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.center(), tint(rect.center()));
+    for (point, _) in &outline {
+        mesh.colored_vertex(*point, tint(*point));
+    }
+    let n = outline.len() as u32;
+    for i in 0..n {
+        mesh.add_triangle(0, i + 1, 1 + (i + 1) % n);
+    }
+    egui::Shape::mesh(mesh)
 }
 
 /// Composición «a sobre b» con colores premultiplicados.
@@ -529,6 +549,7 @@ pub fn accent_button_sized(ui: &mut egui::Ui, text: &str, size: Option<Vec2>) ->
     let color = if enabled { Color32::WHITE } else { Color32::WHITE.gamma_multiply(0.7) };
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, text));
+    focus_ring(ui, &resp);
     resp
 }
 
@@ -548,7 +569,17 @@ pub fn swatch(ui: &mut egui::Ui, color: [u8; 3], size: f32) -> egui::Response {
     let pal = current(ui.ctx());
     ui.painter().circle_filled(rect.center(), size / 2.0, Color32::from_rgb(color[0], color[1], color[2]));
     ui.painter().circle_stroke(rect.center(), size / 2.0, Stroke::new(1.0f32, pal.outline));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, ui.is_enabled(),
+        tr!("Editar color %{color}", color = format!("#{:02X}{:02X}{:02X}", color[0], color[1], color[2]))));
+    focus_ring(ui, &resp);
     resp
+}
+
+/// El foco de teclado no depende del estado de paso del puntero.
+pub fn focus_ring(ui: &egui::Ui, response: &egui::Response) {
+    if response.has_focus() && response.enabled() {
+        ui.painter().rect_stroke(response.rect.shrink(1.0), 4.0, Stroke::new(2.0f32, current(ui.ctx()).accent));
+    }
 }
 
 pub fn pen_color(c: [u8; 3]) -> Color32 {
@@ -564,6 +595,7 @@ pub fn close_button(ui: &mut egui::Ui) -> egui::Response {
     ui.painter().line_segment([center + Vec2::new(-4.0, -4.0), center + Vec2::new(4.0, 4.0)], stroke);
     ui.painter().line_segment([center + Vec2::new(-4.0, 4.0), center + Vec2::new(4.0, -4.0)], stroke);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Cerrar"));
+    focus_ring(ui, &response);
     response.on_hover_text("Cerrar sin guardar (Esc)")
 }
 
@@ -633,6 +665,35 @@ mod tests {
         }
         let (hi, lo) = at(light_deg + 180.0);
         assert!(hi < 0.01 && lo > 0.99, "el lado opuesto solo lleva contrabrillo");
+    }
+
+    #[test]
+    fn paper_reflection_never_fills_the_corners_outside_the_glass() {
+        for size in [Vec2::new(220.0, 36.0), Vec2::new(500.0, 430.0), Vec2::splat(36.0)] {
+            let rect = egui::Rect::from_min_size(egui::pos2(50.0, 60.0), size);
+            for radius in [8.0, 18.0, 40.0] {
+                for paper in [rect.expand(100.0), rect.translate(Vec2::new(size.x * 0.6, 0.0))] {
+                    let egui::Shape::Mesh(mesh) = glass_backdrop(rect, radius, paper, Color32::WHITE, 0.35) else { panic!("El reflejo debe ser una malla redondeada") };
+                    let covers = |point: egui::Pos2| mesh.indices.as_chunks::<3>().0.iter().any(|triangle| {
+                        let a = mesh.vertices[triangle[0] as usize].pos;
+                        let b = mesh.vertices[triangle[1] as usize].pos;
+                        let c = mesh.vertices[triangle[2] as usize].pos;
+                        let cross = |a: Vec2, b: Vec2| a.x * b.y - a.y * b.x;
+                        let area = cross(b - a, c - a);
+                        if area.abs() < 1e-6 { return false; }
+                        let u = cross(point - a, c - a) / area;
+                        let v = cross(b - a, point - a) / area;
+                        u >= 0.0 && v >= 0.0 && u + v <= 1.0
+                    });
+                    assert!(covers(rect.center()));
+                    for corner in [rect.left_top(), rect.right_top(), rect.left_bottom(), rect.right_bottom()] {
+                        let point = corner + (rect.center() - corner).normalized() * 0.5;
+                        assert!(!covers(point), "El reflejo sale de la esquina con radio {radius}");
+                    }
+                    assert!(mesh.vertices.iter().any(|v| v.color.a() > 0));
+                }
+            }
+        }
     }
 
     #[test]

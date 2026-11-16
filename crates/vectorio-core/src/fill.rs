@@ -155,16 +155,24 @@ fn spans(rings: &[Polyline], c: f64) -> Vec<(f64, f64)> {
     let mut xs = Vec::new();
     for ring in rings {
         let n = ring.len();
+        if n < 3 || ring.iter().any(|q| !q.x.is_finite() || !q.y.is_finite()) { continue; }
+        let ring_start = xs.len();
         let mut k = n - 1;
         for j in 0..n {
             let (a, z) = (ring[k], ring[j]);
             if (a.y > c) != (z.y > c) {
-                xs.push(a.x + (c - a.y) * (z.x - a.x) / (z.y - a.y));
+                let x = a.x + (c - a.y) * (z.x - a.x) / (z.y - a.y);
+                if !x.is_finite() {
+                    // Un contorno inválido no debe alterar la paridad de los demás.
+                    xs.truncate(ring_start);
+                    break;
+                }
+                xs.push(x);
             }
             k = j;
         }
     }
-    xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    xs.sort_by(f64::total_cmp);
     xs.chunks(2).filter(|w| w.len() == 2 && w[1] - w[0] > 1e-9).map(|w| (w[0], w[1])).collect()
 }
 
@@ -283,7 +291,7 @@ fn dots(rings: &[Polyline], spacing: f64, inset: f64, pen_width: f64, seed: u64)
     let mut y = (b.min.y / row_h).ceil() * row_h;
     let mut row = 0usize;
     while y < b.max.y {
-        let offset = if row % 2 == 0 { 0.0 } else { spacing / 2.0 };
+        let offset = if row.is_multiple_of(2) { 0.0 } else { spacing / 2.0 };
         let mut x = (b.min.x / spacing).floor() * spacing + offset;
         let mut line_dots = Vec::new();
         while x < b.max.x {
@@ -348,6 +356,21 @@ fn wave(rings: &[Polyline], angle_deg: f64, spacing: f64, inset: f64) -> Vec<Pol
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scanline_ignores_empty_and_nonfinite_rings() {
+        let good = square(10.0);
+        let expected = spans(&good, 5.0);
+        for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut rings = good.clone();
+            rings.push(vec![]);
+            rings.push(vec![p(x, 0.0), p(5.0, 10.0), p(0.0, 0.0)]);
+            assert_eq!(spans(&rings, 5.0), expected);
+        }
+        let extreme = vec![vec![p(f64::MAX, -f64::MAX), p(-f64::MAX, f64::MAX), p(0.0, 0.0)]];
+        assert!(spans(&extreme, 0.0).iter().all(|(a, b)| a.is_finite() && b.is_finite()));
+        assert_eq!(spans(&[good[0].clone(), extreme[0].clone()], 5.0), expected);
+    }
 
     fn square(s: f64) -> Vec<Polyline> {
         vec![vec![p(0.0, 0.0), p(s, 0.0), p(s, s), p(0.0, s)]]

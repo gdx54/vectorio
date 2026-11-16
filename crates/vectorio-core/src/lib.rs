@@ -14,6 +14,7 @@ pub mod mix;
 pub mod optimize;
 pub mod output;
 pub mod photo;
+pub mod portrait;
 pub mod raster;
 pub mod scene;
 pub mod shapes;
@@ -22,7 +23,9 @@ pub mod svg_in;
 pub mod svg_out;
 pub mod svgfont;
 pub mod trace;
+pub mod topo;
 pub mod vectorize;
+pub mod volumetric;
 
 pub use adjust::ColorAdjust;
 pub use doc::{Document, Geometry, Item, Paper, Pen, PlotLayer, PlotSettings};

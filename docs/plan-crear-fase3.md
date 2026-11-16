@@ -8,7 +8,7 @@ Eres un agente de programación trabajando en **Vectorio**, una aplicación de e
 
 Esta fase da el salto de «funciona» a **«merece la pena dibujarlo»**. Tiene tres partes:
 
-1. pequeñas correcciones de la revisión;
+1. pequeñas correcciones de la revisión y las **aristas de intersección** entre sólidos;
 2. un **estilo de dibujo propio** y un **kit de piezas** reutilizable;
 3. la primera escena con dirección artística: **«Pueblo blanco»**.
 
@@ -48,6 +48,35 @@ Las mismas de la fase 2:
    El bodegón ya lo hace a mano. Úsalo en Manzanas y en Pueblo blanco. Prueba: con los valores por defecto, la salida ocupa al menos el 90 % del ancho o del alto útil.
 6. **Luz.** El sol de Manzanas tiene la altura fija (`z = 1.5`): los tejados siempre salen claros y las paredes nunca, así que el abanico de tonos es corto. Añade un parámetro **altura del sol** (por ejemplo de 20° a 70°) y aplícalo también a la escena nueva.
 7. **Tejado cónico de Manzanas.** Su pendiente (54,7°) coincide con el complemento de la elevación isométrica. Las caras traseras quedan de canto y el cono parece una peonza con la elipse entera. Usa una pendiente que no coincida con ninguna de las elevaciones ofrecidas y documenta por qué.
+8. **Aristas de intersección entre sólidos.** Es la corrección más importante de este paso.
+
+   **Qué falla.** En el bodegón, la caja baja `(-2.7, 4.5, 0)–(-0.7, 6.5, 1.6)` se mete dentro de la alta `(-4, 3, 0)–(-2, 5, 2.8)`: se solapan 0,7 × 0,5 m en planta, aunque el comentario dice «solapadas en proyección». El motor solo dibuja las aristas propias de cada sólido. La línea donde la tapa de la baja entra en las paredes de la alta no es arista de ninguno de los dos, así que no se dibuja. La trama de una cara acaba en seco contra la de la otra, sin contorno, y se lee como un error.
+
+   Esto no es solo un problema del ejemplo. El kit de esta fase lo necesita en muchos sitios:
+   - una chimenea que atraviesa el tejado;
+   - el campanario que sale de la nave;
+   - una casa medio enterrada en la ladera o en un bancal;
+   - un ciprés que se hunde en el terreno.
+
+   **Qué hacer:**
+   - **Cada sólido tiene un identificador.** `solid`, `solid_oriented`, `box3`, `rotated_box`, `extrude` y `lathe` le asignan uno nuevo a sus caras. Las caras sueltas de `occluder()` y los sólidos `quiet` no generan intersecciones.
+   - **Solo caras delanteras.** Para cada par de caras delanteras de sólidos **distintos** cuyas cajas se solapen en la hoja y en profundidad, calcula el segmento común. Usa la rejilla que ya existe para no comparar todos con todos. Con caras traseras no hace falta: un punto de una cara trasera de un sólido cerrado siempre queda tapado por ese mismo sólido.
+   - **Cálculo en 2D.** Con cámara ortográfica, cada `Face` ya es un plano en (x, y, profundidad): tiene `origin` y `gradient`. La intersección es la recta de la hoja donde las dos profundidades coinciden. Recórtala con los semiplanos de ambas caras (Cyrus-Beck, como ahora) y asigna a cada extremo su profundidad. Si prefieres hacerlo en coordenadas del mundo, explica por qué.
+   - **Casos que se descartan:** planos paralelos o coplanares, y segmentos más cortos que `MIN_STROKE_MM`.
+   - **Un trazo más.** Cada segmento entra como un `Stroke` normal, sujeto a la misma ocultación. Así, la parte de la intersección que queda detrás de otro objeto se corta como cualquier arista.
+   - **Contactos.** Una caja apoyada sobre otra, o las almenas sobre el muro, dan segmentos que coinciden con aristas que ya existen. La deduplicación actual debe absorberlos: comprueba que no aparecen trazos dobles.
+   - **Parte de la línea.** Va a la parte de contorno del sólido que se añadió **después**: la chimenea, no el tejado. Documenta la regla en `scene/README.md`. Añade un interruptor `Scene::set_intersections(bool)`, activado por defecto, por si alguna pieza lo necesita apagar.
+   - **Superficies facetadas.** En tornos, los segmentos de faceta en faceta se unen en una polilínea continua con la unión de trazos que ya existe.
+
+   **Pruebas:**
+   - Dos cajas que se interpenetran en una vista isométrica conocida: aparecen exactamente los segmentos de intersección visibles, con la longitud analítica.
+   - Una chimenea que atraviesa un tejado a dos aguas: su contorno sobre el faldón es una polilínea cerrada en la parte visible y no hay trazos de la chimenea dentro del tejado.
+   - Un cilindro de torno que atraviesa una caja: polilínea unida, sin huecos mayores que la tolerancia.
+   - Contactos (caja sobre caja, almenas): sin segmentos duplicados.
+   - Ningún segmento de intersección con sólidos `quiet`, con caras coplanares o con el interruptor apagado.
+   - Las mediciones de rendimiento de la fase 2 no empeoran más de un 20 %.
+
+   **Ejemplo.** En `muestra_escena.rs`, corrige el comentario de las cajas: se interpenetran a propósito, como caso de prueba. Añade a la casa una chimenea que atraviese el faldón.
 
 ## Paso 1 · Estilo propio (`generate/style.rs`)
 
@@ -85,6 +114,13 @@ Funciones puras que dibujan sobre una `Scene` con el estilo del paso 1. Reciben 
 - **Muro de contención y bancal:** plataformas escalonadas que siguen una ladera.
 - **Vegetación:** ciprés (torno alargado), olivo o árbol de copa (copa convexa irregular a partir de un torno con perfil aleatorio suave), arbusto bajo.
 - **Terreno cortado** con estratos (paso 1).
+
+**Cómo se juntan las piezas.** La arista de intersección del paso 0.8 evita el corte sin contorno, pero un choque de volúmenes mal resuelto se sigue viendo raro. El kit sigue estas reglas:
+
+- **Encastre deliberado o contacto limpio.** Una pieza se mete en otra solo cuando la realidad lo hace, como la chimenea en el tejado, la torre en la nave o la casa en la ladera, y con una profundidad clara. Si no, las piezas se tocan cara con cara (contacto) o se separan.
+- **Sin rebanadas.** Dos caras paralelas de sólidos distintos coinciden exactamente o quedan a una distancia de al menos 1,5 mm en la hoja. Así no salen tiras de menos de un milímetro entre la tapa de una caja y la de otra casi igual de alta. Aplícalo cuantizando alturas y retranqueos en el kit, no corrigiendo después.
+- **Sin caras coplanares solapadas** de sólidos distintos con tramas diferentes, porque se cruzarían en moiré. Dos casas adosadas en la misma línea de fachada comparten plano pero no se solapan: eso sí vale, y la junta vertical se dibuja.
+- Añade una comprobación de depuración (`debug_assert` o un aviso en `GenOutput::warning` en modo prueba) que detecte rebanadas y caras coplanares solapadas en las escenas del kit. Pásala a las 500 semillas.
 
 Cada pieza tiene al menos una prueba geométrica:
 
@@ -156,7 +192,7 @@ Mientras no existe, la fila se muestra como ahora. No debe retrasar la vista pre
 - Antes de entregar:
   1. `cargo test --workspace`
   2. `cargo clippy --workspace --all-targets` sin avisos nuevos.
-  3. Ejecuta los dos ejemplos nuevos y revisa los SVG.
+  3. Ejecuta los dos ejemplos nuevos y `muestra_escena`, y revisa los SVG. Fíjate en las cajas interpenetradas del bodegón, en la chimenea y en las casas sobre los bancales: cada encuentro entre volúmenes debe tener su línea.
   4. `python3 scripts/install-macos.py`.
   5. Comprobación visual en `/Applications/Vectorio.app`, solo si no hay una Vectorio abierta: Crear → Pueblo blanco → Aleatorio varias veces → Colocar → cambiar la tinta de `vegetación` → Editar en Crear → Actualizar (la tinta se conserva) → Salida.
 - Actualiza `LEEME.md` si cambia algo visible.

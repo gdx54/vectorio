@@ -59,27 +59,32 @@ impl Frame {
 
 /// Rasteriza anillos (par/impar) en una máscara; muestrea el centro de cada píxel.
 pub fn rasterize(rings: &[Polyline], f: &Frame) -> Grid<bool> {
+    let rings: Vec<_> = rings.iter().filter(|ring| ring.len() >= 3
+        && ring.iter().all(|q| q.x.is_finite() && q.y.is_finite())).collect();
     let mut g = Grid::<bool>::new(f.w, f.h);
     let rows: Vec<Vec<bool>> = (0..f.h)
         .into_par_iter()
         .map(|y| {
             let yy = f.origin.y + (y as f64 + 0.5) * f.px;
             let mut xs: Vec<f64> = Vec::new();
-            for ring in rings {
+            for ring in &rings {
                 let n = ring.len();
-                if n < 3 {
-                    continue;
-                }
+                let ring_start = xs.len();
                 let mut k = n - 1;
                 for j in 0..n {
                     let (a, z) = (ring[k], ring[j]);
                     if (a.y > yy) != (z.y > yy) {
-                        xs.push(a.x + (yy - a.y) * (z.x - a.x) / (z.y - a.y));
+                        let x = a.x + (yy - a.y) * (z.x - a.x) / (z.y - a.y);
+                        if !x.is_finite() {
+                            xs.truncate(ring_start);
+                            break;
+                        }
+                        xs.push(x);
                     }
                     k = j;
                 }
             }
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            xs.sort_by(f64::total_cmp);
             let mut row = vec![false; f.w];
             for pair in xs.chunks(2) {
                 if pair.len() < 2 {
@@ -90,8 +95,8 @@ pub fn rasterize(rings: &[Polyline], f: &Frame) -> Grid<bool> {
                 if x1 < 0.0 {
                     continue;
                 }
-                for x in x0..=(x1 as usize).min(f.w - 1) {
-                    row[x] = true;
+                for pixel in row.iter_mut().take((x1 as usize).saturating_add(1)).skip(x0) {
+                    *pixel = true;
                 }
             }
             row
@@ -126,8 +131,8 @@ pub fn distance_inside(mask: &Grid<bool>) -> Grid<f32> {
     let rows: Vec<Vec<f64>> = (0..h).into_par_iter().map(|y| edt_1d(&tmp[y * w..(y + 1) * w])).collect();
     let mut out = Grid::<f32>::new(w, h);
     for (y, row) in rows.into_iter().enumerate() {
-        for x in 0..w {
-            out.data[y * w + x] = row[x].sqrt() as f32;
+        for (x, value) in row.into_iter().enumerate() {
+            out.data[y * w + x] = value.sqrt() as f32;
         }
     }
     out
@@ -164,12 +169,12 @@ fn edt_1d(f: &[f64]) -> Vec<f64> {
         }
     }
     k = 0;
-    for q in 0..n {
+    for (q, value) in d.iter_mut().enumerate() {
         while z[k + 1] < q as f64 {
             k += 1;
         }
         let dq = q as f64 - v[k] as f64;
-        d[q] = dq * dq + f[v[k]];
+        *value = dq * dq + f[v[k]];
     }
     d
 }
@@ -424,6 +429,23 @@ pub fn otsu(gray: &[u8]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_rings_do_not_pollute_the_mask_or_panic() {
+        let frame = Frame { origin: p(0.0, 0.0), px: 1.0, w: 10, h: 10 };
+        let good = vec![vec![p(2.0, 2.0), p(8.0, 2.0), p(8.0, 8.0), p(2.0, 8.0)]];
+        let expected = rasterize(&good, &frame);
+        for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut rings = good.clone();
+            rings.push(vec![]);
+            rings.push(vec![p(x, 0.0), p(5.0, 10.0), p(0.0, 0.0)]);
+            assert_eq!(rasterize(&rings, &frame).data, expected.data);
+        }
+        let extreme = vec![vec![p(f64::MAX, -f64::MAX), p(-f64::MAX, f64::MAX), p(0.0, 0.0)]];
+        assert!(rasterize(&extreme, &frame).data.iter().all(|v| !v));
+        assert_eq!(rasterize(&[good[0].clone(), extreme[0].clone()], &frame).data, expected.data);
+        assert!(rasterize(&good, &Frame { w: 0, ..frame }).data.is_empty());
+    }
 
     #[test]
     fn edt_of_square_peaks_in_center() {

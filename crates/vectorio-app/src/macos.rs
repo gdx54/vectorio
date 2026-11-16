@@ -9,6 +9,20 @@ mod imp {
     use objc2::{ffi, sel, MainThreadMarker};
     use objc2_app_kit::NSApplication;
     use std::ffi::CString;
+    use std::sync::{OnceLock, atomic::{AtomicBool, Ordering}};
+
+    static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static CONTEXT: OnceLock<egui::Context> = OnceLock::new();
+
+    // Dock y cierre de sesión pasan por el mismo control de cambios que el menú.
+    unsafe extern "C-unwind" fn should_terminate(_this: &AnyObject, _cmd: Sel, _app: &AnyObject) -> isize {
+        QUIT_REQUESTED.store(true, Ordering::Relaxed);
+        show_window();
+        if let Some(ctx) = CONTEXT.get() { ctx.request_repaint(); }
+        0 // NSTerminateCancel: el siguiente fotograma resuelve guardar/descartar/cancelar.
+    }
+
+    pub fn take_quit_request() -> bool { QUIT_REQUESTED.swap(false, Ordering::Relaxed) }
 
     /// Muestra las ventanas principales que estén ocultas. Solo en el hilo principal.
     pub fn show_window() {
@@ -31,7 +45,8 @@ mod imp {
 
     /// Añade `applicationShouldHandleReopen:hasVisibleWindows:` al delegado de winit.
     /// Debe llamarse con el bucle de eventos ya creado (desde la creación de la app).
-    pub fn install_reopen_handler() {
+    pub fn install_reopen_handler(ctx: &egui::Context) {
+        let _ = CONTEXT.set(ctx.clone());
         let Some(class) = AnyClass::get(c"WinitApplicationDelegate") else { return };
         let Ok(types) = CString::new(format!("{}@:@{}", Bool::ENCODING, Bool::ENCODING)) else { return };
         let handler: unsafe extern "C-unwind" fn(&AnyObject, Sel, &AnyObject, Bool) -> Bool = should_handle_reopen;
@@ -40,6 +55,10 @@ mod imp {
         unsafe {
             let imp: objc2::runtime::Imp = std::mem::transmute(handler);
             ffi::class_addMethod(class as *const AnyClass as *mut AnyClass, sel!(applicationShouldHandleReopen:hasVisibleWindows:), imp, types.as_ptr());
+            let terminate_types = CString::new(format!("{}@:@", isize::ENCODING)).expect("codificación estática sin ceros");
+            let terminate_handler: unsafe extern "C-unwind" fn(&AnyObject, Sel, &AnyObject) -> isize = should_terminate;
+            let terminate_imp: objc2::runtime::Imp = std::mem::transmute(terminate_handler);
+            ffi::class_addMethod(class as *const AnyClass as *mut AnyClass, sel!(applicationShouldTerminate:), terminate_imp, terminate_types.as_ptr());
         }
         // AppKit puede recordar qué métodos tenía el delegado al asignarlo: se reasigna
         // para que tenga en cuenta el que acabamos de añadir.
@@ -53,10 +72,21 @@ mod imp {
 }
 
 #[cfg(target_os = "macos")]
-pub use imp::{install_reopen_handler, show_window};
+pub use imp::{install_reopen_handler, show_window, take_quit_request};
 
 #[cfg(not(target_os = "macos"))]
-pub fn install_reopen_handler() {}
+pub fn install_reopen_handler(_ctx: &egui::Context) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn take_quit_request() -> bool { false }
+
+/// Deja que eframe termine el bucle después del fotograma y libere sus recursos.
+/// NSApplication::terminate desde App::update reentra en el manejador de winit
+/// y provoca un pánico en applicationWillTerminate (no admite desenrollado).
+pub fn quit(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    ctx.request_repaint();
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_window() {}

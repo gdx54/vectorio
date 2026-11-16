@@ -94,6 +94,7 @@ def install(destination, if_needed):
         resources.mkdir(parents=True)
         shutil.copy2(binary, macos / "vectorio")
         shutil.copy2(icon, resources / "Vectorio.icns")
+        shutil.copy2(PROJECT / "packaging/macos/VOLUMETRIC_NOTICES.txt", resources / "VOLUMETRIC_NOTICES.txt")
         (resources / "build.json").write_text(json.dumps({
             "project": str(PROJECT), "source_hash": source_hash, "version": version,
         }, indent=2) + "\n")

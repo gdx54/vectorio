@@ -335,14 +335,29 @@ impl From<Coverage> for CoverageFile {
 impl TryFrom<CoverageFile> for Coverage {
     type Error = String;
     fn try_from(f: CoverageFile) -> Result<Self, String> {
-        let mut map = Grid::new(f.w, f.h);
-        if f.w > 0 && f.h > 0 {
-            let img = image::load_from_memory_with_format(&base64_decode(&f.png)?, image::ImageFormat::Png).map_err(|e| e.to_string())?.to_luma8();
-            if (img.width() as usize, img.height() as usize) != (f.w, f.h) {
-                return Err("mapa de cobertura con un tamaño distinto del indicado".into());
-            }
-            map.data = img.as_raw().iter().map(|v| *v as f32 / 255.0).collect();
+        const MAX_PIXELS: usize = 16 * 1024 * 1024;
+        let pixels = f.w.checked_mul(f.h).filter(|n| *n <= MAX_PIXELS)
+            .ok_or("mapa de cobertura demasiado grande")?;
+        if f.w > 16384 || f.h > 16384 || !f.mm_per_px.is_finite() || f.mm_per_px <= 0.0
+            || (f.w == 0) != (f.h == 0) || f.png.len() > MAX_PIXELS * 8 {
+            return Err("dimensiones o escala del mapa de cobertura no válidas".into());
         }
+        if pixels == 0 {
+            return Err("el mapa de cobertura está vacío".into());
+        }
+        let bytes = base64_decode(&f.png)?;
+        let reader = || image::ImageReader::with_format(std::io::Cursor::new(&bytes), image::ImageFormat::Png);
+        if reader().into_dimensions().map_err(|e| e.to_string())? != (f.w as u32, f.h as u32) {
+            return Err("mapa de cobertura con un tamaño distinto del indicado".into());
+        }
+        let mut decoder = reader();
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(16384);
+        limits.max_image_height = Some(16384);
+        limits.max_alloc = Some(128 * 1024 * 1024);
+        decoder.limits(limits);
+        let img = decoder.decode().map_err(|e| e.to_string())?.to_luma8();
+        let map = Grid { w: f.w, h: f.h, data: img.as_raw().iter().map(|v| *v as f32 / 255.0).collect() };
         Ok(Coverage { map, mm_per_px: f.mm_per_px })
     }
 }
@@ -1721,6 +1736,16 @@ fn stroke_dot(field: &Field, q: P, size: f64, ang: f64, shape: DotShape) -> Poly
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_coverage_is_rejected_before_allocating_or_decoding() {
+        for (w, h, scale) in [(usize::MAX, 2, 1.0), (16385, 1, 1.0), (8192, 8192, 1.0),
+            (0, 2, 1.0), (0, 0, 1.0), (2, 2, 0.0), (2, 2, -1.0)] {
+            assert!(Coverage::try_from(CoverageFile { w, h, mm_per_px: scale, png: String::new() }).is_err());
+        }
+        let valid: CoverageFile = half_map().into();
+        assert!(Coverage::try_from(CoverageFile { w: 2, h: 2, ..valid }).is_err());
+    }
 
     fn half_map() -> Coverage {
         let mut map = Grid::<f32>::new(40, 20);

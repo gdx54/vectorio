@@ -16,6 +16,7 @@ pub enum Command {
     ExportSvg,
     ExportPerPen,
     CloseWindow,
+    Quit,
     Undo,
     Redo,
     Duplicate,
@@ -53,6 +54,7 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::E, Command::ExportPerPen),
     (Modifiers::COMMAND, Key::E, Command::ExportSvg),
     (Modifiers::COMMAND, Key::W, Command::CloseWindow),
+    (Modifiers::COMMAND, Key::Q, Command::Quit),
     (Modifiers::COMMAND, Key::D, Command::Duplicate),
     (Modifiers::COMMAND, Key::A, Command::SelectAll),
     (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::CloseBracket, Command::BringToFront),
@@ -65,6 +67,7 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::Num1, Command::Mode(ViewMode::Design)),
     (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Create)),
     (Modifiers::COMMAND, Key::Num3, Command::Mode(ViewMode::Output)),
+    (Modifiers::COMMAND, Key::Num4, Command::Mode(ViewMode::Volumetric)),
     (Modifiers::COMMAND, Key::Equals, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Plus, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Minus, Command::ZoomOut),
@@ -119,6 +122,12 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
 impl VectorioApp {
     /// Lee el teclado y lanza las órdenes que correspondan.
     pub fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.prefs_ui.open {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape) || i.consume_key(Modifiers::COMMAND, Key::W)) {
+                self.prefs_ui.open = false;
+            }
+            return;
+        }
         if self.color_edit.is_some() { return; }
         if self.renaming_pen.is_some() || self.renaming_item.is_some() {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
@@ -136,7 +145,7 @@ impl VectorioApp {
             }
             return;
         }
-        let typing = ctx.wants_keyboard_input();
+        let typing = ctx.wants_keyboard_input() && !(self.mode == ViewMode::Volumetric && self.volumetric_ui.scene_control_focused(ctx));
         let act = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_key(m, k));
 
         // ⌘Z en un campo de texto deshace el texto (lo gestiona el propio campo).
@@ -152,10 +161,14 @@ impl VectorioApp {
                 self.run(ctx, cmd);
             }
         }
-        if act(Modifiers::NONE, Key::Escape) {
+        if !(self.mode == ViewMode::Volumetric && self.volumetric_ui.menu_open(ctx))
+            && act(Modifiers::NONE, Key::Escape)
+        {
             self.escape(ctx);
         }
-        if typing || self.mode == ViewMode::Create {
+        let focused = ctx.memory(|m| m.focused());
+        let control_focus = focused.is_some() && focused != self.canvas_id;
+        if typing || control_focus || matches!(self.mode, ViewMode::Create | ViewMode::Volumetric) {
             return;
         }
         for &(k, cmd) in PLAIN_KEYS {
@@ -163,10 +176,13 @@ impl VectorioApp {
                 self.run(ctx, cmd);
             }
         }
-        if act(Modifiers::SHIFT, Key::Tab) {
-            self.run(ctx, Command::SelectPrev);
-        } else if act(Modifiers::NONE, Key::Tab) {
-            self.run(ctx, Command::SelectNext);
+        // En el lienzo, Tab recorre la selección; fuera, egui recorre los controles.
+        if self.selected.is_some() && focused.is_some() && focused == self.canvas_id {
+            if act(Modifiers::SHIFT, Key::Tab) {
+                self.run(ctx, Command::SelectPrev);
+            } else if act(Modifiers::NONE, Key::Tab) {
+                self.run(ctx, Command::SelectNext);
+            }
         }
         if self.mode == ViewMode::Output && act(Modifiers::NONE, Key::Space) {
             self.run(ctx, Command::PlayPause);
@@ -196,6 +212,7 @@ impl VectorioApp {
             return;
         }
         if self.mode == ViewMode::Create { self.create_ui.cancel(); self.mode = ViewMode::Design; return; }
+        if self.mode == ViewMode::Volumetric { self.mode = ViewMode::Design; return; }
         match std::mem::take(&mut self.interaction) {
             Interaction::None | Interaction::Pan => {}
             Interaction::Move { orig, .. } | Interaction::Scale { orig, .. } | Interaction::Rotate { orig, .. } => {
@@ -224,16 +241,22 @@ impl VectorioApp {
     }
 
     pub fn run(&mut self, ctx: &egui::Context, cmd: Command) {
+        // Menú y teclado comparten la misma barrera: ninguna hoja permite editar detrás.
+        if self.prefs_ui.open && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
+        if (self.vec_ui.open || self.color_edit.is_some() || self.show_help)
+            && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
         match cmd {
-            Command::New => self.new_document(),
+            Command::New => self.new_document(ctx),
             Command::Open => self.open_dialog(ctx),
             Command::ImportImage => self.vec_ui.open_dialog(ctx),
-            Command::Save => self.save(ctx, false),
-            Command::SaveAs => self.save(ctx, true),
+            Command::Save => { self.save(ctx, false); }
+            Command::SaveAs => { self.save(ctx, true); }
             Command::ExportSvg => self.export_svg(ctx),
             Command::ExportPerPen => self.export_per_pen(ctx),
             Command::CloseWindow => {
-                if self.color_edit.is_some() {
+                if self.prefs_ui.open {
+                    self.prefs_ui.open = false;
+                } else if self.color_edit.is_some() {
                     self.cancel_color_edit();
                 } else if self.vec_ui.open {
                     self.vec_ui.open = false;
@@ -244,11 +267,14 @@ impl VectorioApp {
                     crate::macos::close_window(ctx);
                 }
             }
+            Command::Quit => self.request_quit(ctx),
             Command::Undo | Command::Redo => {
-                if ctx.wants_keyboard_input() {
+                if ctx.wants_keyboard_input() && !(self.mode == ViewMode::Volumetric && self.volumetric_ui.scene_control_focused(ctx)) {
                     // Desde el menú, con un campo de texto activo: que lo deshaga el campo.
                     let modifiers = if cmd == Command::Redo { Modifiers::COMMAND | Modifiers::SHIFT } else { Modifiers::COMMAND };
                     ctx.input_mut(|i| i.events.push(egui::Event::Key { key: Key::Z, physical_key: None, pressed: true, repeat: false, modifiers }));
+                } else if self.mode == ViewMode::Volumetric {
+                    self.volumetric_ui.undo_stack(cmd == Command::Redo);
                 } else if cmd == Command::Undo {
                     self.undo();
                 } else {
@@ -390,7 +416,7 @@ impl NativeMenu {
         let app_menu = Submenu::with_items(
             "Vectorio",
             true,
-            &[&about, &sep(), &item(&tr!("Ajustes…"), Some("CmdOrCtrl+Comma"), Command::Preferences), &sep(), &P::services(Some(&tr!("Servicios"))), &sep(), &P::hide(Some(&tr!("Ocultar Vectorio"))), &P::hide_others(Some(&tr!("Ocultar otros"))), &P::show_all(Some(&tr!("Mostrar todo"))), &sep(), &P::quit(Some(&tr!("Salir de Vectorio")))],
+            &[&about, &sep(), &item(&tr!("Ajustes…"), Some("CmdOrCtrl+Comma"), Command::Preferences), &sep(), &P::services(Some(&tr!("Servicios"))), &sep(), &P::hide(Some(&tr!("Ocultar Vectorio"))), &P::hide_others(Some(&tr!("Ocultar otros"))), &P::show_all(Some(&tr!("Mostrar todo"))), &sep(), &item(&tr!("Salir de Vectorio"), Some("CmdOrCtrl+Q"), Command::Quit)],
         )
         .ok()?;
 
@@ -475,6 +501,7 @@ impl NativeMenu {
                 &item(&tr!("Diseño"), Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
                 &item(&tr!("Crear"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Create)),
                 &item(&tr!("Salida"), Some("CmdOrCtrl+3"), Command::Mode(ViewMode::Output)),
+                &item(&tr!("Volumen"), Some("CmdOrCtrl+4"), Command::Mode(ViewMode::Volumetric)),
                 &appearance,
                 &item(&tr!("Simular o pausar la salida"), None, Command::PlayPause),
                 &sep(),
@@ -531,5 +558,36 @@ impl NativeMenu {
     pub fn poll(&self) -> Vec<Command> {
         let rx = events().rx.lock().unwrap_or_else(|e| e.into_inner());
         rx.try_iter().filter_map(|e| self.ids.iter().find(|(id, _)| *id == e.id).map(|(_, c)| *c)).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vectorio_core::{Geometry, Item, P};
+
+    #[test]
+    fn settings_blocks_document_shortcuts_and_menu_commands_and_escape_closes_it() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let id = app.doc.add(Item::new("Objeto", Geometry::Path { lines: vec![], closed: false }, P::default()));
+        app.selected = Some(id);
+        app.prefs_ui.show_window(&app.prefs);
+        let before = app.doc.clone();
+        for cmd in [Command::Delete, Command::Duplicate, Command::New, Command::Undo, Command::Mode(ViewMode::Create)] {
+            app.run(&ctx, cmd);
+            assert_eq!(app.doc, before);
+        }
+        let input = |key| egui::RawInput { events: vec![egui::Event::Key {
+            key, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE,
+        }], ..Default::default() };
+        let _ = ctx.run(input(Key::Delete), |ctx| app.shortcuts(ctx));
+        assert_eq!(app.doc, before);
+        let _ = ctx.run(input(Key::Escape), |ctx| app.shortcuts(ctx));
+        assert!(!app.prefs_ui.open);
+        app.prefs_ui.show_window(&app.prefs);
+        app.run(&ctx, Command::CloseWindow);
+        assert!(!app.prefs_ui.open);
+        assert_eq!(app.doc, before);
     }
 }
