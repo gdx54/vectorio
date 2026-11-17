@@ -649,26 +649,33 @@ impl VectorizeUi {
                 ui.add(egui::Label::new(RichText::new(&self.name).color(pal.secondary)).truncate());
             });
         });
-        let entries: Vec<crate::catalog::Entry> = STYLES.iter().map(|(m, category)| crate::catalog::Entry {
-            label: crate::i18n::tr_key(m.label()),
+        let entries: Vec<crate::catalog::Entry> = STYLES.iter().map(|(style, category)| crate::catalog::Entry {
+            label: style.label(),
             category: crate::i18n::tr_key(category),
         }).collect();
-        let active = STYLES.iter().position(|(m, _)| *m == self.params.mode);
+        let current = Style::of(&self.params, &self.look);
+        let active = STYLES.iter().position(|(style, _)| *style == current);
         let (Some(thumb_image), look) = (self.thumb_image.clone(), self.look.clone()) else { return };
         let params = self.params.clone();
         let thumbs = &mut self.thumbs;
-        let chosen = crate::catalog::selector(ui, egui::Id::new("photo-style"), &crate::i18n::tr_key(self.params.mode.label()), active, &entries, ui.available_width(), |i, ui| {
-            let mode = STYLES[i].0;
-            let wanted = ThumbKey { params: VecParams { mode, max_px: THUMB_PX, ..params.clone() }, look: look.clone() };
+        let chosen = crate::catalog::selector(ui, egui::Id::new("photo-style"), &current.label(), active, &entries, ui.available_width(), |i, ui| {
+            let style = STYLES[i].0;
+            let mut wanted = ThumbKey { params: VecParams { max_px: THUMB_PX, ..params.clone() }, look: look.clone() };
+            style.apply(&mut wanted.params, &mut wanted.look);
             thumbs.request(ui.ctx(), &thumb_image, &wanted);
-            thumbnail(ui, thumbs.get(mode));
+            thumbnail(ui, thumbs.get(style));
             ui.set_max_width(190.0);
-            ui.label(RichText::new(crate::i18n::ts(mode.help())).small());
+            ui.label(RichText::new(style.help()).small());
         });
         if let Some(i) = chosen {
-            self.params.mode = STYLES[i].0;
+            STYLES[i].0.apply(&mut self.params, &mut self.look);
         }
-        ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.tertiary));
+        let current = Style::of(&self.params, &self.look);
+        ui.label(RichText::new(current.help()).small().color(pal.tertiary));
+        if current != Style::Mode(self.params.mode) {
+            // La trama es solo cómo se rellena: lo que la hace mezcla es superponer tintas.
+            ui.label(RichText::new(crate::i18n::ts(VecMode::Mix.help())).small().color(pal.tertiary));
+        }
         ui.add_space(4.0);
         if self.params.mode != VecMode::Topography { self.choosing_seed = false; }
         let prm = &mut self.params;
@@ -802,7 +809,7 @@ impl VectorizeUi {
                 // tinta y las demás se reparten en 180°.
                 let sc = &mut look.screen;
                 let base = TraceParams { style: sc.screen, spacing_mm: sc.spacing_mm, angle_deg: sc.angle_deg, ..sc.trace.clone() };
-                let new = crate::inspector::trace_controls_in(ui, ts!("TRAMA INICIAL"), &base, false, false);
+                let new = crate::inspector::trace_controls_without_style(ui, ts!("TRAMA INICIAL"), &base);
                 if new != base {
                     sc.screen = new.style;
                     sc.spacing_mm = new.spacing_mm;
@@ -965,15 +972,68 @@ const THUMB_PX: u32 = 320;
 const THUMB_MM: f64 = 90.0;
 
 /// Estilos del selector, agrupados por categoría y en el orden en que se muestran.
-const STYLES: [(VecMode, &str); 7] = [
-    (VecMode::Colors, tm!("Color")),
-    (VecMode::Mix, tm!("Color")),
-    (VecMode::Portrait, tm!("Trazo")),
-    (VecMode::Topography, tm!("Trazo")),
-    (VecMode::Engrave, tm!("Trazo")),
-    (VecMode::Lines, tm!("Dibujo a tinta")),
-    (VecMode::Silhouette, tm!("Dibujo a tinta")),
+/// Cada trama de la mezcla es un estilo más, al mismo nivel que los demás.
+const STYLES: [(Style, &str); 17] = [
+    (Style::Mode(VecMode::Colors), tm!("Tramas de color")),
+    (Style::Mix(Screen::Hatch), tm!("Tramas de color")),
+    (Style::Mix(Screen::Waves), tm!("Tramas de color")),
+    (Style::Mix(Screen::Flow), tm!("Tramas de color")),
+    (Style::Mix(Screen::Contour), tm!("Tramas de color")),
+    (Style::Mix(Screen::Dots), tm!("Tramas de color")),
+    (Style::Mix(Screen::Scribble), tm!("Tramas de color")),
+    (Style::Mix(Screen::Spiral), tm!("Patrones de color")),
+    (Style::Mix(Screen::Circles), tm!("Patrones de color")),
+    (Style::Mix(Screen::Radial), tm!("Patrones de color")),
+    (Style::Mix(Screen::Truchet), tm!("Patrones de color")),
+    (Style::Mix(Screen::Hilbert), tm!("Patrones de color")),
+    (Style::Mode(VecMode::Portrait), tm!("Trazo")),
+    (Style::Mode(VecMode::Topography), tm!("Trazo")),
+    (Style::Mode(VecMode::Engrave), tm!("Trazo")),
+    (Style::Mode(VecMode::Lines), tm!("Dibujo a tinta")),
+    (Style::Mode(VecMode::Silhouette), tm!("Dibujo a tinta")),
 ];
+
+/// Una entrada del selector: un modo de separación o, en la mezcla de rotuladores,
+/// la trama con que se rellena cada tinta.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Style {
+    Mode(VecMode),
+    Mix(Screen),
+}
+
+impl Style {
+    fn of(params: &VecParams, look: &Look) -> Style {
+        match params.mode {
+            VecMode::Mix => Style::Mix(look.screen.screen),
+            mode => Style::Mode(mode),
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Style::Mode(mode) => crate::i18n::tr_key(mode.label()),
+            Style::Mix(screen) => crate::i18n::tr_key(screen.label()),
+        }
+    }
+
+    fn help(self) -> &'static str {
+        match self {
+            Style::Mode(mode) => crate::i18n::ts(mode.help()),
+            Style::Mix(screen) => crate::i18n::ts(screen.help()),
+        }
+    }
+
+    fn apply(self, params: &mut VecParams, look: &mut Look) {
+        match self {
+            Style::Mode(mode) => params.mode = mode,
+            Style::Mix(screen) => {
+                params.mode = VecMode::Mix;
+                look.screen.screen = screen;
+                look.screen.trace.style = screen;
+            }
+        }
+    }
+}
 
 /// Qué se dibuja en una miniatura: los ajustes actuales con el estilo de esa entrada.
 #[derive(Clone, PartialEq)]
@@ -986,6 +1046,10 @@ struct ThumbKey {
 struct Thumb {
     size: Vec2,
     layers: Vec<([u8; 3], Vec<Polyline>)>,
+}
+
+impl ThumbKey {
+    fn style(&self) -> Style { Style::of(&self.params, &self.look) }
 }
 
 type ThumbReply = (ThumbKey, Thumb);
@@ -1007,7 +1071,7 @@ impl Thumbnails {
         let Some((_, rx)) = &self.worker else { return };
         for (key, thumb) in rx.try_iter() {
             self.pending.retain(|k| *k != key);
-            self.done.retain(|(k, _)| k.params.mode != key.params.mode);
+            self.done.retain(|(k, _)| k.style() != key.style());
             self.done.push((key, Arc::new(thumb)));
         }
     }
@@ -1025,7 +1089,7 @@ impl Thumbnails {
                     // De lo que se haya acumulado, solo cuenta lo último de cada estilo.
                     let mut batch: Vec<(Arc<DynamicImage>, ThumbKey)> = Vec::new();
                     for job in std::iter::once(first).chain(rx.try_iter()) {
-                        batch.retain(|(_, k)| k.params.mode != job.1.params.mode);
+                        batch.retain(|(_, k)| k.style() != job.1.style());
                         batch.push(job);
                     }
                     for (image, key) in batch {
@@ -1039,13 +1103,13 @@ impl Thumbnails {
             });
             (tx, input)
         });
-        self.pending.retain(|k| k.params.mode != key.params.mode);
+        self.pending.retain(|k| k.style() != key.style());
         self.pending.push(key.clone());
         let _ = tx.send((image.clone(), key.clone()));
     }
 
-    fn get(&self, mode: VecMode) -> Option<&Thumb> {
-        self.done.iter().find(|(k, _)| k.params.mode == mode).map(|(_, t)| t.as_ref())
+    fn get(&self, style: Style) -> Option<&Thumb> {
+        self.done.iter().find(|(k, _)| k.style() == style).map(|(_, t)| t.as_ref())
     }
 }
 
@@ -1505,6 +1569,19 @@ mod tests {
         assert_eq!(view.shown_adjust.saturation, 0.0);
     }
 
+    #[test]
+    fn every_mix_screen_is_its_own_style_and_round_trips() {
+        for screen in Screen::ALL {
+            assert!(STYLES.iter().any(|(s, _)| *s == Style::Mix(screen)), "falta la trama {screen:?} en el selector");
+        }
+        assert!(!STYLES.iter().any(|(s, _)| *s == Style::Mode(VecMode::Mix)), "la mezcla no debe ser una entrada aparte");
+        for (style, _) in STYLES {
+            let (mut params, mut look) = (VecParams::default(), Look::default());
+            style.apply(&mut params, &mut look);
+            assert_eq!(Style::of(&params, &look), style);
+        }
+    }
+
     /// Capturas del espacio Foto en `target/photo`, sin abrir ni reiniciar ventanas.
     #[test]
     #[ignore = "Capturas del espacio Foto sin abrir ni reiniciar ventanas"]
@@ -1529,7 +1606,9 @@ mod tests {
             app.mode = crate::app::ViewMode::Photo;
             if !empty {
                 app.vec_ui.set_image(&ctx, DynamicImage::ImageRgb8(photo.clone()), "retrato.jpg".into());
-                app.vec_ui.params.mode = VecMode::Portrait;
+                // Una trama de color en la ventana pequeña; Retrato en la grande.
+                let style = if width < 1200 { Style::Mix(Screen::Waves) } else { Style::Mode(VecMode::Portrait) };
+                style.apply(&mut app.vec_ui.params, &mut app.vec_ui.look);
             }
             let mut textures = HashMap::new();
             let mut output = None;
