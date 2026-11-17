@@ -558,6 +558,7 @@ fn empty_stack_ground_pass_and_invalid_passes_are_handled() {
     let mut passes = settings.passes();
     passes[0].kind = PassKind::Mesh(MeshParams {
         facets: 400,
+        mesh_facets: 400,
         coloring: MeshColor::Height,
         inks: 8,
         group: 8,

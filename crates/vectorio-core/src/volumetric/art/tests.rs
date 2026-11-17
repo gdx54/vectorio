@@ -247,3 +247,35 @@ fn depth_colors_track_the_camera_and_old_recipes_default_the_new_settings() {
     bad.art.frequency = f64::NAN;
     assert!(bad.validate().is_err());
 }
+#[test]
+fn open_net_is_draped_on_the_fine_surface_and_old_files_draw_every_facet() {
+    let m = Primitive::Sphere.mesh().transformed([1.; 3], [0.; 3]);
+    let s = ArtSettings {
+        mesh_facets: 200,
+        ..Default::default()
+    };
+    let camera = Camera::default();
+    let full = edges::strokes(&m, &s, &camera, false, &|| false).unwrap();
+    let net = crate::volumetric::reduce::reduced(&m, 200, 0.04, &|| false).unwrap();
+    let mut open = edges::strokes(&net, &s, &camera, false, &|| false).unwrap();
+    assert!(open.len() * 3 < full.len(), "{} {}", open.len(), full.len());
+    edges::drape(&mut open, &m, &|| false).unwrap();
+    let [lo, hi] = m.bounds();
+    let (center, radius) = ((lo + hi) * 0.5, (hi.x - lo.x) * 0.5);
+    let mut inner = 0;
+    for stroke in &open {
+        assert!(stroke.points.len() >= 2);
+        for q in &stroke.points[1..stroke.points.len() - 1] {
+            inner += 1;
+            let d = (*q - center).length();
+            assert!((d - radius).abs() < radius * 0.01, "{d} {radius}");
+        }
+    }
+    assert!(inner > open.len());
+    // Los archivos sin el campo conservan la malla entera de antes.
+    let mut json = serde_json::to_value(ArtSettings::default()).unwrap();
+    json.as_object_mut().unwrap().remove("mesh_facets");
+    let old: ArtSettings = serde_json::from_value(json).unwrap();
+    assert_eq!(old.mesh_facets, 20_000);
+    assert_eq!(ArtSettings::default().mesh_facets, DEFAULT_NET);
+}

@@ -44,6 +44,7 @@ impl Settings {
         let mesh = |group, inks| {
             PassKind::Mesh(MeshParams {
                 facets: self.art.facets,
+                mesh_facets: self.art.mesh_facets,
                 coloring: self.art.coloring,
                 inks,
                 group,

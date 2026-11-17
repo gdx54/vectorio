@@ -29,3 +29,11 @@ The default decimation target was raised to the maximum of each range so that ev
 - `sombra-plana.svg`, `sombra-lateral.svg`, `sombra-dos-tonos.svg`
 
 `atlas.svg`, `strata.svg` and `x-ray.svg` remained byte-identical.
+
+## Independent mesh net (November 17, 2026)
+
+Mesh and Hybrid now draw a separate, more open net (`mesh_facets`, 2500 triangles by default) draped over the full-quality surface, while shape, waves and hidden lines keep every facet. With `mesh_facets` at its maximum the outputs were verified to remain byte-identical, so only the new default explains the difference. Regenerated with the same command:
+
+- `combinado.svg`, `malla.svg`, `malla-una-tinta.svg`
+
+`ondas.svg` and `interferencias.svg` remained byte-identical.
