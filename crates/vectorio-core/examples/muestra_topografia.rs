@@ -1,4 +1,4 @@
-//! Muestra nativa: `cargo run -p vectorio-core --release --example muestra_topografia -- foto.png salida.svg [niveles] [gamma] [velocidad]`.
+//! Muestra nativa: `cargo run -p vectorio-core --release --example muestra_topografia -- foto.png salida.svg [finura] [negro] [separación]`.
 //! SVG y PNG de los mismos trazos, con 200 mm de lado mayor.
 use vectorio_core::vectorize::{self, VecMode, VecParams};
 use vectorio_core::{p, Document, Geometry, Item, Pen};
@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 3 {
         return Err(
-            "Uso: muestra_topografia foto.png salida.svg [niveles] [gamma] [velocidad]".into(),
+            "Uso: muestra_topografia foto.png salida.svg [finura] [negro] [separación]".into(),
         );
     }
     let img = image::open(&args[1])?;
@@ -17,13 +17,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     if let Some(n) = args.get(3) {
-        prm.topo.lines = n.parse()?;
+        prm.topo.fineness = n.parse()?;
     }
     if let Some(n) = args.get(4) {
-        prm.topo.gamma = n.parse()?;
+        prm.topo.black = n.parse()?;
     }
     if let Some(n) = args.get(5) {
-        prm.topo.speed_offset = n.parse()?;
+        prm.topo.gap = n.parse()?;
     }
     let start = std::time::Instant::now();
     let result = vectorize::vectorize(&img, &prm);

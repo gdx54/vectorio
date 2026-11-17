@@ -148,6 +148,8 @@ pub struct VectorizeUi {
     replacing: Option<u64>,
     /// Siguiente clic sobre la foto: origen de la onda topográfica.
     choosing_seed: bool,
+    /// Esperando un clic en la foto para colocar la esquirla de Topografía.
+    choosing_shard: bool,
 }
 
 /// Cómo termina el espacio Foto en este fotograma.
@@ -187,6 +189,7 @@ impl Default for VectorizeUi {
             view: PreviewView::default(),
             replacing: None,
             choosing_seed: false,
+            choosing_shard: false,
         }
     }
 }
@@ -261,6 +264,7 @@ impl VectorizeUi {
         self.passes_mut().for_each(Pass::reset);
         self.view = PreviewView::default();
         self.choosing_seed = false;
+        self.choosing_shard = false;
     }
 
     /// Pinta la vista «Original» con los ajustes de color actuales.
@@ -314,6 +318,7 @@ impl VectorizeUi {
         self.pass = self.others.remove(index);
         self.active = index;
         self.choosing_seed = false;
+        self.choosing_shard = false;
     }
 
     /// Intercambia un estilo con el de encima (`up`) o el de debajo. Cada uno conserva
@@ -344,6 +349,7 @@ impl VectorizeUi {
         self.others.insert(self.active, current);
         self.active = self.others.len();
         self.choosing_seed = false;
+        self.choosing_shard = false;
     }
 
     /// Quita un estilo de la pila (siempre queda al menos uno).
@@ -362,6 +368,7 @@ impl VectorizeUi {
             self.others.remove(index - 1);
         }
         self.choosing_seed = false;
+        self.choosing_shard = false;
     }
 
     fn pass_at_mut(&mut self, index: usize) -> &mut Pass {
@@ -579,13 +586,15 @@ impl VectorizeUi {
         };
         let center = sheet.min + Vec2::new(doc.paper.width_mm as f32, doc.paper.height_mm as f32) * 0.5 * mm;
         let img_rect = Rect::from_center_size(center, Vec2::new((w * s) as f32, (h * s) as f32) * mm);
-        if self.pass.params.mode == VecMode::Topography && self.choosing_seed {
+        if self.pass.params.mode == VecMode::Topography && (self.choosing_seed || self.choosing_shard) {
             if let Some(pos) = response.hover_pos().filter(|pos| img_rect.contains(*pos)) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if response.clicked() {
                     let uv = (pos - img_rect.min) / img_rect.size();
-                    self.pass.params.topo.seed = [uv.x as f64, uv.y as f64];
+                    let topo = &mut self.pass.params.topo;
+                    if self.choosing_seed { topo.seed = [uv.x as f64, uv.y as f64]; } else { topo.shard_center = [uv.x as f64, uv.y as f64]; }
                     self.choosing_seed = false;
+                    self.choosing_shard = false;
                 }
             }
         }
@@ -607,6 +616,15 @@ impl VectorizeUi {
             painter.circle_stroke(c, 5.0, Stroke::new(1.5_f32, pal.accent));
             painter.line_segment([c - Vec2::new(8.0, 0.0), c + Vec2::new(8.0, 0.0)], Stroke::new(1.0_f32, pal.accent));
             painter.line_segment([c - Vec2::new(0.0, 8.0), c + Vec2::new(0.0, 8.0)], Stroke::new(1.0_f32, pal.accent));
+            let topo = &self.pass.params.topo;
+            if topo.shard && (self.choosing_shard || self.preview == Preview::Original) {
+                // Contorno de la esquirla mientras se coloca o sobre la foto original.
+                let (pw, ph) = (w.round().max(1.0), h.round().max(1.0));
+                let points: Vec<Pos2> = vectorio_core::topo::shard_polygon(topo, pw as usize, ph as usize).iter()
+                    .map(|q| img_rect.min + Vec2::new((q.x / pw) as f32, (q.y / ph) as f32) * img_rect.size())
+                    .collect();
+                painter.add(egui::Shape::closed_line(points, Stroke::new(1.5_f32, pal.accent)));
+            }
         }
         if self.stack().iter().any(|pass| pass.job.is_some() || pass.plot_job.is_some()) {
             let c = space.right_top() + Vec2::new(-24.0, 24.0);
@@ -704,7 +722,14 @@ impl VectorizeUi {
             ui.label(RichText::new(crate::i18n::ts(VecMode::Mix.help())).small().color(pal.tertiary));
         }
         ui.add_space(4.0);
-        if self.pass.params.mode != VecMode::Topography { self.choosing_seed = false; }
+        if self.pass.params.mode != VecMode::Topography { self.choosing_seed = false; self.choosing_shard = false; }
+        // Topografía: lado mayor en el papel y punta de la primera tinta, para la finura.
+        let topo_fit = (self.pass.params.mode == VecMode::Topography).then(|| self.placement(doc)).flatten().map(|(w, h, s)| {
+            let pen = self.pass.result.as_ref()
+                .and_then(|res| self.pass.widths(doc, &self.pass.assign(doc, res)).first().copied())
+                .unwrap_or(self.pass.params.topo.pen_width_mm);
+            (w.max(h) * s, pen)
+        });
         let prm = &mut self.pass.params;
         match prm.mode {
             VecMode::Colors => {
@@ -936,17 +961,41 @@ impl VectorizeUi {
                 field(ui, ts!("Trazos máx."), |ui| ui.add(egui::Slider::new(&mut pt.max_strokes, 1000..=60_000).logarithmic(true)));
             }
             VecMode::Topography => {
-                field(ui, ts!("Curvas de nivel"), |ui| ui.add(egui::Slider::new(&mut prm.topo.lines, 10..=500)));
-                field(ui, ts!("Gamma"), |ui| ui.add(egui::Slider::new(&mut prm.topo.gamma, 0.2..=4.0))
-                    .on_hover_text(ts!("Valores altos juntan más las curvas en los tonos medios y oscuros.")));
-                field(ui, ts!("Velocidad mín."), |ui| ui.add(egui::Slider::new(&mut prm.topo.speed_offset, 0.01..=1.0).logarithmic(true))
-                    .on_hover_text(ts!("Evita que la onda se detenga en el negro; valores bajos aumentan la densidad de las sombras.")));
-                field(ui, ts!("Origen X"), |ui| ui.add(egui::Slider::new(&mut prm.topo.seed[0], 0.0..=1.0).fixed_decimals(2)));
-                field(ui, ts!("Origen Y"), |ui| ui.add(egui::Slider::new(&mut prm.topo.seed[1], 0.0..=1.0).fixed_decimals(2)));
-                ui.toggle_value(&mut self.choosing_seed, ts!("Elegir origen en la imagen"));
+                let tp = &mut prm.topo;
+                ui.checkbox(&mut tp.fit, ts!("Ajustar a la punta y al tamaño"))
+                    .on_hover_text(ts!("Calcula cuántas curvas caben para que en el negro se junten sin empastarse."));
+                if tp.fit {
+                    if let Some((long_mm, pen)) = topo_fit.filter(|(l, p)| *l > 0.0 && *p > 0.0) {
+                        tp.fineness = ((long_mm / pen).round() as u32).clamp(60, 2400);
+                        ui.label(RichText::new(tr!("Punta de %{pen} mm en %{long} mm de lado mayor.", pen = format!("{pen:.2}"), long = format!("{long_mm:.0}"))).small().color(pal.tertiary));
+                    }
+                }
+                ui.add_enabled_ui(!tp.fit, |ui| {
+                    field(ui, ts!("Finura"), |ui| ui.add(egui::Slider::new(&mut tp.fineness, 60..=2400).logarithmic(true))
+                        .on_hover_text(ts!("Anchos de punta que caben en el lado mayor: más finura, trazos más finos y apretados.")));
+                });
+                field(ui, ts!("Tinta máx."), |ui| ui.add(egui::Slider::new(&mut tp.black, 0.3..=0.95).custom_formatter(|v, _| format!("{:.0} %", v * 100.0)))
+                    .on_hover_text(ts!("Parte del papel que cubren las curvas en las sombras: por debajo del 100 % no se empastan.")));
+                field(ui, ts!("Separación"), |ui| ui.add(egui::Slider::new(&mut tp.gap, 2.0..=30.0))
+                    .on_hover_text(ts!("Distancia máxima entre curvas en el blanco, en anchos de punta.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut tp.tone, 0.3..=3.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Origen X"), |ui| ui.add(egui::Slider::new(&mut tp.seed[0], 0.0..=1.0).fixed_decimals(2)));
+                field(ui, ts!("Origen Y"), |ui| ui.add(egui::Slider::new(&mut tp.seed[1], 0.0..=1.0).fixed_decimals(2)));
+                if ui.toggle_value(&mut self.choosing_seed, ts!("Elegir origen en la imagen")).clicked() { self.choosing_shard = false; }
                 if self.choosing_seed { ui.label(RichText::new(ts!("Pulsa sobre la foto para colocar el origen de la onda.")).small().color(pal.secondary)); }
-                ui.checkbox(&mut prm.topo.skip_transparent, ts!("Omitir zonas transparentes"));
-                field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut prm.topo.pen_width_mm, 0.05..=1.5).suffix(" mm"))
+                ui.checkbox(&mut tp.shard, ts!("Esquirla"))
+                    .on_hover_text(ts!("Un fragmento donde las curvas se multiplican y se trazan con una punta más fina."));
+                if tp.shard {
+                    field(ui, ts!("Tamaño"), |ui| ui.add(egui::Slider::new(&mut tp.shard_size, 0.1..=1.2)));
+                    field(ui, ts!("Giro"), |ui| ui.add(egui::Slider::new(&mut tp.shard_angle_deg, -90.0..=90.0).suffix("°")));
+                    field(ui, ts!("Más fina"), |ui| ui.add(egui::Slider::new(&mut tp.shard_fine, 2..=5).prefix("×"))
+                        .on_hover_text(ts!("Cuántas veces más curvas, y más fina la punta, dentro de la esquirla.")));
+                    if ui.toggle_value(&mut self.choosing_shard, ts!("Colocar la esquirla en la imagen")).clicked() { self.choosing_seed = false; }
+                    if self.choosing_shard { ui.label(RichText::new(ts!("Pulsa sobre la foto para colocar el centro de la esquirla.")).small().color(pal.secondary)); }
+                }
+                ui.checkbox(&mut tp.skip_transparent, ts!("Omitir zonas transparentes"));
+                field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut tp.pen_width_mm, 0.05..=1.5).suffix(" mm"))
                     .on_hover_text(ts!("Grosor de los rotuladores nuevos")));
             }
         }
@@ -1212,6 +1261,8 @@ impl Pass {
             VecMode::Topography => self.params.topo.pen_width_mm,
             _ => 0.8,
         };
+        // La esquirla de Topografía lleva una punta tantas veces más fina como curvas añade.
+        let fine = self.params.topo.shard_fine.clamp(2, 5) as f64;
         res.layers
             .iter()
             .map(|l| {
@@ -1221,6 +1272,7 @@ impl Pass {
                 match doc.pens.iter().position(|p| color_distance(p.color, l.color) <= SAME_INK) {
                     Some(i) => PenChoice::Existing(i),
                     None => {
+                        let width = if l.name == Some(vectorio_core::topo::FINE_LAYER) { width / fine } else { width };
                         let name = l.name.map(str::to_string).unwrap_or_else(|| Pen::automatic(l.color, width).name);
                         PenChoice::New(l.color, name, width)
                     }
@@ -1670,9 +1722,9 @@ mod tests {
             image::Rgba([80, (x*3) as u8, (y*4) as u8, if x > 8 && x < 55 { 255 } else { 0 }])
         })), "Topografía".into());
         view.pass.params.mode = VecMode::Topography;
-        view.pass.params.topo.lines = 30;
+        view.pass.params.topo.fineness = 90;
         view.pass.params.topo.seed = [0.2, 0.8];
-        view.pass.params.topo.gamma = 1.8;
+        view.pass.params.topo.tone = 1.8;
         view.pass.params.topo.pen_width_mm = 0.175;
         let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.pass.params));
         view.pass.result = Some(result.clone());
@@ -2077,6 +2129,7 @@ mod tests {
             (1440, 900, false, Some(Style::Mode(VecMode::Portrait)), "retrato"),
             (1440, 900, false, Some(Style::Mode(VecMode::Sketch)), "boceto"),
             (1440, 900, false, Some(Style::Mode(VecMode::Paint)), "pinceladas"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Topography)), "topografia"),
             (980, 620, true, Some(Style::Mix(Screen::Waves)), "ondas"),
             (1440, 900, false, Some(Style::Mode(VecMode::Ink)), "tinta"),
             (1440, 900, true, Some(Style::Mode(VecMode::Stipple)), "punteado"),
