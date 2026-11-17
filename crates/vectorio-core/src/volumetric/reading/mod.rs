@@ -8,6 +8,7 @@ pub use optical::{ColorMap, OpticalInk, OpticalSettings};
 mod encode;
 #[cfg(test)]
 mod extension_tests;
+mod features;
 mod fields;
 mod legend;
 mod rays;
@@ -260,6 +261,21 @@ pub enum ReadingEffect {
     Ridges {
         threshold: f64,
     },
+    Suggestive {
+        threshold: f64,
+        min_angle_deg: f64,
+        smoothing: usize,
+    },
+    ApparentRidges {
+        threshold: f64,
+        smoothing: usize,
+    },
+    PrincipalFlow {
+        minimum: bool,
+        spacing_mm: f64,
+        length_mm: f64,
+        smoothing: usize,
+    },
     Anaglyph {
         angle_deg: f64,
         side_by_side: bool,
@@ -310,8 +326,35 @@ impl ReadingParams {
             ReadingEffect::Ridges { threshold } => {
                 threshold.is_finite() && (0.0..=10.).contains(&threshold)
             }
+            ReadingEffect::Suggestive {
+                threshold,
+                min_angle_deg,
+                smoothing,
+            } => {
+                threshold.is_finite()
+                    && (0.0..=20.).contains(&threshold)
+                    && min_angle_deg.is_finite()
+                    && (0.0..=80.).contains(&min_angle_deg)
+                    && smoothing <= 5
+            }
+            ReadingEffect::ApparentRidges {
+                threshold,
+                smoothing,
+            } => threshold.is_finite() && (0.0..=100.).contains(&threshold) && smoothing <= 5,
             ReadingEffect::Anaglyph { angle_deg, .. } => {
                 angle_deg.is_finite() && (0.5..=8.).contains(&angle_deg)
+            }
+            ReadingEffect::PrincipalFlow {
+                spacing_mm,
+                length_mm,
+                smoothing,
+                ..
+            } => {
+                spacing_mm.is_finite()
+                    && (0.6..=8.).contains(&spacing_mm)
+                    && length_mm.is_finite()
+                    && (2.0..=80.).contains(&length_mm)
+                    && smoothing <= 5
             }
             ReadingEffect::Unfold { tabs_mm } => {
                 tabs_mm.is_finite() && (0.5..=8.).contains(&tabs_mm) && self.facets <= 512
@@ -338,6 +381,7 @@ impl ReadingParams {
 #[derive(Default)]
 pub(super) struct Cache {
     fields: fields::Cache,
+    features: features::Cache,
     results: Vec<ResultEntry>,
     surfaces: Vec<(
         Arc<Mesh>,
@@ -451,7 +495,25 @@ impl Cache {
         }
         let values = fields::Values::new(&mut self.fields, d, s, map, cancel)?;
         let geometry = self.fields.geometry(d.mesh.clone(), cancel)?;
-        let surface = self.surface(d, s, values.light_weight != 0., cancel)?;
+        let needs_surface = !matches!(
+            &pass.kind,
+            PassKind::Reading(ReadingParams {
+                effect: ReadingEffect::Ridges { .. }
+                    | ReadingEffect::Suggestive { .. }
+                    | ReadingEffect::ApparentRidges { .. }
+                    | ReadingEffect::PrincipalFlow { .. }
+                    | ReadingEffect::Anaglyph { .. }
+                    | ReadingEffect::Spin { .. }
+                    | ReadingEffect::Unfold { .. }
+                    | ReadingEffect::Section { .. },
+                ..
+            })
+        );
+        let surface = if needs_surface {
+            Some(self.surface(d, s, values.light_weight != 0., cancel)?)
+        } else {
+            None
+        };
         let mut direct = None;
         let mut legend_scale = d.camera.scale;
         let lines = if let PassKind::Reading(params) = &pass.kind {
@@ -471,13 +533,21 @@ impl Cache {
                     &params.effect,
                     &values,
                     &geometry,
-                    &surface,
+                    surface.as_ref().unwrap(),
                     paper,
                     cancel,
                 )?,
                 ReadingEffect::Horizons { height_mm, rows } => {
                     direct = Some(effects::horizons(
-                        d, map, *height_mm, *rows, &values, &geometry, &surface, paper, cancel,
+                        d,
+                        map,
+                        *height_mm,
+                        *rows,
+                        &values,
+                        &geometry,
+                        surface.as_ref().unwrap(),
+                        paper,
+                        cancel,
                     )?);
                     vec![]
                 }
@@ -485,6 +555,22 @@ impl Cache {
                     direct = Some(effects::ridges(
                         d, s, map, &geometry, *threshold, paper, cancel,
                     )?);
+                    vec![]
+                }
+                ReadingEffect::Suggestive { .. }
+                | ReadingEffect::ApparentRidges { .. }
+                | ReadingEffect::PrincipalFlow { .. } => {
+                    let lines = self.features.draw(
+                        d,
+                        s,
+                        &geometry.normals,
+                        &params.effect,
+                        paper,
+                        cancel,
+                    )?;
+                    let mut groups = vec![vec![]; map.pens.len()];
+                    groups[0] = lines;
+                    direct = Some(groups);
                     vec![]
                 }
                 ReadingEffect::Anaglyph { .. } | ReadingEffect::Spin { .. } => {
@@ -528,13 +614,21 @@ impl Cache {
             input.to_vec()
         };
         let mut out = if map.encoding == Encoding::Optical {
-            let mut groups = optical::draw(&surface, d, &values, &geometry, paper, cancel)?;
+            let mut groups = optical::draw(
+                surface.as_ref().unwrap(),
+                d,
+                &values,
+                &geometry,
+                paper,
+                cancel,
+            )?;
             for group in &mut groups {
                 *group = tones.apply(d, group, pass.mask, s, cancel)?;
             }
             groups
         } else if map.encoding == Encoding::Isolines {
-            let mut groups = scalar::draw(&surface, d, &values, &geometry, s, cancel)?;
+            let mut groups =
+                scalar::draw(surface.as_ref().unwrap(), d, &values, &geometry, s, cancel)?;
             for group in &mut groups {
                 *group = tones.apply(d, group, pass.mask, s, cancel)?;
             }
@@ -560,7 +654,14 @@ impl Cache {
             groups
         } else {
             let lines = tones.apply(d, &lines, pass.mask, s, cancel)?;
-            encode::lines(&surface, d, &lines, &values, &geometry, cancel)?
+            encode::lines(
+                surface.as_ref().unwrap(),
+                d,
+                &lines,
+                &values,
+                &geometry,
+                cancel,
+            )?
         };
         for lines in &mut out {
             *lines = encode::clip(lines, effects::area(paper));

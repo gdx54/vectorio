@@ -1,7 +1,7 @@
 //! Isolíneas del campo por regiones visibles; interpolación en el espacio del modelo.
 use super::*;
 use std::collections::BTreeMap;
-fn join(edges: Vec<[P; 2]>, cancel: &dyn Fn() -> bool) -> Result<Vec<Polyline>, String> {
+pub(super) fn join(edges: Vec<[P; 2]>, cancel: &dyn Fn() -> bool) -> Result<Vec<Polyline>, String> {
     let key = |q: P| ((q.x * 1e6).round() as i64, (q.y * 1e6).round() as i64);
     let mut nodes = BTreeMap::new();
     let mut points = Vec::new();

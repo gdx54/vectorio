@@ -1,5 +1,7 @@
 # VOLUMETRIC · roadmap
 
+**Update · 17 November 2026:** Principal-curvature strokes and shared source/facet preparation across multiview sheets are implemented. See [Contours, curvature strokes, and large models](contours-and-large-models.md) for current behavior, measurements, and remaining work. The initial roadmap below is retained as history.
+
 ## Current delivery
 
 Phase 0 and functional flow of Phase 1 implemented. Independent Rust engine, seven primitive, real OBJ and STL binary/ASCII and tapered diagnostics; orbital orthographic camera and model transformations; real intersections with X/Y/Z planes or custom direction; junction of contours, components and coplanar cases; number/space/slice range; dual or individual view; vertical/paced A3 composition; inks per function; placement in Design and SVG export by the existing system. Independent recipes with embedded mesh allow the calculation to be repeated.

@@ -74,7 +74,8 @@ impl Bvh {
             nodes: vec![],
         };
         if !tree.ids.is_empty() {
-            tree.build(0, tree.ids.len(), cancel)?;
+            let centers: Vec<_> = tree.triangles.iter().map(|t| t[0] + t[1] + t[2]).collect();
+            tree.build(0, tree.ids.len(), &centers, cancel)?;
         }
         Ok(tree)
     }
@@ -82,6 +83,7 @@ impl Bvh {
         &mut self,
         start: usize,
         end: usize,
+        centers: &[V3],
         cancel: &dyn Fn() -> bool,
     ) -> Result<usize, String> {
         if cancel() {
@@ -110,13 +112,14 @@ impl Bvh {
                 2
             };
             let coord = |v: V3| [v.x, v.y, v.z][axis];
-            self.ids[start..end].sort_unstable_by(|a, b| {
-                let c = |i: usize| self.triangles[i].iter().map(|v| coord(*v)).sum::<f64>();
-                c(*a).total_cmp(&c(*b)).then(a.cmp(b))
-            });
             let mid = (start + end) / 2;
-            let a = self.build(start, mid, cancel)?;
-            let b = self.build(mid, end, cancel)?;
+            self.ids[start..end].select_nth_unstable_by(mid - start, |a, b| {
+                coord(centers[*a])
+                    .total_cmp(&coord(centers[*b]))
+                    .then(a.cmp(b))
+            });
+            let a = self.build(start, mid, centers, cancel)?;
+            let b = self.build(mid, end, centers, cancel)?;
             self.nodes[id].children = Some((a, b));
         }
         Ok(id)
@@ -125,16 +128,23 @@ impl Bvh {
         if self.nodes.is_empty() {
             return None;
         }
-        let mut stack = vec![0];
+        // El árbol parte por la mediana: cinco millones de caras no alcanzan
+        // 24 niveles. Evita una asignación por cada rayo de AO/espesor.
+        let mut stack = [0usize; 64];
+        let mut top = 1;
         let mut nearest = limit;
         let mut found = false;
-        while let Some(id) = stack.pop() {
+        while top > 0 {
+            top -= 1;
+            let id = stack[top];
             let node = &self.nodes[id];
             if !node.bounds.hit(origin, dir, nearest) {
                 continue;
             }
             if let Some((a, b)) = node.children {
-                stack.extend([a, b]);
+                stack[top] = a;
+                stack[top + 1] = b;
+                top += 2;
             } else {
                 for &i in &self.ids[node.start..node.end] {
                     if skip.contains(&i) {
@@ -172,4 +182,37 @@ fn hit(o: V3, d: V3, [a, b, c]: [V3; 3]) -> Option<f64> {
     }
     let t = f.dot(q) / det;
     (t > 1e-7).then_some(t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn median_bvh_agrees_with_exhaustive_intersections_and_skip_limits() {
+        let mesh = Primitive::Sphere.mesh();
+        let bvh = Bvh::new(&mesh, &|| false).unwrap();
+        let points = mesh.points();
+        for i in 0..200 {
+            let angle = i as f64 * 2.399963229728653;
+            let origin = V3::new(
+                angle.cos() * 3.,
+                angle.sin() * 3.,
+                (i as f64 * 0.1).sin() * 2.,
+            );
+            let dir = (V3::new(0.2 * (i as f64).sin(), 0., 0.) - origin).normalized();
+            for limit in [1., 5., 10.] {
+                let skip = [i % mesh.triangles.len(), (i + 1) % mesh.triangles.len()];
+                let brute = mesh
+                    .triangles
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| !skip.contains(j))
+                    .filter_map(|(_, t)| hit(origin, dir, t.map(|j| points[j])))
+                    .filter(|t| *t < limit)
+                    .min_by(f64::total_cmp);
+                assert_eq!(brute, bvh.nearest(origin, dir, &skip, limit));
+            }
+        }
+        assert!(Bvh::new(&mesh, &|| true).is_err());
+    }
 }

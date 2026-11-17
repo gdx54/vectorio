@@ -18,6 +18,8 @@ mod inspector;
 mod macos;
 mod output;
 mod paths;
+mod palettes;
+mod palette_ui;
 mod prefs;
 mod prefs_ui;
 mod styles;

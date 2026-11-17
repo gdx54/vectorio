@@ -9,11 +9,17 @@ fn render_create_panels() {
     let _lock = crate::i18n::locale_lock();
     rust_i18n::set_locale("es");
     let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/phase5");
+    std::fs::create_dir_all(&directory).unwrap();
+    let catalog = std::env::var_os("VECTORIO_QA_SCENE_CATALOG").is_some();
     for (width, height) in [(980, 620), (1440, 900)] {
         let ctx = egui::Context::default();
         let mut app = VectorioApp::blank(&ctx);
         app.mode = ViewMode::Create;
         app.prefs.create.generator = "festival_city".into();
+        if catalog {
+            app.prefs.appearance = if width == 980 { theme::Appearance::Dark } else { theme::Appearance::Light };
+            ctx.options_mut(|o| o.theme_preference = if width == 980 { egui::ThemePreference::Dark } else { egui::ThemePreference::Light });
+        }
         let ballpoint = std::env::var_os("VECTORIO_QA_BALLPOINT").is_some();
         let pen_count = std::env::var("VECTORIO_QA_BALLPOINT").ok().and_then(|s| s.parse::<usize>().ok()).filter(|n| (4..=5).contains(n)).unwrap_or(4);
         if ballpoint {
@@ -40,12 +46,19 @@ fn render_create_panels() {
         }
         let mut textures = HashMap::new();
         let mut output = None;
+        let mut catalog_point = None;
         for frame in 0..12 {
-            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width as f32, height as f32))), time: Some(frame as f64 / 10.0), ..Default::default() };
+            let events = if catalog && (frame == 3 || frame == 4) { catalog_point.map_or_else(Vec::new, |pos| vec![egui::Event::PointerMoved(pos),egui::Event::PointerButton {pos,button:egui::PointerButton::Primary,pressed:frame==3,modifiers:Default::default()}]) } else { vec![] };
+            let input = egui::RawInput { events, screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width as f32, height as f32))), time: Some(frame as f64 / 10.0), ..Default::default() };
             let result = ctx.run(input, |ctx| {
                 if glass_case.is_some() { glass_fixture(ctx, &app, &mut preferences); }
                 else {if std::env::var_os("VECTORIO_QA_COHERENCE").is_some(){app.toolbar(ctx,&theme::current(ctx));} show(&mut app, ctx); }
             });
+            if catalog && frame < 3 {
+                catalog_point=result.shapes.iter().find_map(|s|if let egui::Shape::Text(t)=&s.shape{
+                    t.galley.text().starts_with("Ciudad en fiesta ·").then_some(t.pos+t.galley.size()*0.5)
+                }else{None});
+            }
             for (id, delta) in &result.textures_delta.set {
                 let size = delta.image.size();
                 let pixels: Vec<_> = match &delta.image {
@@ -75,7 +88,7 @@ fn render_create_panels() {
                 }
             }
         }
-        let name = custom_generator.or_else(||glass_case.as_ref().map(|case| format!("glass-{case}")))
+        let name = if catalog { Some("catalogo-escenas".into()) } else { custom_generator }.or_else(||glass_case.as_ref().map(|case| format!("glass-{case}")))
             .or_else(|| dome_world.as_ref().map(|world| format!("cupulas-{world}")))
             .unwrap_or_else(|| if ballpoint { format!("boligrafo-{pen_count}") } else { "crear".into() });
         canvas.save(directory.join(format!("{name}-{width}.png"))).unwrap();

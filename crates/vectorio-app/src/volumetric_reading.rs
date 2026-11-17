@@ -13,7 +13,7 @@ const _MEASURES: [&str; 11] = [
     tm!("Espesor"),
     tm!("Objetos"),
 ];
-const _STYLES: [&str; 17] = [
+const _STYLES: [&str; 20] = [
     tm!("Mapa de curvatura"),
     tm!("Mapa gaussiano"),
     tm!("Mapa de luz"),
@@ -31,6 +31,9 @@ const _STYLES: [&str; 17] = [
     tm!("Isolíneas de curvatura"),
     tm!("Isolíneas de luz"),
     tm!("Mezcla óptica térmica"),
+    tm!("Contornos sugeridos"),
+    tm!("Aristas aparentes"),
+    tm!("Trazos de curvatura"),
 ];
 pub(super) fn name(effect: &ReadingEffect) -> String {
     crate::i18n::tr_key(match effect {
@@ -39,6 +42,9 @@ pub(super) fn name(effect: &ReadingEffect) -> String {
         ReadingEffect::Needles { .. } => tm!("Mapa de agujas"),
         ReadingEffect::Horizons { .. } => tm!("Líneas de horizonte"),
         ReadingEffect::Ridges { .. } => tm!("Crestas y valles"),
+        ReadingEffect::Suggestive { .. } => tm!("Contornos sugeridos"),
+        ReadingEffect::ApparentRidges { .. } => tm!("Aristas aparentes"),
+        ReadingEffect::PrincipalFlow { .. } => tm!("Trazos de curvatura"),
         ReadingEffect::Anaglyph { .. } => tm!("Anaglifo"),
         ReadingEffect::Unfold { .. } => tm!("Desarrollo"),
         ReadingEffect::Spin { .. } => tm!("Estela de giro"),
@@ -53,7 +59,10 @@ pub(super) fn fixed(kind: &PassKind) -> bool {
                 | ReadingEffect::Unfold { .. }
                 | ReadingEffect::Spin { .. }
                 | ReadingEffect::Section { .. }
-                | ReadingEffect::Ridges { .. },
+                | ReadingEffect::Ridges { .. }
+                | ReadingEffect::Suggestive { .. }
+                | ReadingEffect::ApparentRidges { .. }
+                | ReadingEffect::PrincipalFlow { .. },
             ..
         })
     )
@@ -82,28 +91,32 @@ const _INK_SETS: [&str; 5] = [
 fn ink_sets(
     ui: &mut egui::Ui,
     map: &mut ReadingMap,
-    doc: &mut vectorio_core::Document,
+    app: &mut VectorioApp,
     minimum: usize,
+    single: bool,
+    pass_id: u64,
 ) {
+    let doc = &mut app.doc;
     let selected = InkSet::ALL.into_iter().find(|s| s.matches(map, &doc.pens));
-    let mut chosen = None;
+    let saved = app.palettes.saved.iter().find(|p| p.matches(&map.pens, &doc.pens));
+    let label = saved.map(|p| p.name.clone()).unwrap_or_else(||
+        selected.map_or_else(|| tr!("Personalizado"), |s| crate::i18n::tr_key(s.name())));
+    let mut chosen: Option<crate::palettes::Palette> = None;
     ui.label(tr!("Juego de tintas"));
     egui::ComboBox::from_id_salt("reading-ink-set")
-        .selected_text(
-            selected.map_or_else(|| tr!("Personalizado"), |s| crate::i18n::tr_key(s.name())),
-        )
+        .selected_text(label)
         .width(ui.available_width())
         .show_ui(ui, |ui| {
             for set in InkSet::ALL {
                 let pens = set.pens();
-                let valid = map.encoding == Encoding::Density || pens.len() >= minimum;
+                let valid = single || pens.len() >= minimum;
                 let r = ui.add_enabled(
                     valid,
                     egui::Button::new(crate::i18n::tr_key(set.name()))
                         .selected(selected == Some(set)),
                 );
                 if r.clicked() {
-                    chosen = Some(set);
+                    chosen = Some(crate::palettes::Palette { name: set.name().into(), pens: pens.clone() });
                     ui.close_menu();
                 }
                 r.on_hover_ui(|ui| {
@@ -114,13 +127,36 @@ fn ink_sets(
                     });
                 });
             }
+            if !app.palettes.saved.is_empty() {
+                ui.separator();
+                ui.weak(tr!("Mis paletas"));
+                for (i, palette) in app.palettes.saved.iter().enumerate() {
+                    ui.push_id(("saved-palette", i), |ui| {
+                        let valid = single || (palette.pens.len() >= minimum && palette.pens.len() <= 8);
+                        let response = ui.add_enabled(valid, egui::Button::new(&palette.name)
+                            .selected(palette.matches(&map.pens, &doc.pens)));
+                        if response.clicked() { chosen = Some(palette.clone()); ui.close_menu(); }
+                        response.on_hover_ui(|ui| { ui.horizontal_wrapped(|ui| {
+                            for pen in &palette.pens { theme::swatch(ui, pen.color, 16.); }
+                        }); });
+                    });
+                }
+            }
         });
-    if let Some(set) = chosen {
-        map.pens = set.apply(doc);
-        if map.encoding == Encoding::Density {
+    if let Some(palette) = chosen {
+        let palette = if single { crate::palettes::Palette { pens: palette.pens.into_iter().take(1).collect(), ..palette } } else { palette };
+        map.pens = palette.apply(doc);
+        if single {
             map.pens.truncate(1);
         }
         map.bind_palette(&doc.pens);
+    }
+    if ui.small_button(tr!("Paletas…")).clicked() {
+        let source = map.pens.iter().filter_map(|i| doc.pens.get(*i).cloned()).collect();
+        let _ = app.palettes.reload();
+        app.palette_ui.open_for(crate::palette_ui::Destination::Reading {
+            pass: pass_id, minimum, single,
+        }, source);
     }
 }
 fn measure(ui: &mut egui::Ui, id: &str, value: &mut Measure) {
@@ -133,11 +169,23 @@ fn measure(ui: &mut egui::Ui, id: &str, value: &mut Measure) {
             }
         });
 }
-pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp) -> bool {
+pub(super) fn palette_requirements(kind: &PassKind, map: &ReadingMap) -> (usize, bool) {
+    let minimum = match kind {
+        PassKind::Reading(ReadingParams { effect: ReadingEffect::Anaglyph { .. } | ReadingEffect::Ridges { .. }, .. }) => 2,
+        PassKind::Reading(ReadingParams { effect: ReadingEffect::Unfold { .. } | ReadingEffect::Section { .. }, .. }) => 3,
+        _ => 1,
+    };
+    (minimum.max(if map.ramp == Ramp::Diverging { 2 } else { 1 }), (map.encoding == Encoding::Density && !fixed(kind)) || feature_lines(kind))
+}
+fn feature_lines(kind: &PassKind) -> bool {
+    matches!(kind, PassKind::Reading(ReadingParams { effect: ReadingEffect::Suggestive { .. } | ReadingEffect::ApparentRidges { .. } | ReadingEffect::PrincipalFlow { .. }, .. }))
+}
+pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp, pass_id: u64) -> bool {
     let Some(map) = &mut pass.reading else {
         return false;
     };
     let fixed = fixed(&pass.kind);
+    let single = (map.encoding == Encoding::Density && !fixed) || feature_lines(&pass.kind);
     let minimum = match &pass.kind {
         PassKind::Reading(ReadingParams {
             effect: ReadingEffect::Anaglyph { .. } | ReadingEffect::Ridges { .. },
@@ -276,7 +324,7 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
         }
     }
     let min = minimum.max(if map.ramp == Ramp::Diverging { 2 } else { 1 });
-    ink_sets(ui, map, &mut app.doc, min);
+    ink_sets(ui, map, app, min, single, pass_id);
     if map.encoding == Encoding::Optical {
         ui.label(tr!("Mapa de color"));
         egui::ComboBox::from_id_salt("optical-colors")
@@ -310,7 +358,7 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
     let tint_response = ui.menu_button(tr!("Tintas · %{n}", n = map.pens.len()), |ui| {
         ui.set_min_width(240.);
         ui.set_max_width(280.);
-        if map.encoding != Encoding::Density || fixed {
+        if !single {
             let mut count = map.pens.len().max(min);
             ui.label(tr!("Familias de tinta"));
             if ui.add(egui::Slider::new(&mut count, min..=8)).changed() {
@@ -532,6 +580,28 @@ pub(super) fn effect_controls(ui: &mut egui::Ui, params: &mut ReadingParams) {
         ReadingEffect::Ridges { threshold } => {
             scene_panel::slider(ui, &tr!("Umbral de crestas"), threshold, 0.0..=1.)
         }
+        ReadingEffect::Suggestive { threshold, min_angle_deg, smoothing } => {
+            scene_panel::slider(ui, &tr!("Umbral de contornos"), threshold, 0.0..=20.);
+            scene_panel::slider(ui, &tr!("Ángulo mínimo (grados)"), min_angle_deg, 0.0..=80.);
+            ui.label(tr!("Suavizado de normales"));
+            ui.add(egui::Slider::new(smoothing, 0..=5));
+        }
+        ReadingEffect::ApparentRidges { threshold, smoothing } => {
+            scene_panel::slider(ui, &tr!("Umbral de aristas"), threshold, 0.0..=100.);
+            ui.label(tr!("Suavizado de normales"));
+            ui.add(egui::Slider::new(smoothing, 0..=5));
+        }
+        ReadingEffect::PrincipalFlow { minimum, spacing_mm, length_mm, smoothing } => {
+            ui.label(tr!("Dirección de curvatura"));
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(minimum, false, tr!("Máxima"));
+                ui.selectable_value(minimum, true, tr!("Mínima"));
+            });
+            scene_panel::slider(ui, &tr!("Separación de trazos (mm)"), spacing_mm, 0.6..=8.);
+            scene_panel::slider(ui, &tr!("Longitud de trazos (mm)"), length_mm, 2.0..=80.);
+            ui.label(tr!("Suavizado de normales"));
+            ui.add(egui::Slider::new(smoothing, 0..=5));
+        }
         ReadingEffect::Anaglyph {
             angle_deg,
             side_by_side,
@@ -625,7 +695,7 @@ mod palette_tests {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.set_width(240.);
                     ui.set_max_width(240.);
-                    controls(ui, pass, app);
+                    controls(ui, pass, app, 0);
                 });
             },
         )
@@ -742,7 +812,7 @@ mod extra_controls_tests {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.set_width(240.);
                     ui.set_max_width(240.);
-                    controls(ui, pass, app);
+                    controls(ui, pass, app, 0);
                 });
             },
         )

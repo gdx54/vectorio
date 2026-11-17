@@ -290,9 +290,12 @@ pub enum ReadingStyle {
     ScalarContours,
     LightContours,
     OpticalThermal,
+    Suggestive,
+    ApparentRidges,
+    PrincipalFlow,
 }
 impl ReadingStyle {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 20] = [
         Self::Curvature,
         Self::Gaussian,
         Self::Light,
@@ -310,6 +313,9 @@ impl ReadingStyle {
         Self::ScalarContours,
         Self::LightContours,
         Self::OpticalThermal,
+        Self::Suggestive,
+        Self::ApparentRidges,
+        Self::PrincipalFlow,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -330,12 +336,43 @@ impl ReadingStyle {
             Self::ScalarContours => "Isolíneas de curvatura",
             Self::LightContours => "Isolíneas de luz",
             Self::OpticalThermal => "Mezcla óptica térmica",
+            Self::Suggestive => "Contornos sugeridos",
+            Self::ApparentRidges => "Aristas aparentes",
+            Self::PrincipalFlow => "Trazos de curvatura",
         }
     }
     pub fn passes(self, _scene: &Settings) -> Vec<Pass> {
         let mut map = ReadingMap::default();
         let mut params = ReadingParams::default();
         match self {
+            Self::PrincipalFlow => {
+                map.ramp = Ramp::Sequential;
+                map.pens = vec![0];
+                params.facets = 6000;
+                params.effect = ReadingEffect::PrincipalFlow {
+                    minimum: false,
+                    spacing_mm: 2.4,
+                    length_mm: 22.,
+                    smoothing: 1,
+                };
+            }
+            Self::Suggestive | Self::ApparentRidges => {
+                map.ramp = Ramp::Sequential;
+                map.pens = vec![0];
+                params.facets = 6000;
+                params.effect = if self == Self::Suggestive {
+                    ReadingEffect::Suggestive {
+                        threshold: 0.1,
+                        min_angle_deg: 20.,
+                        smoothing: 1,
+                    }
+                } else {
+                    ReadingEffect::ApparentRidges {
+                        threshold: 2.,
+                        smoothing: 1,
+                    }
+                };
+            }
             Self::ScalarContours => {
                 map.encoding = Encoding::Isolines;
                 map.levels = 20;
@@ -433,7 +470,8 @@ impl ReadingStyle {
                 };
             }
         }
-        vec![Pass {
+        let facets = params.facets;
+        let mut stack = vec![Pass {
             name: self.name().into(),
             enabled: true,
             pen: 0,
@@ -443,7 +481,18 @@ impl ReadingStyle {
             reading: Some(map),
             finish: FinishSettings::default(),
             kind: PassKind::Reading(params),
-        }]
+        }];
+        if matches!(
+            self,
+            Self::Suggestive | Self::ApparentRidges | Self::PrincipalFlow
+        ) {
+            stack.push(Pass::new(
+                "Contorno",
+                PassKind::Outline(OutlineParams::Surface { facets }),
+                0,
+            ));
+        }
+        stack
     }
 }
 

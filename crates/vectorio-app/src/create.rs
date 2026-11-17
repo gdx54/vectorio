@@ -128,9 +128,10 @@ impl CreateUi {
     }
 }
 // Las miniaturas tienen su propio trabajador: nunca se encolan delante del
-// Preview/Final principal. Solo se calculan una vez por generador y sesión.
+// Preview/Final principal. Se calculan bajo demanda, una vez por variante y sesión.
 type ThumbnailReply=(String,Result<GenOutput,String>);
-struct ThumbnailWorker { tx:mpsc::Sender<String>, rx:mpsc::Receiver<ThumbnailReply> }
+type ThumbnailRequest=(String,Request);
+struct ThumbnailWorker { tx:mpsc::Sender<ThumbnailRequest>, rx:mpsc::Receiver<ThumbnailReply> }
 #[derive(Default)]
 struct ThumbnailCache {
     worker:Option<ThumbnailWorker>,
@@ -139,15 +140,17 @@ struct ThumbnailCache {
 }
 impl ThumbnailCache {
     fn poll(&mut self){if let Some(worker)=&self.worker{for (id,result) in worker.rx.try_iter(){if let Ok(out)=result{self.outputs.insert(id,out);}}}}
-    fn start(&mut self,ctx:&egui::Context){
+    fn request(&mut self,ctx:&egui::Context,choice:&scene_catalog::Choice){
+        let key=choice.key();
+        if !self.requested.insert(key.clone()){return;}
         let worker=self.worker.get_or_insert_with(||{
-            let (tx,rx)=mpsc::channel::<String>();let (out,input)=mpsc::channel();let ctx=ctx.clone();
-            std::thread::spawn(move||{while let Ok(id)=rx.recv(){
-                let request=Request{generator:id.clone(),params:Params::default(),context:GenContext{area:BBox{min:p(3.0,3.0),max:p(97.0,67.0)},seed:0,pen_mm:0.35,detail:Detail::Preview}};
+            let (tx,rx)=mpsc::channel::<ThumbnailRequest>();let (out,input)=mpsc::channel();let ctx=ctx.clone();
+            std::thread::spawn(move||{while let Ok((id,request))=rx.recv(){
                 if out.send((id,calculate(&request))).is_err(){break;}ctx.request_repaint();
             }});ThumbnailWorker{tx,rx:input}
         });
-        for generator in generate::all(){if self.requested.insert(generator.id().into()){let _=worker.tx.send(generator.id().into());}}
+        let request=Request{generator:choice.generator.into(),params:choice.params(),context:GenContext{area:BBox{min:p(3.0,3.0),max:p(97.0,67.0)},seed:0,pen_mm:0.35,detail:Detail::Preview}};
+        let _=worker.tx.send((key,request));
     }
 }
 fn thumbnail(ui:&mut egui::Ui,output:&GenOutput,generator:&dyn Generator)->egui::Response{
@@ -393,16 +396,8 @@ pub fn show(app:&mut VectorioApp,ctx:&egui::Context){
                 egui::ScrollArea::vertical().id_salt("create-settings").auto_shrink([false,false]).show(ui,|ui|{
                     ui.set_max_width(ui.available_width());
                     ui.spacing_mut().slider_width=(ui.available_width()-80.0).max(100.0);
-                    ui.heading(tr!("Crear"));
-                    let active=generate::find(&state.settings.generator).unwrap();
-                    let generators=generate::all();
-                    let entries=generators.iter().map(|g|crate::catalog::Entry{label:crate::i18n::tr_key(g.name()),category:crate::i18n::tr_key(g.category())}).collect::<Vec<_>>();
-                    let selected=generators.iter().position(|g|g.id()==state.settings.generator);
-                    if let Some(index)=crate::catalog::selector(ui,egui::Id::new("create-generator"),&crate::i18n::tr_key(active.name()),selected,&entries,ui.available_width(),|index,ui|{
-                        if let Some(output)=state.thumbnails.outputs.get(generators[index].id()){thumbnail(ui,output,generators[index]);}else{ui.weak(tr!("Preparando miniatura…"));}
-                    }){state.cancel();state.settings.generator=generators[index].id().into();changed=true;}
+                    changed|=scene_catalog::show(ui,&mut state);
                     let generator=generate::find(&state.settings.generator).unwrap();
-                    ui.label(RichText::new(crate::i18n::tr_key(generator.description())).small().color(pal.secondary));
                     ui.add_space(10.0);
                     ui.horizontal(|ui|{ui.label(tr!("Semilla"));
                         if ui.add(egui::TextEdit::singleline(&mut state.seed_text).desired_width(145.0).char_limit(20)).changed(){
@@ -413,7 +408,9 @@ pub fn show(app:&mut VectorioApp,ctx:&egui::Context){
                     ink_controls(ui,generator,&mut state.settings);
                     let specs=generator.params();let params=state.settings.params.entry(generator.id().into()).or_default();
                     *params=params.normalized(&specs);
-                    changed|=parameter_controls(ui,&specs,params,&mut state.settings.locks);
+                    let variant=scene_catalog::variant_parameter(generator.id());
+                    let controls=specs.into_iter().filter(|spec|variant.is_none()||spec.id()!=variant).collect::<Vec<_>>();
+                    changed|=parameter_controls(ui,&controls,params,&mut state.settings.locks);
                 });
             });
         });
@@ -436,7 +433,7 @@ pub fn show(app:&mut VectorioApp,ctx:&egui::Context){
         };
         let request=Request{generator:generator.id().into(),params:state.settings.params.get(generator.id()).cloned().unwrap_or_default(),
             context:GenContext{area:area(app,&state),seed:state.settings.seed,pen_mm:pen,detail:if state.finalizing{Detail::Final}else{Detail::Preview}}};
-        state.request(ctx,request);state.poll();state.thumbnails.start(ctx);
+        state.request(ctx,request);state.poll();
         if state.finalizing{
             if let Some(Reply{result:Ok(output),request,..})=&state.result{
                 if state.editing.is_none_or(|id|app.doc.generated_group(id).is_some()){
@@ -550,15 +547,19 @@ mod tests {
         assert!(!output.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()==tr!("Preparando vista previa…"))));
     }
     #[test]
-    fn thumbnails_are_computed_once_on_their_own_worker(){
-        let ctx=egui::Context::default();let mut cache=ThumbnailCache::default();cache.start(&ctx);
-        let start=Instant::now();while cache.outputs.len()<generate::all().len()&&start.elapsed().as_secs_f64()<3.0{
-            cache.poll();std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-        assert_eq!(cache.outputs.len(),generate::all().len());let before=cache.outputs.clone();
-        cache.start(&ctx);cache.poll();assert_eq!(cache.outputs,before);assert_eq!(cache.requested.len(),generate::all().len());
+    fn thumbnails_are_computed_once_per_requested_variant_on_their_own_worker(){
+        let ctx=egui::Context::default();let mut cache=ThumbnailCache::default();
+        let choices=scene_catalog::choices();
+        let choices=choices.iter().filter(|c|c.generator=="spiro").collect::<Vec<_>>();
+        assert_eq!(choices.len(),2);
+        assert!(cache.worker.is_none());
+        for choice in &choices{cache.request(&ctx,choice);cache.request(&ctx,choice);}
+        let start=Instant::now();
+        while cache.outputs.len()<2 && start.elapsed().as_secs_f64()<5.0{cache.poll();std::thread::sleep(std::time::Duration::from_millis(2));}
+        assert_eq!(cache.requested.len(),2);assert_eq!(cache.outputs.len(),2);
+        assert_ne!(cache.outputs[&choices[0].key()].parts,cache.outputs[&choices[1].key()].parts);
     }
-    // La última red protege también un generador futuro que lance pánico.
+
     #[test]
     fn errors_are_reported_without_a_document_change(){
         let mut invalid=request(1);invalid.context.area.max=invalid.context.area.min;
@@ -570,3 +571,6 @@ mod tests {
 #[cfg(test)]
 #[path = "create_render_qa.rs"]
 mod render_qa;
+
+#[path = "create_catalog.rs"]
+mod scene_catalog;

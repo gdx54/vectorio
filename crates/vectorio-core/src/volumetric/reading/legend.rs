@@ -52,6 +52,9 @@ pub(super) fn add(
                 | ReadingEffect::Anaglyph { .. }
                 | ReadingEffect::Section { .. }
                 | ReadingEffect::Ridges { .. }
+                | ReadingEffect::Suggestive { .. }
+                | ReadingEffect::ApparentRidges { .. }
+                | ReadingEffect::PrincipalFlow { .. }
                 | ReadingEffect::Spin { .. },
             ..
         })
@@ -108,6 +111,13 @@ pub(super) fn add(
                     ..
                 }) => ["Crestas", "Valles"].get(i).unwrap_or(&"Tinta").to_string(),
                 PassKind::Reading(ReadingParams {
+                    effect:
+                        ReadingEffect::Suggestive { .. }
+                        | ReadingEffect::ApparentRidges { .. }
+                        | ReadingEffect::PrincipalFlow { .. },
+                    ..
+                }) => "Forma".into(),
+                PassKind::Reading(ReadingParams {
                     effect: ReadingEffect::Spin { angle_deg, copies },
                     ..
                 }) => format!("{:.1} grados", angle_deg * (i * copies / n) as f64),
@@ -133,6 +143,10 @@ pub(super) fn add(
     }
     let title = match kind {
         PassKind::Reading(ReadingParams {
+            effect: ReadingEffect::PrincipalFlow { .. },
+            ..
+        }) => "Trazos de curvatura".into(),
+        PassKind::Reading(ReadingParams {
             effect: ReadingEffect::Unfold { .. },
             ..
         }) => "Corte / monte / valle".into(),
@@ -148,6 +162,14 @@ pub(super) fn add(
             effect: ReadingEffect::Section { .. },
             ..
         }) => "Vista / oculta / seccion".into(),
+        PassKind::Reading(ReadingParams {
+            effect: ReadingEffect::Suggestive { .. },
+            ..
+        }) => "Contornos sugeridos".into(),
+        PassKind::Reading(ReadingParams {
+            effect: ReadingEffect::ApparentRidges { .. },
+            ..
+        }) => "Aristas aparentes".into(),
         _ => {
             if let Some(secondary) = map.secondary {
                 format!(

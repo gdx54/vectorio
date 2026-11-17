@@ -7,6 +7,8 @@ Project documentation, grouped by area. Historical plans describe the state and 
 - [Redesign plan](volumen/plan-rediseno.md) and [artistic direction](volumen/direccion-artistica.md).
 - [Architecture](volumen/arquitectura.md), [test coverage](volumen/pruebas.md) and [roadmap](volumen/hoja-de-ruta.md).
 - [Ink sets, optical mixing and isolines](volumen/ampliacion-g.md) and [interface coherence](volumen/interfaz-coherencia.md).
+- [View-dependent contours and large-model performance](volumen/contours-and-large-models.md).
+- [Reusable palettes and the unified scene catalog](paletas-y-catalogo-escenas.md).
 - Phase records A–G: [`volumen/fases/`](volumen/fases/).
 
 ## Create (`crear/`)

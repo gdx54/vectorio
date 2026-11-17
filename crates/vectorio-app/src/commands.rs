@@ -42,6 +42,7 @@ pub enum Command {
     Shortcuts,
     Appearance(crate::theme::Appearance),
     Preferences,
+    Palettes,
 }
 
 /// Atajos con ⌘ que funcionan aunque se esté escribiendo en un campo de texto.
@@ -122,6 +123,12 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
 impl VectorioApp {
     /// Lee el teclado y lanza las órdenes que correspondan.
     pub fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.palette_ui.open {
+            if !ctx.wants_keyboard_input() && !ctx.memory(|m| m.any_popup_open()) && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                self.palette_ui.close_request();
+            }
+            return;
+        }
         if self.prefs_ui.open {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape) || i.consume_key(Modifiers::COMMAND, Key::W)) {
                 self.prefs_ui.open = false;
@@ -243,7 +250,7 @@ impl VectorioApp {
     pub fn run(&mut self, ctx: &egui::Context, cmd: Command) {
         // Menú y teclado comparten la misma barrera: ninguna hoja permite editar detrás.
         if self.prefs_ui.open && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
-        if (self.vec_ui.open || self.color_edit.is_some() || self.show_help)
+        if (self.vec_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open)
             && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
         match cmd {
             Command::New => self.new_document(ctx),
@@ -254,7 +261,9 @@ impl VectorioApp {
             Command::ExportSvg => self.export_svg(ctx),
             Command::ExportPerPen => self.export_per_pen(ctx),
             Command::CloseWindow => {
-                if self.prefs_ui.open {
+                if self.palette_ui.open {
+                    self.palette_ui.close_request();
+                } else if self.prefs_ui.open {
                     self.prefs_ui.open = false;
                 } else if self.color_edit.is_some() {
                     self.cancel_color_edit();
@@ -363,6 +372,10 @@ impl VectorioApp {
                 self.set_prefs(ctx, prefs);
             }
             Command::Preferences => self.prefs_ui.show_window(&self.prefs),
+            Command::Palettes => {
+                let _ = self.palettes.reload();
+                self.palette_ui.open_for(crate::palette_ui::Destination::Document, self.doc.pens.clone());
+            }
         }
         ctx.request_repaint();
     }
@@ -453,6 +466,8 @@ impl NativeMenu {
                 &item(&tr!("Seleccionar siguiente"), None, Command::SelectNext),
                 &item(&tr!("Seleccionar anterior"), None, Command::SelectPrev),
                 &item(&tr!("Deseleccionar"), None, Command::Deselect),
+                &sep(),
+                &item(&tr!("Paletas…"), None, Command::Palettes),
             ],
         )
         .ok()?;

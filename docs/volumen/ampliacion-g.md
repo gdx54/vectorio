@@ -42,4 +42,4 @@ Installed with `python3 scripts/install-macos.py` at `/Applications/Vectorio.app
 
 ## Remaining work
 
-Later plan extensions include principal-curvature fields and flow lines, suggestive contours, and GLB/glTF. Custom ink sets are stored within styles; there is no separate ink-set library.
+An independent palette library is available; see [Palette library and scene catalog](../paletas-y-catalogo-escenas.md). Suggestive contours, apparent ridges, principal-curvature strokes, and shared preparation are covered in [Contours, curvature strokes, and large models](contours-and-large-models.md). GLB/glTF remains future work.
