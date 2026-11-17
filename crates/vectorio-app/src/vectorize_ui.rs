@@ -13,6 +13,7 @@ use vectorio_core::mix::{self, MixPalette, Screen, ScreenParams};
 use vectorio_core::vectorize::{self, VecMode, VecParams, VecResult};
 use vectorio_core::photo::EncodedImage;
 use vectorio_core::stipple::DotShape;
+use vectorio_core::paint::PaintPalette;
 use vectorio_core::sketch::SketchInks;
 use vectorio_core::trace::TraceKey;
 use vectorio_core::{fill, p, ColorAdjust, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, TraceParams, Traced};
@@ -893,6 +894,47 @@ impl VectorizeUi {
                     .on_hover_text(ts!("Longitud máxima de cada trazo respecto al lado mayor de la foto.")));
                 field(ui, ts!("Trazos máx."), |ui| ui.add(egui::Slider::new(&mut sk.max_strokes, 1000..=60_000).logarithmic(true)));
             }
+            VecMode::Paint => {
+                field(ui, ts!("Rotuladores"), |ui| {
+                    egui::ComboBox::from_id_salt("paint-palette").icon(crate::theme::combo_icon)
+                        .width(ui.available_width())
+                        .selected_text(crate::i18n::ts(prm.paint.palette.label()))
+                        .show_ui(ui, |ui| {
+                            for palette in PaintPalette::ALL {
+                                ui.selectable_value(&mut prm.paint.palette, palette, crate::i18n::ts(palette.label()));
+                            }
+                        }).response
+                });
+                if prm.paint.palette == PaintPalette::Photo {
+                    field(ui, ts!("Colores"), |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=12)));
+                }
+                if prm.paint.palette == PaintPalette::Mine { my_pens(ui, prm, doc); }
+                let pt = &mut prm.paint;
+                field(ui, ts!("Finura"), |ui| ui.add(egui::Slider::new(&mut pt.density, 120..=900).logarithmic(true))
+                    .on_hover_text(ts!("Anchos de punta que caben en el lado mayor: más finura, trazos más finos y apretados.")));
+                field(ui, ts!("Toque"), |ui| ui.add(egui::Slider::new(&mut pt.brush, 1.0..=6.0))
+                    .on_hover_text(ts!("Ancho de cada toque, en anchos de punta.")));
+                field(ui, ts!("Largo del toque"), |ui| ui.add(egui::Slider::new(&mut pt.dab, 2.0..=24.0))
+                    .on_hover_text(ts!("Valores bajos pintan casi puntos; altos, rayas cortas.")));
+                field(ui, ts!("Viveza"), |ui| ui.add(egui::Slider::new(&mut pt.vibrance, 0.0..=1.0))
+                    .on_hover_text(ts!("Aviva los colores apagados de la foto.")));
+                field(ui, ts!("Color roto"), |ui| ui.add(egui::Slider::new(&mut pt.broken, 0.0..=1.0))
+                    .on_hover_text(ts!("Alterna colores vecinos en una misma zona para que se mezclen en el ojo.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut pt.tone, 0.5..=3.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Papel"), |ui| ui.add(egui::Slider::new(&mut pt.paper, 0.0..=0.6))
+                    .on_hover_text(ts!("Parte de los tonos claros que se queda sin dibujar.")));
+                field(ui, ts!("Foco"), |ui| ui.add(egui::Slider::new(&mut pt.focus, 0.0..=1.0))
+                    .on_hover_text(ts!("El centro de interés se lleva el tono y los bordes se disuelven en el papel.")));
+                field(ui, ts!("Seguir formas"), |ui| ui.add(egui::Slider::new(&mut pt.follow, 0.0..=1.0)));
+                field(ui, ts!("Ángulo base"), |ui| ui.add(egui::Slider::new(&mut pt.angle_deg, 0.0..=180.0).suffix("°"))
+                    .on_hover_text(ts!("Dirección de los toques donde la imagen no tiene una estructura clara.")));
+                field(ui, ts!("Soltura"), |ui| ui.add(egui::Slider::new(&mut pt.hand, 0.0..=1.0))
+                    .on_hover_text(ts!("Toques en arco, como una mano suelta.")));
+                field(ui, ts!("Acentos"), |ui| ui.add(egui::Slider::new(&mut pt.accents, 0.0..=1.0))
+                    .on_hover_text(ts!("Toques oscuros que marcan los bordes más fuertes.")));
+                field(ui, ts!("Trazos máx."), |ui| ui.add(egui::Slider::new(&mut pt.max_strokes, 1000..=60_000).logarithmic(true)));
+            }
             VecMode::Topography => {
                 field(ui, ts!("Curvas de nivel"), |ui| ui.add(egui::Slider::new(&mut prm.topo.lines, 10..=500)));
                 field(ui, ts!("Gamma"), |ui| ui.add(egui::Slider::new(&mut prm.topo.gamma, 0.2..=4.0))
@@ -966,7 +1008,7 @@ impl VectorizeUi {
             colors.dedup();
             let new = colors.len();
             let prm = &self.pass.params;
-            let makes_pens = matches!(prm.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography)
+            let makes_pens = matches!(prm.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography | VecMode::Paint)
                 || (prm.mode == VecMode::Sketch && prm.sketch.inks == SketchInks::Two);
             let help = match (makes_pens, new) {
                 (true, 0) => ts!("Usa rotuladores que ya tienes.").to_string(),
@@ -1004,7 +1046,7 @@ impl VectorizeUi {
         field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
         if prm.mode == VecMode::Topography {
             field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.topo.detail, 0.02..=1.0)));
-        } else if matches!(prm.mode, VecMode::Ink | VecMode::Stipple | VecMode::CrossHatch | VecMode::Burin | VecMode::Continuous | VecMode::Loops | VecMode::Sketch) {
+        } else if matches!(prm.mode, VecMode::Ink | VecMode::Stipple | VecMode::CrossHatch | VecMode::Burin | VecMode::Continuous | VecMode::Loops | VecMode::Sketch | VecMode::Paint) {
             field(ui, ts!("Suavizar sin borrar bordes"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.smooth, 0.0..=1.0))
                 .on_hover_text(ts!("Alisa la piel, el cielo y las texturas finas sin difuminar los contornos.")));
             field(ui, ts!("Contraste local"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.local_contrast, 0.0..=1.0))
@@ -1162,7 +1204,7 @@ impl Pass {
     /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
     /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
     fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
-        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography)
+        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography | VecMode::Paint)
             || (self.params.mode == VecMode::Sketch && self.params.sketch.inks == SketchInks::Two);
         let width = match self.params.mode {
             VecMode::Mix => self.look.screen.pen_width_mm,
@@ -1302,7 +1344,7 @@ const THUMB_MM: f64 = 90.0;
 
 /// Estilos del selector, agrupados por categoría y en el orden en que se muestran.
 /// Cada trama de la mezcla es un estilo más, al mismo nivel que los demás.
-const STYLES: [(Style, &str); 24] = [
+const STYLES: [(Style, &str); 25] = [
     (Style::Mode(VecMode::Colors), tm!("Tramas de color")),
     (Style::Mix(Screen::Hatch), tm!("Tramas de color")),
     (Style::Mix(Screen::Waves), tm!("Tramas de color")),
@@ -1316,6 +1358,7 @@ const STYLES: [(Style, &str); 24] = [
     (Style::Mix(Screen::Truchet), tm!("Patrones de color")),
     (Style::Mix(Screen::Hilbert), tm!("Patrones de color")),
     (Style::Mode(VecMode::Sketch), tm!("Trazo")),
+    (Style::Mode(VecMode::Paint), tm!("Trazo")),
     (Style::Mode(VecMode::Portrait), tm!("Trazo")),
     (Style::Mode(VecMode::Stipple), tm!("Trazo")),
     (Style::Mode(VecMode::CrossHatch), tm!("Trazo")),
@@ -2033,6 +2076,7 @@ mod tests {
         let shots = [
             (1440, 900, false, Some(Style::Mode(VecMode::Portrait)), "retrato"),
             (1440, 900, false, Some(Style::Mode(VecMode::Sketch)), "boceto"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Paint)), "pinceladas"),
             (980, 620, true, Some(Style::Mix(Screen::Waves)), "ondas"),
             (1440, 900, false, Some(Style::Mode(VecMode::Ink)), "tinta"),
             (1440, 900, true, Some(Style::Mode(VecMode::Stipple)), "punteado"),

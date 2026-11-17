@@ -45,6 +45,10 @@ fn main() {
         let ox = cell as f64;
         for layer in &res.layers {
             let [r, g, b] = layer.color;
+            if std::env::var("VECTORIO_DEBUG").is_ok() {
+                let mm: f64 = layer.lines.iter().map(|l| vectorio_core::geom::length(l) * k / PX_PER_MM).sum();
+                eprintln!("  {:?} {:?}: {} trazos, {:.1} m", layer.name, layer.color, layer.lines.len(), mm / 1000.0);
+            }
             for line in &layer.lines {
                 strokes += 1;
                 for pair in line.windows(2) {

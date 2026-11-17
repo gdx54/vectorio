@@ -2760,3 +2760,33 @@ _version: 2
   en: "How much the strokes cross in deep shadows, as in an etching."
 "Trazos máx.":
   en: "Max. strokes"
+"Pinceladas":
+  en: "Brushwork"
+"Una pintura de toques cortos de color, entre puntos y rayas, que se construye mirando el papel: cada toque elige el rotulador que más acerca el color a la foto, sigue las formas y alterna colores vecinos que se mezclan en el ojo.":
+  en: "A painting of short colour touches, between dots and dashes, built by looking at the paper: each touch picks the pen that brings the colour closest to the photo, follows the forms and alternates neighbouring colours that blend in the eye."
+"Colores vivos":
+  en: "Vivid colours"
+"Toque":
+  en: "Touch"
+"Ancho de cada toque, en anchos de punta.":
+  en: "Width of each touch, in pen widths."
+"Largo del toque":
+  en: "Touch length"
+"Valores bajos pintan casi puntos; altos, rayas cortas.":
+  en: "Low values paint almost dots; high values, short dashes."
+"Viveza":
+  en: "Vibrancy"
+"Aviva los colores apagados de la foto.":
+  en: "Brightens the photo's dull colours."
+"Color roto":
+  en: "Broken colour"
+"Alterna colores vecinos en una misma zona para que se mezclen en el ojo.":
+  en: "Alternates neighbouring colours within an area so they blend in the eye."
+"Dirección de los toques donde la imagen no tiene una estructura clara.":
+  en: "Direction of the touches where the image has no clear structure."
+"Toques en arco, como una mano suelta.":
+  en: "Arcing touches, like a loose hand."
+"Acentos":
+  en: "Accents"
+"Toques oscuros que marcan los bordes más fuertes.":
+  en: "Dark touches that mark the strongest edges."
