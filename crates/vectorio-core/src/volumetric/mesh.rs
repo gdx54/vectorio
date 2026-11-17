@@ -28,6 +28,31 @@ impl Mesh {
     pub fn points(&self) -> Vec<V3> {
         self.vertices.iter().map(|q| v3(*q)).collect()
     }
+    /// Fracción del área que cae en las 12 orientaciones de cara más frecuentes (en saltos de
+    /// unos 7°). Cerca de 1 en piezas de caras planas; baja en formas orgánicas o curvas.
+    pub fn planar_share(&self) -> f64 {
+        let points = self.points();
+        let mut bins: HashMap<[i32; 3], f64> = HashMap::new();
+        let mut total = 0.;
+        for t in &self.triangles {
+            let n = (points[t[1]] - points[t[0]]).cross(points[t[2]] - points[t[0]]);
+            let area = n.length();
+            if area <= 1e-18 || !area.is_finite() {
+                continue;
+            }
+            let u = n * (1. / area);
+            *bins
+                .entry([(u.x * 8.).round() as i32, (u.y * 8.).round() as i32, (u.z * 8.).round() as i32])
+                .or_default() += area;
+            total += area;
+        }
+        if total <= 0. {
+            return 0.;
+        }
+        let mut areas: Vec<f64> = bins.into_values().collect();
+        areas.sort_by(|a, b| b.total_cmp(a));
+        areas.iter().take(12).sum::<f64>() / total
+    }
     /// Valida antes de indexar. Desecha degenerados y caras repetidas; no intenta
     /// reparar agujeros ni invertir automáticamente las normales del artista.
     pub fn validated(self) -> Result<(Self, MeshReport), String> {

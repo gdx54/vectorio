@@ -180,9 +180,10 @@ pub(super) fn palette_requirements(kind: &PassKind, map: &ReadingMap) -> (usize,
 fn feature_lines(kind: &PassKind) -> bool {
     matches!(kind, PassKind::Reading(ReadingParams { effect: ReadingEffect::Suggestive { .. } | ReadingEffect::ApparentRidges { .. } | ReadingEffect::PrincipalFlow { .. }, .. }))
 }
-pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp, pass_id: u64) -> bool {
+/// Qué dibuja: la medida que lee la pasada (y las cotas de la sección).
+pub(super) fn what(ui: &mut egui::Ui, pass: &mut Pass) {
     let Some(map) = &mut pass.reading else {
-        return false;
+        return;
     };
     let fixed = fixed(&pass.kind);
     if let PassKind::Reading(ReadingParams {
@@ -219,95 +220,102 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
                 map.pens.push(pass.pen);
             }
         }
-        if map.measure != Measure::Objects {
-            ui.label(tr!("Codificación"));
-            let before = map.encoding;
-            egui::ComboBox::from_id_salt("read-encoding")
-                .selected_text(match map.encoding {
-                    Encoding::Bands => tr!("Fronteras exactas"),
-                    Encoding::Dither => tr!("Transición difuminada"),
-                    Encoding::Density => tr!("Densidad de trazos"),
-                    Encoding::Optical => tr!("Mezcla óptica"),
-                    Encoding::Isolines => tr!("Isolíneas del campo"),
+    }
+}
+/// Cómo se ve: codificación, rampa, tintas y separación.
+pub(super) fn look(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp, pass_id: u64) -> bool {
+    let Some(map) = &mut pass.reading else {
+        return false;
+    };
+    let fixed = fixed(&pass.kind);
+    if !fixed && map.measure != Measure::Objects {
+        ui.label(tr!("Codificación"));
+        let before = map.encoding;
+        egui::ComboBox::from_id_salt("read-encoding")
+            .selected_text(match map.encoding {
+                Encoding::Bands => tr!("Bandas"),
+                Encoding::Dither => tr!("Degradado"),
+                Encoding::Density => tr!("Densidad de trazos"),
+                Encoding::Optical => tr!("Mezcla óptica"),
+                Encoding::Isolines => tr!("Isolíneas"),
+            })
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut map.encoding,
+                    Encoding::Bands,
+                    tr!("Bandas"),
+                );
+                ui.selectable_value(
+                    &mut map.encoding,
+                    Encoding::Dither,
+                    tr!("Degradado"),
+                );
+                ui.selectable_value(
+                    &mut map.encoding,
+                    Encoding::Density,
+                    tr!("Densidad de trazos"),
+                );
+                if matches!(
+                    pass.kind,
+                    PassKind::Reading(ReadingParams {
+                        effect: ReadingEffect::Surface,
+                        ..
+                    })
+                ) {
+                    ui.selectable_value(
+                        &mut map.encoding,
+                        Encoding::Optical,
+                        tr!("Mezcla óptica"),
+                    );
+                    ui.selectable_value(
+                        &mut map.encoding,
+                        Encoding::Isolines,
+                        tr!("Isolíneas"),
+                    );
+                }
+            });
+        if map.encoding == Encoding::Density {
+            map.ramp = Ramp::Sequential;
+            map.pens.truncate(1);
+        } else if before == Encoding::Density {
+            map.pens.push(pass.pen);
+        }
+        if map.encoding != Encoding::Density {
+            ui.label(if map.encoding == Encoding::Optical {
+                tr!("Distribución del campo")
+            } else {
+                tr!("Rampa")
+            });
+            egui::ComboBox::from_id_salt("read-ramp")
+                .selected_text(if map.ramp == Ramp::Sequential {
+                    if map.encoding == Encoding::Optical {
+                        tr!("Secuencial")
+                    } else {
+                        tr!("Por luminosidad")
+                    }
+                } else {
+                    tr!("Divergente · papel en cero")
                 })
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
-                        &mut map.encoding,
-                        Encoding::Bands,
-                        tr!("Fronteras exactas"),
-                    );
-                    ui.selectable_value(
-                        &mut map.encoding,
-                        Encoding::Dither,
-                        tr!("Transición difuminada"),
-                    );
-                    ui.selectable_value(
-                        &mut map.encoding,
-                        Encoding::Density,
-                        tr!("Densidad de trazos"),
-                    );
-                    if matches!(
-                        pass.kind,
-                        PassKind::Reading(ReadingParams {
-                            effect: ReadingEffect::Surface,
-                            ..
-                        })
-                    ) {
-                        ui.selectable_value(
-                            &mut map.encoding,
-                            Encoding::Optical,
-                            tr!("Mezcla óptica"),
-                        );
-                        ui.selectable_value(
-                            &mut map.encoding,
-                            Encoding::Isolines,
-                            tr!("Isolíneas del campo"),
-                        );
-                    }
-                });
-            if map.encoding == Encoding::Density {
-                map.ramp = Ramp::Sequential;
-                map.pens.truncate(1);
-            } else if before == Encoding::Density {
-                map.pens.push(pass.pen);
-            }
-            if map.encoding != Encoding::Density {
-                ui.label(if map.encoding == Encoding::Optical {
-                    tr!("Distribución del campo")
-                } else {
-                    tr!("Rampa")
-                });
-                egui::ComboBox::from_id_salt("read-ramp")
-                    .selected_text(if map.ramp == Ramp::Sequential {
+                        &mut map.ramp,
+                        Ramp::Sequential,
                         if map.encoding == Encoding::Optical {
                             tr!("Secuencial")
                         } else {
                             tr!("Por luminosidad")
-                        }
-                    } else {
-                        tr!("Divergente · papel en cero")
-                    })
-                    .width(ui.available_width())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut map.ramp,
-                            Ramp::Sequential,
-                            if map.encoding == Encoding::Optical {
-                                tr!("Secuencial")
-                            } else {
-                                tr!("Por luminosidad")
-                            },
-                        );
-                        ui.selectable_value(
-                            &mut map.ramp,
-                            Ramp::Diverging,
-                            tr!("Divergente · papel en cero"),
-                        );
-                    });
-                if map.ramp == Ramp::Diverging && map.pens.len() < 2 {
-                    map.pens.push(pass.pen);
-                }
+                        },
+                    );
+                    ui.selectable_value(
+                        &mut map.ramp,
+                        Ramp::Diverging,
+                        tr!("Divergente · papel en cero"),
+                    );
+                });
+            if map.ramp == Ramp::Diverging && map.pens.len() < 2 {
+                map.pens.push(pass.pen);
             }
         }
     }
@@ -424,41 +432,46 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
             );
         }
     }
-    if !fixed {
-        if map.encoding != Encoding::Isolines
-            && matches!(
-                pass.kind,
-                PassKind::Reading(ReadingParams {
-                    effect: ReadingEffect::Surface
-                        | ReadingEffect::Relief { .. }
-                        | ReadingEffect::Needles { .. },
-                    ..
-                })
-            )
-        {
-            scene_panel::slider(
-                ui,
-                &if map.encoding == Encoding::Optical {
-                    tr!("Escala de trama (mm)")
-                } else {
-                    tr!("Separación de trazos (mm)")
-                },
-                &mut map.spacing_mm,
-                0.1..=8.,
-            );
-        }
-        if map.measure != Measure::Objects {
-            ui.checkbox(&mut map.invert, tr!("Invertir medida"));
-        }
+    if !fixed
+        && map.encoding != Encoding::Isolines
+        && matches!(
+            pass.kind,
+            PassKind::Reading(ReadingParams {
+                effect: ReadingEffect::Surface
+                    | ReadingEffect::Relief { .. }
+                    | ReadingEffect::Needles { .. },
+                ..
+            })
+        )
+    {
+        scene_panel::slider(
+            ui,
+            &if map.encoding == Encoding::Optical {
+                tr!("Escala de trama (mm)")
+            } else {
+                tr!("Separación de trazos (mm)")
+            },
+            &mut map.spacing_mm,
+            0.1..=8.,
+        );
+    }
+    menu_open
+}
+/// Avanzado: invertir, cartela, ecualizado, rango, umbral y muestreo.
+pub(super) fn advanced(ui: &mut egui::Ui, pass: &mut Pass) {
+    let Some(map) = &mut pass.reading else {
+        return;
+    };
+    let fixed = fixed(&pass.kind);
+    if !fixed && map.measure != Measure::Objects {
+        ui.checkbox(&mut map.invert, tr!("Invertir medida"));
     }
     let before = map.legend;
     ui.checkbox(&mut map.legend, tr!("Cartela en el papel"));
     if map.legend && !before && map.date.is_empty() {
         map.date = today();
     }
-    egui::CollapsingHeader::new(tr!("Avanzado"))
-        .id_salt("read-advanced")
-        .show(ui, |ui| {
+    ui.scope(|ui| {
             if !fixed && map.measure != Measure::Objects {
                 ui.checkbox(&mut map.equalize, tr!("Ecualizar por histograma"));
                 let mut combine = map.secondary.is_some();
@@ -549,7 +562,6 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
                 ui.text_edit_singleline(&mut map.date);
             }
         });
-    menu_open
 }
 
 pub(super) fn effect_controls(ui: &mut egui::Ui, params: &mut ReadingParams) {
@@ -650,6 +662,14 @@ fn date_from_days(days: i64) -> String {
     let month = mp + if mp < 10 { 3 } else { -9 };
     let year = y + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
+}
+/// Los tres bloques seguidos, como los recorre el editor de pasada.
+#[cfg(test)]
+fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp, pass_id: u64) -> bool {
+    what(ui, pass);
+    let open = look(ui, pass, app, pass_id);
+    advanced(ui, pass);
+    open
 }
 #[cfg(test)]
 mod tests {

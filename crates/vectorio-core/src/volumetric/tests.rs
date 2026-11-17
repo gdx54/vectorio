@@ -622,3 +622,11 @@ fn mixed_shadow_and_edges_share_a_frame_independent_of_pass_order() {
     assert_eq!(a.parts[0].lines, b.parts[1].lines);
     assert_eq!(a.parts[1].lines, b.parts[0].lines);
 }
+#[test]
+fn planar_share_separates_faceted_parts_from_organic_shapes() {
+    let share = |p: Primitive| p.mesh().planar_share();
+    assert!(share(Primitive::Cube) > 0.99);
+    assert!(share(Primitive::Assembly) > 0.95);
+    assert!(share(Primitive::Torus) < 0.5, "{}", share(Primitive::Torus));
+    assert!(share(Primitive::Sphere) < 0.5, "{}", share(Primitive::Sphere));
+}

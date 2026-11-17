@@ -1,5 +1,7 @@
 //! Escena compartida. Solo Modelo › Avanzado introduce un segundo nivel plegable.
 use super::*;
+/// La luz, lo más expresivo de la escena, va antes que la cámara (que también se gira en la vista).
+const ORDER: [usize; 4] = [0, 2, 1, 3];
 pub(super) fn section_name(index: usize) -> String {
     crate::i18n::tr_key([tm!("Modelo"), tm!("Cámara"), tm!("Luz"), tm!("Papel")][index.min(3)])
 }
@@ -12,7 +14,7 @@ pub(super) fn rail(ui: &mut egui::Ui, state: &mut VolumetricUi) {
         egui::Margin::same(5.),
         theme::Material::Panel,
         |ui| {
-            for index in 0..4 {
+            for index in ORDER {
                 let (rect, response) = ui.allocate_exact_size(egui::vec2(30., 34.), Sense::click());
                 if response.hovered() || state.scene_open == Some(index) {
                     ui.painter().rect_filled(rect.shrink(1.), 7., pal.control);
@@ -97,7 +99,7 @@ pub(super) fn show(
         });
         ui.add_space(8.);
     }
-    for index in 0..4 {
+    for index in ORDER {
         if only.is_some_and(|i| i != index) {
             continue;
         }
@@ -111,7 +113,7 @@ pub(super) fn show(
             body(ui);
         } else {
             egui::CollapsingHeader::new(section_name(index))
-                .default_open(index == 0 || index == 1)
+                .default_open(index == 0 || index == 2)
                 .show(ui, body);
         }
     }
