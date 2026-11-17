@@ -2501,8 +2501,8 @@ _version: 2
 "Aplicar a la pasada":
   en: "Apply to pass"
 
-"La densidad usa solo la primera tinta de la paleta.":
-  en: "Density uses only the first ink in the palette."
+"Esta pasada usa solo la primera tinta de la paleta.":
+  en: "This pass uses only the first ink in the palette."
 
 "Hay una edición de paleta sin guardar.":
   en: "There are unsaved palette edits."

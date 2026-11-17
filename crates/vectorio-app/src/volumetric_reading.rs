@@ -185,18 +185,6 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
         return false;
     };
     let fixed = fixed(&pass.kind);
-    let single = (map.encoding == Encoding::Density && !fixed) || feature_lines(&pass.kind);
-    let minimum = match &pass.kind {
-        PassKind::Reading(ReadingParams {
-            effect: ReadingEffect::Anaglyph { .. } | ReadingEffect::Ridges { .. },
-            ..
-        }) => 2,
-        PassKind::Reading(ReadingParams {
-            effect: ReadingEffect::Unfold { .. } | ReadingEffect::Section { .. },
-            ..
-        }) => 3,
-        _ => 1,
-    };
     if let PassKind::Reading(ReadingParams {
         effect: ReadingEffect::Section {
             show_dimensions, ..
@@ -323,7 +311,8 @@ pub(super) fn controls(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp
             }
         }
     }
-    let min = minimum.max(if map.ramp == Ramp::Diverging { 2 } else { 1 });
+    // Mismo criterio que la ventana Paletas, tras los cambios de codificación o rampa.
+    let (min, single) = palette_requirements(&pass.kind, map);
     ink_sets(ui, map, app, min, single, pass_id);
     if map.encoding == Encoding::Optical {
         ui.label(tr!("Mapa de color"));

@@ -190,7 +190,7 @@ impl PaletteUi {
                                     applied = Some(palette);
                                 }
                                 if matches!(self.destination, Destination::Reading { single: true, .. }) {
-                                    ui.weak(tr!("La densidad usa solo la primera tinta de la paleta."));
+                                    ui.weak(tr!("Esta pasada usa solo la primera tinta de la paleta."));
                                 }
                             }
                         }
