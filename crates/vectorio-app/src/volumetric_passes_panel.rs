@@ -166,6 +166,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
                         for pen in &mut map.pens {
                             *pen = (*pen).min(app.doc.pens.len().saturating_sub(1));
                         }
+                        styles::voxel_default_inks(style, &mut app.doc.pens, map);
                     }
                     let id = state.next_pass_id;
                     state.next_pass_id += 1;

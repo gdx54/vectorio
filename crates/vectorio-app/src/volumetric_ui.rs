@@ -556,6 +556,9 @@ impl VolumetricUi {
         if !single && !(minimum..=8).contains(&palette.pens.len()) {
             return Err(tm!("La paleta no tiene el número de tintas que necesita esta pasada."));
         }
+        if matches!(pass.kind, PassKind::Reading(ReadingParams { effect: ReadingEffect::Voxels { .. }, .. })) && palette.pens.len() != 3 {
+            return Err(tm!("Esta pasada utiliza tres tintas, una por eje."));
+        }
         self.checkpoint();
         let mut palette = palette.clone();
         if single { palette.pens.truncate(1); }

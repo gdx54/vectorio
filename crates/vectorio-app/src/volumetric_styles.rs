@@ -32,6 +32,28 @@ const NAMES: [&str; 7] = [
     tm!("Malla de color"),
     tm!("Ondas y malla"),
 ];
+pub(super) fn voxel_inks(inks: &mut Vec<Pen>, colors: [(&str, [u8; 3]); 3]) -> Vec<usize> {
+    colors.into_iter().map(|(name, rgb)| {
+        if let Some(i) = inks.iter().position(|p| p.color == rgb && p.width_mm == 0.4) {
+            i
+        } else {
+            inks.push(Pen::new(name, rgb, 0.4));
+            inks.len() - 1
+        }
+    }).collect()
+}
+pub(super) const VOXEL_CMY: [(&str, [u8; 3]); 3] = [
+    ("Magenta", [210, 45, 140]), ("Cian", [0, 160, 200]), ("Amarillo", [247, 200, 30])
+];
+pub(super) fn voxel_default_inks(style: ReadingStyle, inks: &mut Vec<Pen>, map: &mut ReadingMap) {
+    if matches!(style, ReadingStyle::VoxelGrid | ReadingStyle::VoxelHatch) {
+        let mut colors = VOXEL_CMY;
+        if style == ReadingStyle::VoxelGrid {
+            colors.swap(0, 2);
+        }
+        map.pens = voxel_inks(inks, colors);
+    }
+}
 fn builtins(state: &VolumetricUi, app: &VectorioApp) -> Vec<SavedStyle> {
     let mut styles: Vec<_> = KINDS
         .into_iter()
@@ -83,6 +105,7 @@ fn builtins(state: &VolumetricUi, app: &VectorioApp) -> Vec<SavedStyle> {
                 for pen in &mut map.pens {
                     *pen = (*pen).min(inks.len().saturating_sub(1));
                 }
+                voxel_default_inks(style, &mut inks, map);
             }
         }
         if style == ReadingStyle::Anaglyph {
@@ -196,7 +219,7 @@ fn group(name: &str) -> usize {
     match name {
         "Sombra plana" | "Grabado" | "Aguafuerte cruzado" | "Topografía en sombra"
         | "Hachuras de relieve" | "Luz ambiente" | "Mapa de luz" | "Isolíneas de luz" => 1,
-        "Ondas" | "Malla de color" | "Ondas y malla" | "Ondas con halo" | "Ondas con gradiente" => 2,
+        "Vóxeles · retícula" | "Vóxeles · caras tramadas" | "Ondas" | "Malla de color" | "Ondas y malla" | "Ondas con halo" | "Ondas con gradiente" => 2,
         "Mapa de curvatura" | "Mapa gaussiano" | "Mapa de pendientes" | "Mapa térmico"
         | "Mapa de agujas" | "Isolíneas de curvatura" | "Mezcla óptica térmica" => 3,
         "Plano técnico" | "Desarrollo" | "Sección técnica" => 4,
@@ -454,6 +477,11 @@ impl Thumbnails {
                             match &mut p.kind {
                                 PassKind::Reading(p) => {
                                     p.facets = p.facets.min(128);
+                                    if let ReadingEffect::Voxels { divisions, spacing_mm, .. } = &mut p.effect {
+                                        *divisions = (*divisions).min(12);
+                                        *spacing_mm = spacing_mm.max(0.8);
+                                        p.facets = 1200;
+                                    }
                                     if let Some(map) = &mut p_reading {
                                         map.samples = 8;
                                         map.spacing_mm = map.spacing_mm.max(2.);

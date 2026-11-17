@@ -2806,3 +2806,23 @@ _version: 2
   en: "Place the shard on the image"
 "Pulsa sobre la foto para colocar el centro de la esquirla.":
   en: "Click on the photo to place the centre of the shard."
+"Vóxeles · retícula":
+  en: "Voxels · grid"
+"Vóxeles · caras tramadas":
+  en: "Voxels · hatched faces"
+"Paleta de caras":
+  en: "Face palette"
+"Tricromía":
+  en: "Three-color"
+"Coral y fucsia":
+  en: "Coral and fuchsia"
+"Solar":
+  en: "Solar"
+"Celdas en el eje mayor":
+  en: "Cells along longest axis"
+"Tramar las caras":
+  en: "Hatch faces"
+"Separación de trama (mm)":
+  en: "Hatch spacing (mm)"
+"Esta pasada utiliza tres tintas, una por eje.":
+  en: "This pass uses three inks, one per axis."

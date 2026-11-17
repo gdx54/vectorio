@@ -37,6 +37,8 @@ const _STYLES: [&str; 20] = [
 ];
 pub(super) fn name(effect: &ReadingEffect) -> String {
     crate::i18n::tr_key(match effect {
+        ReadingEffect::Voxels { hatch: false, .. } => tm!("Vóxeles · retícula"),
+        ReadingEffect::Voxels { hatch: true, .. } => tm!("Vóxeles · caras tramadas"),
         ReadingEffect::Surface => tm!("Mapa de lectura"),
         ReadingEffect::Relief { .. } => tm!("Hachuras de relieve"),
         ReadingEffect::Needles { .. } => tm!("Mapa de agujas"),
@@ -55,7 +57,8 @@ pub(super) fn fixed(kind: &PassKind) -> bool {
     matches!(
         kind,
         PassKind::Reading(ReadingParams {
-            effect: ReadingEffect::Anaglyph { .. }
+            effect: ReadingEffect::Voxels { .. }
+                | ReadingEffect::Anaglyph { .. }
                 | ReadingEffect::Unfold { .. }
                 | ReadingEffect::Spin { .. }
                 | ReadingEffect::Section { .. }
@@ -71,7 +74,8 @@ pub(super) fn transformed(kind: &PassKind) -> bool {
     matches!(
         kind,
         PassKind::Reading(ReadingParams {
-            effect: ReadingEffect::Unfold { .. }
+            effect: ReadingEffect::Voxels { .. }
+                | ReadingEffect::Unfold { .. }
                 | ReadingEffect::Anaglyph { .. }
                 | ReadingEffect::Spin { .. }
                 | ReadingEffect::Section { .. }
@@ -172,7 +176,7 @@ fn measure(ui: &mut egui::Ui, id: &str, value: &mut Measure) {
 pub(super) fn palette_requirements(kind: &PassKind, map: &ReadingMap) -> (usize, bool) {
     let minimum = match kind {
         PassKind::Reading(ReadingParams { effect: ReadingEffect::Anaglyph { .. } | ReadingEffect::Ridges { .. }, .. }) => 2,
-        PassKind::Reading(ReadingParams { effect: ReadingEffect::Unfold { .. } | ReadingEffect::Section { .. }, .. }) => 3,
+        PassKind::Reading(ReadingParams { effect: ReadingEffect::Voxels { .. } | ReadingEffect::Unfold { .. } | ReadingEffect::Section { .. }, .. }) => 3,
         _ => 1,
     };
     (minimum.max(if map.ramp == Ramp::Diverging { 2 } else { 1 }), (map.encoding == Encoding::Density && !fixed(kind)) || feature_lines(kind))
@@ -227,6 +231,36 @@ pub(super) fn look(ui: &mut egui::Ui, pass: &mut Pass, app: &mut VectorioApp, pa
     let Some(map) = &mut pass.reading else {
         return false;
     };
+    if matches!(pass.kind, PassKind::Reading(ReadingParams { effect: ReadingEffect::Voxels { .. }, .. })) {
+        ui.label(tr!("Paleta de caras"));
+        ui.horizontal_wrapped(|ui| {
+            for (label, colors) in [
+                (tm!("Tricromía"), styles::VOXEL_CMY),
+                (tm!("Coral y fucsia"), [("Coral", [231, 142, 127]), ("Magenta", [210, 45, 140]), ("Cian", [0, 160, 200])]),
+                (tm!("Solar"), [("Amarillo", [247, 200, 30]), ("Rojo", [214, 48, 49]), ("Naranja", [245, 124, 32])]),
+            ] {
+                if ui.small_button(crate::i18n::tr_key(label)).clicked() {
+                    map.pens = styles::voxel_inks(&mut app.doc.pens, colors);
+                }
+            }
+        });
+        for (axis, slot) in ["X", "Y", "Z"].into_iter().zip(&mut map.pens) {
+            ui.horizontal(|ui| {
+                ui.label(axis);
+                if let Some(pen) = app.doc.pens.get(*slot) {
+                    theme::swatch(ui, pen.color, 12.);
+                    egui::ComboBox::from_id_salt(("voxel-ink", pass_id, axis))
+                        .selected_text(crate::i18n::pen_name(pen))
+                        .show_ui(ui, |ui| {
+                            for (i, pen) in app.doc.pens.iter().enumerate() {
+                                ui.selectable_value(slot, i, crate::i18n::pen_name(pen));
+                            }
+                        });
+                }
+            });
+        }
+        return ui.ctx().memory(|m| m.any_popup_open());
+    }
     let fixed = fixed(&pass.kind);
     if !fixed && map.measure != Measure::Objects {
         ui.label(tr!("Codificación"));
@@ -566,6 +600,14 @@ pub(super) fn advanced(ui: &mut egui::Ui, pass: &mut Pass) {
 
 pub(super) fn effect_controls(ui: &mut egui::Ui, params: &mut ReadingParams) {
     match &mut params.effect {
+        ReadingEffect::Voxels { divisions, hatch, spacing_mm } => {
+            ui.label(tr!("Celdas en el eje mayor"));
+            ui.add(egui::Slider::new(divisions, 4..=36));
+            ui.checkbox(hatch, tr!("Tramar las caras"));
+            if *hatch {
+                scene_panel::slider(ui, &tr!("Separación de trama (mm)"), spacing_mm, 0.15..=3.);
+            }
+        }
         ReadingEffect::Surface => {}
         ReadingEffect::Relief { length_mm } => {
             scene_panel::slider(ui, &tr!("Longitud de hachura (mm)"), length_mm, 0.2..=12.)

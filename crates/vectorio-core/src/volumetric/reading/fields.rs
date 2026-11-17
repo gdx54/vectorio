@@ -2,6 +2,7 @@
 use super::*;
 use std::{collections::HashMap, sync::OnceLock};
 pub(super) struct Geometry {
+    pub(super) closed: bool,
     pub normals: Vec<V3>,
     pub mean: Vec<f64>,
     pub gaussian: Vec<f64>,
@@ -78,12 +79,13 @@ impl Geometry {
         Ok(Self {
             normals,
             mean,
+            closed: !boundary.iter().any(|b| *b),
             gaussian,
             incident,
             bvh: OnceLock::new(),
         })
     }
-    fn rays(&self, mesh: &Mesh, cancel: &dyn Fn() -> bool) -> Result<&rays::Bvh, String> {
+    pub(super) fn rays(&self, mesh: &Mesh, cancel: &dyn Fn() -> bool) -> Result<&rays::Bvh, String> {
         if self.bvh.get().is_none() {
             // Una cancelación no deja un resultado fallido guardado para siempre.
             let bvh = rays::Bvh::new(mesh, cancel)?;
