@@ -12,6 +12,7 @@ use std::sync::{mpsc, Arc};
 use vectorio_core::mix::{self, MixPalette, Screen, ScreenParams};
 use vectorio_core::vectorize::{self, VecMode, VecParams, VecResult};
 use vectorio_core::photo::EncodedImage;
+use vectorio_core::stipple::DotShape;
 use vectorio_core::trace::TraceKey;
 use vectorio_core::{fill, p, ColorAdjust, Coverage, Document, Fill, FillStyle, Geometry, Item, Pen, Photo, Polyline, TraceParams, Traced};
 
@@ -487,7 +488,7 @@ impl VectorizeUi {
                             for l in lines {
                                 let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * mm).collect();
                                 if pts.len() >= 2 {
-                                    shapes.push(egui::Shape::line(pts, st));
+                                    shapes.push(pen_mark(pts, st));
                                 }
                             }
                         }
@@ -761,6 +762,35 @@ impl VectorizeUi {
                 field(ui, ts!("Grosor punta"), |ui| ui.add(egui::Slider::new(&mut prm.portrait.pen_width_mm, 0.1..=1.2).suffix(" mm"))
                     .on_hover_text(ts!("Grosor de los rotuladores nuevos")));
             }
+            VecMode::Ink => {
+                let ink = &mut prm.ink;
+                field(ui, ts!("Escala"), |ui| ui.add(egui::Slider::new(&mut ink.scale, 0.5..=5.0).logarithmic(true))
+                    .on_hover_text(ts!("Valores altos ignoran el detalle fino y dejan solo las formas grandes.")));
+                field(ui, ts!("Sensibilidad"), |ui| ui.add(egui::Slider::new(&mut ink.sensitivity, 0.0..=1.0))
+                    .on_hover_text(ts!("Valores altos encuentran también los bordes suaves.")));
+                field(ui, ts!("Continuidad"), |ui| ui.add(egui::Slider::new(&mut ink.continuity, 0.0..=12.0))
+                    .on_hover_text(ts!("Sigue cada borde a lo largo de la forma: une los trazos y alisa su recorrido.")));
+                field(ui, ts!("Largo mín."), |ui| ui.add(egui::Slider::new(&mut ink.min_length, 0.0..=60.0))
+                    .on_hover_text(ts!("Descarta los trazos más cortos.")));
+                field(ui, ts!("Sombras"), |ui| ui.add(egui::Slider::new(&mut ink.shadow_levels, 0..=4))
+                    .on_hover_text(ts!("Añade el contorno de las zonas de sombra, en tantos niveles de luz como indiques.")));
+            }
+            VecMode::Stipple => {
+                let st = &mut prm.stipple;
+                field(ui, ts!("Puntos"), |ui| ui.add(egui::Slider::new(&mut st.dots, 500..=40_000).logarithmic(true)));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut st.gamma, 0.5..=3.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Bordes"), |ui| ui.add(egui::Slider::new(&mut st.edges, 0.0..=1.0))
+                    .on_hover_text(ts!("Junta más puntos en los bordes y el detalle de la foto.")));
+                field(ui, ts!("Reparto"), |ui| ui.add(egui::Slider::new(&mut st.relax, 0..=30))
+                    .on_hover_text(ts!("Pasadas para repartir los puntos: más pasadas, reparto más regular.")));
+                field(ui, ts!("Forma"), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut st.shape, DotShape::Point, ts!("Punto"));
+                        ui.selectable_value(&mut st.shape, DotShape::Circle, ts!("Círculo"));
+                    }).response
+                });
+            }
             VecMode::Topography => {
                 field(ui, ts!("Curvas de nivel"), |ui| ui.add(egui::Slider::new(&mut prm.topo.lines, 10..=500)));
                 field(ui, ts!("Gamma"), |ui| ui.add(egui::Slider::new(&mut prm.topo.gamma, 0.2..=4.0))
@@ -865,6 +895,11 @@ impl VectorizeUi {
         field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
         if prm.mode == VecMode::Topography {
             field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.topo.detail, 0.02..=1.0)));
+        } else if matches!(prm.mode, VecMode::Ink | VecMode::Stipple) {
+            field(ui, ts!("Suavizar sin borrar bordes"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.smooth, 0.0..=1.0))
+                .on_hover_text(ts!("Alisa la piel, el cielo y las texturas finas sin difuminar los contornos.")));
+            field(ui, ts!("Contraste local"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.local_contrast, 0.0..=1.0))
+                .on_hover_text(ts!("Separa los tonos parecidos dentro de cada zona de la foto.")));
         } else if !matches!(prm.mode, VecMode::Mix | VecMode::Portrait) {
             field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.detail, 0.2..=3.0)));
             field(ui, ts!("Curvas"), |ui| ui.add(egui::Slider::new(&mut prm.smooth, 0..=4)));
@@ -973,7 +1008,7 @@ const THUMB_MM: f64 = 90.0;
 
 /// Estilos del selector, agrupados por categoría y en el orden en que se muestran.
 /// Cada trama de la mezcla es un estilo más, al mismo nivel que los demás.
-const STYLES: [(Style, &str); 17] = [
+const STYLES: [(Style, &str); 19] = [
     (Style::Mode(VecMode::Colors), tm!("Tramas de color")),
     (Style::Mix(Screen::Hatch), tm!("Tramas de color")),
     (Style::Mix(Screen::Waves), tm!("Tramas de color")),
@@ -987,8 +1022,10 @@ const STYLES: [(Style, &str); 17] = [
     (Style::Mix(Screen::Truchet), tm!("Patrones de color")),
     (Style::Mix(Screen::Hilbert), tm!("Patrones de color")),
     (Style::Mode(VecMode::Portrait), tm!("Trazo")),
+    (Style::Mode(VecMode::Stipple), tm!("Trazo")),
     (Style::Mode(VecMode::Topography), tm!("Trazo")),
     (Style::Mode(VecMode::Engrave), tm!("Trazo")),
+    (Style::Mode(VecMode::Ink), tm!("Dibujo a tinta")),
     (Style::Mode(VecMode::Lines), tm!("Dibujo a tinta")),
     (Style::Mode(VecMode::Silhouette), tm!("Dibujo a tinta")),
 ];
@@ -1139,10 +1176,20 @@ fn thumbnail(ui: &mut egui::Ui, thumb: Option<&Thumb>) {
         let stroke = Stroke::new(0.6f32, theme::pen_color(*color));
         for line in lines {
             if line.len() >= 2 {
-                painter.add(egui::Shape::line(line.iter().map(|q| origin + Vec2::new(q.x as f32, q.y as f32) * k).collect(), stroke));
+                painter.add(pen_mark(line.iter().map(|q| origin + Vec2::new(q.x as f32, q.y as f32) * k).collect(), stroke));
             }
         }
     }
+}
+
+/// Un trazo tal como lo deja la punta. Uno más corto que el propio grosor (un toque
+/// del Punteado) es una gota redonda; como línea apenas se vería.
+fn pen_mark(pts: Vec<Pos2>, stroke: Stroke) -> egui::Shape {
+    let (min, max) = pts.iter().fold((pts[0], pts[0]), |(a, b), q| (a.min(*q), b.max(*q)));
+    if (max - min).length() < stroke.width {
+        return egui::Shape::circle_filled(min + (max - min) * 0.5, (stroke.width * 0.5).max(0.5), stroke.color);
+    }
+    egui::Shape::line(pts, stroke)
 }
 
 fn color_distance(a: [u8; 3], b: [u8; 3]) -> f64 {
@@ -1599,15 +1646,21 @@ mod tests {
             if face < 1.0 { image::Rgb([(230.0 - 110.0 * shade) as u8, (180.0 - 90.0 * shade) as u8, (150.0 - 80.0 * shade) as u8]) }
             else { image::Rgb([40 + (y / 6) as u8, 70 + (x / 8) as u8, 120]) }
         });
-        for (width, height, dark, empty) in [(1440, 900, false, false), (980, 620, true, false), (1440, 900, false, true)] {
+        let shots = [
+            (1440, 900, false, Some(Style::Mode(VecMode::Portrait)), "retrato"),
+            (980, 620, true, Some(Style::Mix(Screen::Waves)), "ondas"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Ink)), "tinta"),
+            (1440, 900, true, Some(Style::Mode(VecMode::Stipple)), "punteado"),
+            (1440, 900, false, None, "vacio"),
+        ];
+        for (width, height, dark, style, name) in shots {
+            let empty = style.is_none();
             let ctx = egui::Context::default();
             ctx.options_mut(|o| o.theme_preference = if dark { egui::ThemePreference::Dark } else { egui::ThemePreference::Light });
             let mut app = crate::app::VectorioApp::blank(&ctx);
             app.mode = crate::app::ViewMode::Photo;
-            if !empty {
+            if let Some(style) = style {
                 app.vec_ui.set_image(&ctx, DynamicImage::ImageRgb8(photo.clone()), "retrato.jpg".into());
-                // Una trama de color en la ventana pequeña; Retrato en la grande.
-                let style = if width < 1200 { Style::Mix(Screen::Waves) } else { Style::Mode(VecMode::Portrait) };
                 style.apply(&mut app.vec_ui.params, &mut app.vec_ui.look);
             }
             let mut textures = HashMap::new();
@@ -1646,7 +1699,7 @@ mod tests {
                     }
                 }
             }
-            canvas.save(dir.join(format!("{}-{width}.png", if empty { "vacio" } else { "retrato" }))).unwrap();
+            canvas.save(dir.join(format!("{name}-{width}.png"))).unwrap();
         }
     }
 }

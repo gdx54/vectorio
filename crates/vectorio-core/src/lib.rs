@@ -5,11 +5,13 @@
 //! plotter (una por rotulador) con `Document::layers`.
 
 pub mod adjust;
+pub mod analysis;
 pub mod doc;
 pub mod fill;
 pub mod font;
 pub mod geom;
 pub mod generate;
+pub mod ink;
 pub mod mix;
 pub mod optimize;
 pub mod output;
@@ -19,6 +21,7 @@ pub mod raster;
 pub mod scene;
 pub mod shapes;
 pub mod shared;
+pub mod stipple;
 pub mod svg_in;
 pub mod svg_out;
 pub mod svgfont;

@@ -213,9 +213,11 @@ fn add_line(shapes: &mut Vec<EShape>, pts: Vec<Pos2>, stroke: Stroke) {
     match pts.len() {
         0 => {}
         1 => shapes.push(EShape::circle_filled(pts[0], stroke.width / 2.0, stroke.color)),
-        // Un círculo diminuto puede quedar reducido a sus extremos coincidentes.
-        // Conservamos una marca de tinta en vez de enviar una línea de longitud cero.
-        2 if pts[0].distance_sq(pts[1]) < 1e-6 => shapes.push(EShape::circle_filled(pts[0], stroke.width / 2.0, stroke.color)),
+        // Un círculo diminuto o un toque del Punteado: un tramo más corto que el
+        // propio grosor es una gota de tinta; como línea apenas se vería.
+        2 if pts[0].distance(pts[1]) < stroke.width * 0.5 => {
+            shapes.push(EShape::circle_filled(pts[0].lerp(pts[1], 0.5), stroke.width / 2.0, stroke.color))
+        }
         _ => shapes.push(EShape::line(pts, stroke)),
     }
 }
