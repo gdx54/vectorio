@@ -1205,8 +1205,8 @@ _version: 2
   en: "Size of each mark. In Auto, circles are the pen's width and crosses and dashes are almost one spacing long. A large circle is filled in."
 "Tamaño de las ondas de la deformación: pequeñas o amplias.":
   en: "Size of the warp waves: small or wide."
-"También con las asas del recuadro: la esquina escala y el círculo gira (⇧ de 15 en 15°).":
-  en: "Also with the box handles: the corner scales and the circle rotates (⇧ in 15° steps)."
+"También con las asas del recuadro: cada esquina escala desde la opuesta (⌥ desde el centro) y el círculo gira (⇧ de 15 en 15°).":
+  en: "Also with the box handles: each corner scales from the opposite one (⌥ from the centre) and the circle rotates (⇧ in 15° steps)."
 "Temblor":
   en: "Tremor"
 "Temperatura":
