@@ -310,10 +310,11 @@ pub fn feature_edges(mesh: &Mesh, camera: &Camera, angle: f64) -> Vec<[V3; 2]> {
     let kept: Vec<_> = edges
         .into_iter()
         .filter_map(|((a, b), n)| {
-            let outline = n.len() != 2
+            let border = n.len() != 2;
+            let outline = border
                 || camera.facing_at(n[0], weld.points[a]) != camera.facing_at(n[1], weld.points[a]);
             let crease = !outline && n[0].dot(n[1]).abs() < threshold;
-            (outline || crease).then_some((a, b, crease))
+            (outline || crease).then_some((a, b, crease, border))
         })
         .collect();
     // En mallas esculpidas el umbral de ángulo deja pliegues sueltos que parecen ruido:
@@ -326,21 +327,47 @@ pub fn feature_edges(mesh: &Mesh, camera: &Camera, angle: f64) -> Vec<[V3; 2]> {
         }
         i
     }
-    for &(a, b, _) in &kept {
+    for &(a, b, _, _) in &kept {
         let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
         parent[ra] = rb;
     }
     let mut size = vec![0usize; parent.len()];
-    for &(a, _, _) in &kept {
+    let mut length = vec![0.; parent.len()];
+    for &(a, b, _, _) in &kept {
         let r = root(&mut parent, a);
         size[r] += 1;
+        length[r] += (weld.points[a] - weld.points[b]).length();
     }
+    // Con muchas facetas, cada bulto de una escultura deja un lazo de silueta
+    // diminuto: una silueta interior solo cuenta si su cadena tiene cierta longitud.
+    let (lo, hi) = weld.points.iter().fold(
+        (
+            V3::new(f64::MAX, f64::MAX, f64::MAX),
+            V3::new(f64::MIN, f64::MIN, f64::MIN),
+        ),
+        |(lo, hi), q| {
+            (
+                V3::new(lo.x.min(q.x), lo.y.min(q.y), lo.z.min(q.z)),
+                V3::new(hi.x.max(q.x), hi.y.max(q.y), hi.z.max(q.z)),
+            )
+        },
+    );
+    let min_outline = (hi - lo).length() * MIN_OUTLINE_CHAIN;
     kept.into_iter()
-        .filter(|&(a, _, crease)| !crease || size[root(&mut parent, a)] >= MIN_CREASE_CHAIN)
-        .map(|(a, b, _)| [weld.points[a], weld.points[b]])
+        .filter(|&(a, _, crease, border)| {
+            let r = root(&mut parent, a);
+            if crease {
+                size[r] >= MIN_CREASE_CHAIN
+            } else {
+                border || length[r] >= min_outline
+            }
+        })
+        .map(|(a, b, _, _)| [weld.points[a], weld.points[b]])
         .collect()
 }
 const MIN_CREASE_CHAIN: usize = 12;
+/// Longitud mínima de una cadena de silueta, como fracción de la diagonal del modelo.
+const MIN_OUTLINE_CHAIN: f64 = 0.12;
 
 fn section_key_eq(a: &Settings, b: &Settings) -> bool {
     a.field == b.field

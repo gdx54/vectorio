@@ -579,7 +579,9 @@ pub(super) fn effect_controls(ui: &mut egui::Ui, params: &mut ReadingParams) {
             ui.add(egui::Slider::new(rows, 4..=240));
         }
         ReadingEffect::Ridges { threshold } => {
-            scene_panel::slider(ui, &tr!("Umbral de crestas"), threshold, 0.0..=1.)
+            // Logarítmico: el rango útil está entre 0,02 y 0,3.
+            ui.label(tr!("Umbral de crestas"));
+            ui.add(egui::Slider::new(threshold, 0.01..=1.).logarithmic(true));
         }
         ReadingEffect::Suggestive { threshold, min_angle_deg, smoothing } => {
             scene_panel::slider(ui, &tr!("Umbral de contornos"), threshold, 0.0..=20.);

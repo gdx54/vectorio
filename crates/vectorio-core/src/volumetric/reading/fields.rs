@@ -277,8 +277,9 @@ impl Cache {
         Ok(values)
     }
 }
-/// Promedio con el primer anillo; las pasadas crecen con la raíz del número de vértices
-/// para suavizar a una escala parecida en mallas ligeras y densas.
+/// Promedio con el primer anillo. Es una difusión: su radio crece con la raíz de las
+/// pasadas y la arista mide 1/√n, así que las pasadas crecen con n para suavizar a una
+/// escala parecida en mallas ligeras y densas.
 pub(super) fn smoothed(mesh: &Mesh, values: &[f64]) -> Vec<f64> {
     let n = values.len();
     let mut neighbors = vec![Vec::<usize>::new(); n];
@@ -295,7 +296,7 @@ pub(super) fn smoothed(mesh: &Mesh, values: &[f64]) -> Vec<f64> {
         list.sort_unstable();
         list.dedup();
     }
-    let passes = ((n as f64).sqrt() / 30.).round().clamp(2., 10.) as usize;
+    let passes = (n as f64 / 300.).round().clamp(2., 60.) as usize;
     let mut current = values.to_vec();
     let mut next = current.clone();
     for _ in 0..passes {

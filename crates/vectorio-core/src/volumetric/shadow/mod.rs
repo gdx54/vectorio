@@ -30,7 +30,7 @@ impl Default for ShadowSettings {
             azimuth: 135.,
             elevation: 45.,
             threshold: 0.14,
-            facets: 1200,
+            facets: 8000,
             ground: true,
             ground_gap: 0.,
             middle_tone: false,

@@ -303,7 +303,7 @@ pub struct ReadingParams {
 impl Default for ReadingParams {
     fn default() -> Self {
         Self {
-            facets: 1200,
+            facets: 8000,
             effect: ReadingEffect::Surface,
         }
     }
@@ -552,9 +552,10 @@ impl Cache {
                     vec![]
                 }
                 ReadingEffect::Ridges { threshold } => {
-                    direct = Some(effects::ridges(
-                        d, s, map, &geometry, *threshold, paper, cancel,
-                    )?);
+                    let lines = self
+                        .features
+                        .ridges(d, &geometry.normals, *threshold, cancel)?;
+                    direct = Some(effects::ridges(d, s, map, lines, paper, cancel)?);
                     vec![]
                 }
                 ReadingEffect::Suggestive { .. }
