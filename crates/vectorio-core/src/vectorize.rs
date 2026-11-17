@@ -44,12 +44,15 @@ pub enum VecMode {
     Continuous,
     /// Un trazo de bucles enlazados.
     Loops,
+    /// Dibujo a mano construido trazo a trazo mirando la tinta ya puesta.
+    Sketch,
 }
 
 impl VecMode {
-    pub const ALL: [VecMode; 13] = [
+    pub const ALL: [VecMode; 14] = [
         VecMode::Colors,
         VecMode::Mix,
+        VecMode::Sketch,
         VecMode::Portrait,
         VecMode::Topography,
         VecMode::Stipple,
@@ -77,6 +80,7 @@ impl VecMode {
             VecMode::Burin => "Buril",
             VecMode::Continuous => "Línea continua",
             VecMode::Loops => "Bucles",
+            VecMode::Sketch => "Boceto",
         }
     }
     pub fn help(self) -> &'static str {
@@ -94,6 +98,7 @@ impl VecMode {
             VecMode::Burin => "Rayas paralelas que se curvan con el relieve de la foto y se ensanchan en las sombras, como un grabado a buril.",
             VecMode::Continuous => "Un único trazo, sin levantar la punta, que recorre la foto y se apretuja en las sombras.",
             VecMode::Loops => "Un trazo de bucles enlazados que se amontonan en las sombras, como un garabato a mano.",
+            VecMode::Sketch => "Un dibujo a mano que se construye mirando el papel: encaja las masas, modela con rayas que siguen las formas, cruza en las sombras y repasa el detalle. Con una tinta o sanguina y carbón.",
         }
     }
 }
@@ -147,6 +152,8 @@ pub struct VecParams {
     pub continuous: crate::tour::ContinuousParams,
     #[serde(default)]
     pub loops: crate::tour::LoopParams,
+    #[serde(default)]
+    pub sketch: crate::sketch::SketchParams,
 }
 
 fn default_palette() -> MixPalette {
@@ -180,6 +187,7 @@ impl Default for VecParams {
             burin: Default::default(),
             continuous: Default::default(),
             loops: Default::default(),
+            sketch: Default::default(),
         }
     }
 }
@@ -283,6 +291,7 @@ pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
         VecMode::Burin => crate::hatching::burin(&rgb, prm),
         VecMode::Continuous => crate::tour::continuous(&rgb, prm),
         VecMode::Loops => crate::tour::loops(&rgb, prm),
+        VecMode::Sketch => crate::sketch::render(&rgb, prm),
         VecMode::Topography => unreachable!("Topografía conserva el canal alfa antes de convertir a RGB"),
     };
     VecResult { width: w as f64, height: h as f64, layers }
