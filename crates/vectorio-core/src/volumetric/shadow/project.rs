@@ -39,6 +39,30 @@ pub(crate) struct Triangle {
     pub max: f64,
     planes: Vec<Plane>,
 }
+/// Las caras pequeñas detrás de muchas otras se parten en astillas sin tamaño visible.
+/// En vez de fallar, se descartan y, si aún sobran, se conservan las más grandes.
+const FRAGMENTS: usize = 512;
+const CAST_FRAGMENTS: usize = 16_384;
+fn area2(poly: &[Vertex]) -> f64 {
+    poly.iter()
+        .zip(poly.iter().cycle().skip(1))
+        .take(poly.len())
+        .map(|(a, b)| cross(a.point, b.point))
+        .sum::<f64>()
+        .abs()
+}
+fn world_area(poly: &[V3]) -> f64 {
+    (1..poly.len().saturating_sub(1))
+        .map(|i| (poly[i] - poly[0]).cross(poly[i + 1] - poly[0]).length())
+        .sum()
+}
+fn prune(polygons: &mut Vec<Polygon>, whole: f64) {
+    polygons.retain(|q| area2(q) > whole * 1e-9);
+    if polygons.len() > FRAGMENTS {
+        polygons.sort_by(|a, b| area2(b).total_cmp(&area2(a)));
+        polygons.truncate(FRAGMENTS);
+    }
+}
 fn cross(a: P, b: P) -> f64 {
     a.x * b.y - a.y * b.x
 }
@@ -328,8 +352,8 @@ impl Projection {
                 next.extend(subtract(poly, &planes));
             }
             polygons = next;
-            if polygons.len() > 512 {
-                return Err("Demasiados fragmentos de sombra; reduce el número de facetas.".into());
+            if polygons.len() > FRAGMENTS {
+                prune(&mut polygons, area2(&receiver.polygon));
             }
             if polygons.is_empty() {
                 break;
@@ -341,7 +365,7 @@ impl Projection {
         let Some(receiver) = &self.faces[face] else {
             return Ok(vec![]);
         };
-        let mut polygons = Vec::new();
+        let mut polygons: Vec<Vec<V3>> = Vec::new();
         for other in self.candidates(receiver.bounds) {
             if cancel() {
                 return Err(super::CANCEL.into());
@@ -357,8 +381,15 @@ impl Projection {
             if !poly.is_empty() {
                 polygons.push(poly.iter().map(|v| v.world).collect());
             }
-            if polygons.len() > 512 {
-                return Err("Demasiados fragmentos de sombra; reduce el número de facetas.".into());
+            if polygons.len() > CAST_FRAGMENTS {
+                // Una cara grande (la peana) recibe la sombra de miles de caras pequeñas: se
+                // conservan todas salvo las astillas; los límites globales protegen la memoria.
+                let whole = world_area(&receiver.polygon.iter().map(|v| v.world).collect::<Vec<_>>());
+                polygons.retain(|q| world_area(q) > 1e-9 * whole);
+                if polygons.len() > CAST_FRAGMENTS {
+                    polygons.sort_by(|a, b| world_area(b).total_cmp(&world_area(a)));
+                    polygons.truncate(CAST_FRAGMENTS);
+                }
             }
         }
         Ok(polygons)

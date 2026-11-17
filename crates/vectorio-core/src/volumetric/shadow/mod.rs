@@ -71,6 +71,8 @@ impl ShadowSettings {
 #[derive(Clone, Debug)]
 pub struct ShadedFace {
     pub cosine: f64,
+    /// N·L en cada esquina, con normales suavizadas que respetan las aristas vivas.
+    pub corners: [f64; 3],
     pub dark: bool,
     pub middle: bool,
     pub cast: Vec<Vec<V3>>,
@@ -91,6 +93,7 @@ type LightKey = (f64, f64, f64, bool);
 pub(super) struct Cache {
     mesh: Option<Arc<Mesh>>,
     normals: Vec<V3>,
+    corners: Vec<[V3; 3]>,
     key: Option<LightKey>,
     fields: Vec<(LightKey, Arc<Vec<ShadedFace>>)>,
     field: Option<Arc<Vec<ShadedFace>>>,
@@ -180,6 +183,95 @@ pub(super) fn normals(mesh: &Mesh, cancel: &dyn Fn() -> bool) -> Result<Vec<V3>,
         })
         .collect())
 }
+/// Aristas con más de este ángulo entre caras quedan vivas (cubos, piezas mecánicas).
+const CREASE_COS: f64 = 0.64;
+/// Normales por esquina: promedian las caras vecinas sin cruzar aristas vivas.
+pub(super) fn corner_normals(mesh: &Mesh, normals: &[V3]) -> Vec<[V3; 3]> {
+    let points = mesh.points();
+    let mut incident = vec![Vec::new(); points.len()];
+    let mut area = Vec::with_capacity(mesh.triangles.len());
+    for (i, t) in mesh.triangles.iter().enumerate() {
+        for &v in t {
+            incident[v].push(i);
+        }
+        area.push(
+            (points[t[1]] - points[t[0]])
+                .cross(points[t[2]] - points[t[0]])
+                .length(),
+        );
+    }
+    mesh.triangles
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            t.map(|v| {
+                let mut sum = V3::default();
+                for &j in &incident[v] {
+                    if normals[j].dot(normals[i]) >= CREASE_COS {
+                        sum = sum + normals[j] * area[j];
+                    }
+                }
+                if sum.length() > 1e-12 {
+                    sum.normalized()
+                } else {
+                    normals[i]
+                }
+            })
+        })
+        .collect()
+}
+/// Valor interpolado linealmente en la cara a partir de sus tres esquinas.
+pub(super) fn shade(tri: [V3; 3], values: [f64; 3], q: V3) -> f64 {
+    let (e1, e2) = (tri[1] - tri[0], tri[2] - tri[0]);
+    let n = e1.cross(e2);
+    let d = n.dot(n);
+    let lo = values[0].min(values[1]).min(values[2]);
+    let hi = values[0].max(values[1]).max(values[2]);
+    if d < 1e-30 {
+        return (values[0] + values[1] + values[2]) / 3.;
+    }
+    let r = q - tri[0];
+    let b = r.cross(e2).dot(n) / d;
+    let c = e1.cross(r).dot(n) / d;
+    (values[0] * (1. - b - c) + values[1] * b + values[2] * c).clamp(lo, hi)
+}
+/// Parte de un polígono convexo cuyo valor lineal queda en [lo, hi].
+pub(super) fn slab(points: &[P], values: &[f64], lo: f64, hi: f64) -> (Polyline, Vec<f64>) {
+    let mut poly: Vec<(P, f64)> = points.iter().copied().zip(values.iter().copied()).collect();
+    for (level, sign) in [(lo, 1.), (hi, -1.)] {
+        if !level.is_finite() || poly.len() < 3 {
+            continue;
+        }
+        let mut out = Vec::with_capacity(poly.len() + 2);
+        for k in 0..poly.len() {
+            let (a, va) = poly[k];
+            let (b, vb) = poly[(k + 1) % poly.len()];
+            let (sa, sb) = ((va - level) * sign, (vb - level) * sign);
+            if sa >= 0. {
+                out.push((a, va));
+            }
+            if (sa >= 0.) != (sb >= 0.) {
+                let t = (sa / (sa - sb)).clamp(0., 1.);
+                out.push((a.lerp(b, t), level));
+            }
+        }
+        out.dedup_by(|a, b| a.0.dist(b.0) < 1e-10);
+        if out.len() > 1 && out[0].0.dist(out.last().unwrap().0) < 1e-10 {
+            out.pop();
+        }
+        poly = out;
+    }
+    let area: f64 = (0..poly.len())
+        .map(|k| {
+            let (a, b) = (poly[k].0, poly[(k + 1) % poly.len()].0);
+            a.x * b.y - a.y * b.x
+        })
+        .sum();
+    if poly.len() < 3 || area.abs() < 1e-12 {
+        return (Vec::new(), Vec::new());
+    }
+    poly.into_iter().unzip()
+}
 impl Cache {
     pub(super) fn field(
         &mut self,
@@ -189,6 +281,7 @@ impl Cache {
     ) -> Result<Arc<Vec<ShadedFace>>, String> {
         if self.mesh.as_ref().is_none_or(|m| !Arc::ptr_eq(m, &mesh)) {
             self.normals = normals(&mesh, cancel)?;
+            self.corners = corner_normals(&mesh, &self.normals);
             self.mesh = Some(mesh.clone());
             self.key = None;
             self.fields.clear();
@@ -219,10 +312,14 @@ impl Cache {
                 return Err(CANCEL.into());
             }
             let cosine = n.dot(light);
-            let dark = cosine <= settings.threshold;
+            let corners = self.corners[i].map(|c| c.dot(light));
+            let peak = corners.iter().fold(cosine, |m, c| m.max(*c));
+            let floor = corners.iter().fold(cosine, |m, c| m.min(*c));
+            // `dark` y `middle` indican si alguna parte de la cara cae en ese tono.
+            let dark = peak <= settings.threshold;
             let middle =
-                settings.middle_tone && !dark && cosine < (settings.threshold + 0.28).min(0.95);
-            let cast = if dark {
+                settings.middle_tone && !dark && floor < (settings.threshold + 0.28).min(0.95);
+            let cast = if dark || cosine <= 0. {
                 vec![]
             } else {
                 projection.shadowed(i, cancel)?
@@ -233,6 +330,7 @@ impl Cache {
             }
             faces.push(ShadedFace {
                 cosine,
+                corners,
                 dark,
                 middle,
                 cast,
@@ -331,12 +429,29 @@ pub(super) fn draw(
                     .map(|poly| poly.iter().map(|v| v.point).collect::<Polyline>()),
             );
         } else {
-            if face.middle {
-                middle.extend(
-                    visible
-                        .iter()
-                        .map(|poly| poly.iter().map(|v| v.point).collect::<Polyline>()),
-                );
+            // Fronteras tonales dentro de cada triángulo: sin escalones por faceta.
+            let tri = mesh.triangles[i].map(|v| points[v]);
+            for poly in &visible {
+                let pts: Polyline = poly.iter().map(|v| v.point).collect();
+                let vals: Vec<f64> = poly
+                    .iter()
+                    .map(|v| shade(tri, face.corners, v.world))
+                    .collect();
+                let (shadow, _) = slab(&pts, &vals, f64::NEG_INFINITY, config.threshold);
+                if !shadow.is_empty() {
+                    dark.push(shadow);
+                }
+                if face.middle {
+                    let (mid, _) = slab(
+                        &pts,
+                        &vals,
+                        config.threshold,
+                        (config.threshold + 0.28).min(0.95),
+                    );
+                    if !mid.is_empty() {
+                        middle.push(mid);
+                    }
+                }
             }
             for patch in &face.cast {
                 let region = project_polygon(patch, &project);

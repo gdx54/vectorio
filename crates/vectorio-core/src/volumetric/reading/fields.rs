@@ -193,8 +193,10 @@ impl Cache {
                 .iter()
                 .map(|n| n.dot(s.shadow.light()).max(0.))
                 .collect(),
-            Measure::MeanCurvature => geometry.mean.clone(),
-            Measure::GaussianCurvature => geometry.gaussian.clone(),
+            // La curvatura cruda de una malla esculpida es ruido de vértice: se lee la forma
+            // a una escala proporcional a la densidad de la malla.
+            Measure::MeanCurvature => smoothed(&mesh, &geometry.mean),
+            Measure::GaussianCurvature => smoothed(&mesh, &geometry.gaussian),
             Measure::Slope => geometry
                 .normals
                 .iter()
@@ -275,6 +277,54 @@ impl Cache {
         Ok(values)
     }
 }
+/// Promedio con el primer anillo; las pasadas crecen con la raíz del número de vértices
+/// para suavizar a una escala parecida en mallas ligeras y densas.
+pub(super) fn smoothed(mesh: &Mesh, values: &[f64]) -> Vec<f64> {
+    let n = values.len();
+    let mut neighbors = vec![Vec::<usize>::new(); n];
+    for t in &mesh.triangles {
+        for j in 0..3 {
+            let (a, b) = (t[j], t[(j + 1) % 3]);
+            if a < n && b < n {
+                neighbors[a].push(b);
+                neighbors[b].push(a);
+            }
+        }
+    }
+    for list in &mut neighbors {
+        list.sort_unstable();
+        list.dedup();
+    }
+    let passes = ((n as f64).sqrt() / 30.).round().clamp(2., 10.) as usize;
+    let mut current = values.to_vec();
+    let mut next = current.clone();
+    for _ in 0..passes {
+        for (i, list) in neighbors.iter().enumerate() {
+            next[i] = if list.is_empty() {
+                current[i]
+            } else {
+                0.5 * current[i] + 0.5 * list.iter().map(|j| current[*j]).sum::<f64>() / list.len() as f64
+            };
+        }
+        std::mem::swap(&mut current, &mut next);
+    }
+    current
+}
+/// Percentiles 2–98: unos pocos vértices extremos no aplastan el resto del mapa.
+pub(super) fn robust_range(values: &[f64]) -> [f64; 2] {
+    if values.is_empty() {
+        return [0., 0.];
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let at = |q: f64| sorted[((sorted.len() - 1) as f64 * q).round() as usize];
+    let (lo, hi) = (at(0.02), at(0.98));
+    if hi - lo > 1e-12 {
+        [lo, hi]
+    } else {
+        [sorted[0], sorted[sorted.len() - 1]]
+    }
+}
 #[derive(Clone)]
 pub(super) struct Values {
     pub values: Arc<Vec<f64>>,
@@ -283,8 +333,34 @@ pub(super) struct Values {
     pub config: ReadingMap,
     pub light_vertex: Option<Arc<Vec<f64>>>,
     pub light_weight: f64,
+    /// Semianchura de la franja neutra al igualar con rampa divergente.
+    pub dead: f64,
+}
+/// Franja neutra de la rampa divergente en valores normalizados (sin tinta).
+pub(super) const NEUTRAL: [f64; 2] = [0.465, 0.535];
+/// Semianchura de la franja neutra al igualar: solo lo que está cerca de cero (la misma
+/// franja que sin igualar) y además entre el 7 % más próximo a cero. Una forma convexa sin
+/// ceros reales no pierde su parte menos curvada, ni una esfera suave frente a una arista.
+pub(super) fn neutral_width(values: &[f64], extent: f64) -> f64 {
+    if values.is_empty() {
+        return 0.;
+    }
+    let mut magnitude: Vec<f64> = values.iter().map(|v| v.abs()).collect();
+    magnitude.sort_by(f64::total_cmp);
+    let closest = magnitude[((magnitude.len() - 1) as f64 * 0.07) as usize];
+    ((NEUTRAL[1] - 0.5) * 2. * extent).min(closest)
 }
 impl Values {
+    fn dead_zone(&self) -> f64 {
+        self.dead
+    }
+    /// Cuántos valores quedan por debajo de la franja neutra y dónde empiezan los de encima.
+    fn sides(&self, dead: f64) -> (usize, usize) {
+        (
+            self.sorted.partition_point(|v| *v < -dead),
+            self.sorted.partition_point(|v| *v <= dead),
+        )
+    }
     pub fn new(
         cache: &mut Cache,
         d: &Drawing,
@@ -345,11 +421,19 @@ impl Values {
         let mut range = config.range.unwrap_or_else(|| {
             if config.secondary.is_none() {
                 match config.measure {
-                    Measure::Light | Measure::AmbientOcclusion => return [0., 1.],
+                    Measure::Light => return [0., 1.],
+                    // En modelos abiertos casi todo está expuesto: se estira lo que sí varía.
+                    Measure::AmbientOcclusion => return robust_range(&values),
                     Measure::Slope => return [0., 90.],
                     Measure::Aspect => return [0., 360.],
                     _ => {}
                 }
+            }
+            let curvature = |m: Measure| {
+                matches!(m, Measure::MeanCurvature | Measure::GaussianCurvature)
+            };
+            if curvature(config.measure) || config.secondary.is_some_and(curvature) {
+                return robust_range(&values);
             }
             let lo = values.iter().copied().fold(f64::INFINITY, f64::min);
             let hi = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -360,9 +444,13 @@ impl Values {
             range = [-extent, extent];
         }
         let mut sorted = Vec::new();
+        let mut dead = 0.;
         if config.equalize {
             sorted = values.as_ref().clone();
             sorted.sort_by(f64::total_cmp);
+            if config.ramp == Ramp::Diverging {
+                dead = neutral_width(&sorted, range[1].abs());
+            }
         }
         Ok(Self {
             values,
@@ -371,6 +459,7 @@ impl Values {
             config: config.clone(),
             light_vertex,
             light_weight,
+            dead,
         })
     }
     pub fn normalize(&self, value: f64) -> f64 {
@@ -388,16 +477,20 @@ impl Values {
             }
         } else if self.config.equalize && !self.sorted.is_empty() {
             if self.config.ramp == Ramp::Diverging {
-                let zero = self.sorted.partition_point(|v| *v < 0.);
-                let positive = self.sorted.partition_point(|v| *v <= 0.);
-                if value < 0. {
+                // La franja neutra depende del valor, no del rango: una forma convexa sin
+                // ceros reales no pierde su 7 % menos curvado.
+                let dead = self.dead_zone();
+                let (zero, positive) = self.sides(dead);
+                if value < -dead {
                     let count = self.sorted[..zero].partition_point(|v| *v <= value);
-                    0.5 * count as f64 / zero.max(1) as f64
-                } else if value > 0. {
+                    NEUTRAL[0] * count as f64 / zero.max(1) as f64
+                } else if value > dead {
                     let count = self.sorted[positive..].partition_point(|v| *v < value);
-                    0.5 + 0.5 * count as f64 / (self.sorted.len() - positive).max(1) as f64
+                    NEUTRAL[1]
+                        + (1. - NEUTRAL[1]) * count as f64
+                            / (self.sorted.len() - positive).max(1) as f64
                 } else {
-                    0.5
+                    0.5 + (NEUTRAL[1] - 0.5) * value / dead.max(1e-300)
                 }
             } else {
                 let lo = self.sorted.partition_point(|v| *v < value);
@@ -418,24 +511,28 @@ impl Values {
         let t = if self.config.invert { 1. - t } else { t };
         if self.config.equalize && !self.sorted.is_empty() {
             if self.config.ramp == Ramp::Diverging {
-                if t == 0.5 {
-                    return 0.;
+                let dead = self.dead_zone();
+                if (NEUTRAL[0]..=NEUTRAL[1]).contains(&t) {
+                    return dead * (t - 0.5) / (NEUTRAL[1] - 0.5);
                 }
-                let zero = self.sorted.partition_point(|v| *v < 0.);
-                let positive = self.sorted.partition_point(|v| *v <= 0.);
+                let (zero, positive) = self.sides(dead);
                 if t < 0.5 {
                     return if zero == 0 {
-                        0.
+                        -dead
                     } else {
-                        self.sorted[(t * 2. * zero as f64).floor().min((zero - 1) as f64) as usize]
+                        self.sorted[(t / NEUTRAL[0] * zero as f64)
+                            .floor()
+                            .min((zero - 1) as f64) as usize]
                     };
                 }
                 let count = self.sorted.len() - positive;
                 return if count == 0 {
-                    0.
+                    dead
                 } else {
                     self.sorted[positive
-                        + (((t - 0.5) * 2. * count as f64).floor() as usize).min(count - 1)]
+                        + (((t - NEUTRAL[1]) / (1. - NEUTRAL[1]) * count as f64).floor()
+                            as usize)
+                            .min(count - 1)]
                 };
             }
             self.sorted[(t * self.sorted.len() as f64)

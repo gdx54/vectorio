@@ -6,7 +6,8 @@ struct Region {
     face: usize,
     poly: Polyline,
     bounds: BBox,
-    intensity: Option<f64>,
+    /// Luz por esquina (N·L suavizado sin cruzar aristas vivas); cero en sombra arrojada.
+    intensity: Option<[f64; 3]>,
 }
 struct Node {
     bounds: BBox,
@@ -100,7 +101,7 @@ impl Surface {
                     let planes = project::boundary(&poly);
                     let mut remainder = Vec::new();
                     for region in &visible {
-                        push(face, project::intersection(region, &planes), Some(0.));
+                        push(face, project::intersection(region, &planes), Some([0.; 3]));
                         remainder.extend(project::subtract(region, &planes));
                     }
                     visible = remainder;
@@ -110,7 +111,11 @@ impl Surface {
                 }
             }
             for region in visible {
-                push(face, region, light.map(|v| v[face].cosine.clamp(0., 1.)));
+                push(
+                    face,
+                    region,
+                    light.map(|v| v[face].corners.map(|c| c.clamp(0., 1.))),
+                );
             }
         }
         if regions.len() > 250_000 {
@@ -209,7 +214,8 @@ impl Surface {
             value = mesh.face_objects.get(face).copied().unwrap_or(0) as f64;
         }
         if let (Some(intensity), Some(vertex)) = (region.intensity, values.light_vertex.as_ref()) {
-            value += (intensity - interpolate(vertex)) * values.light_weight;
+            let lit = (0..3).map(|i| weights[i] * intensity[i]).sum::<f64>();
+            value += (lit - interpolate(vertex)) * values.light_weight;
         }
         let world = (0..3).fold(V3::default(), |sum, i| {
             sum + self.world[face][i] * weights[i]
@@ -384,20 +390,22 @@ impl Surface {
                 .iter()
                 .map(|q| {
                     let mut sample = self.sample(id, *q, values, geometry, mesh);
-                    // Contornos de luz interpolan las normales en zonas iluminadas y respetan
-                    // las regiones analíticas de sombra arrojada, que permanecen a cero.
-                    if region.intensity.is_some_and(|v| v > 0.) && values.light_weight != 0. {
-                        let weights = self.camera.weights(
-                            barycentric(*q, self.triangles[region.face]),
-                            self.world[region.face],
-                        );
-                        let triangle = mesh.triangles[region.face];
-                        if let Some(vertex) = &values.light_vertex {
-                            let light = (0..3)
-                                .map(|i| weights[i] * vertex[triangle[i]])
-                                .sum::<f64>();
-                            sample.value +=
-                                (light - region.intensity.unwrap()) * values.light_weight;
+                    // Las isolíneas de luz interpolan las normales de vértice también a través
+                    // de aristas vivas: así barren las caras planas. La sombra arrojada sigue a cero.
+                    if let (Some(corners), Some(vertex)) = (
+                        region.intensity.filter(|c| c.iter().any(|v| *v > 0.)),
+                        values.light_vertex.as_ref(),
+                    ) {
+                        if values.light_weight != 0. {
+                            let weights = self.camera.weights(
+                                barycentric(*q, self.triangles[region.face]),
+                                self.world[region.face],
+                            );
+                            let triangle = mesh.triangles[region.face];
+                            let (smooth, crisp) = (0..3).fold((0., 0.), |(s, c), i| {
+                                (s + weights[i] * vertex[triangle[i]], c + weights[i] * corners[i])
+                            });
+                            sample.value += (smooth - crisp) * values.light_weight;
                         }
                     }
                     sample

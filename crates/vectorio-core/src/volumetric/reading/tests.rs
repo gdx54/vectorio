@@ -178,6 +178,33 @@ fn values(map: ReadingMap) -> fields::Values {
         config: map,
         light_vertex: None,
         light_weight: 0.,
+        dead: 0.,
+    }
+}
+#[test]
+fn equalized_diverging_keeps_the_neutral_band_for_real_zeros_only() {
+    let config = ReadingMap {
+        equalize: true,
+        ..Default::default()
+    };
+    let build = |raw: Vec<f64>| {
+        let mut v = values(config.clone());
+        v.sorted = raw.clone();
+        v.sorted.sort_by(f64::total_cmp);
+        let extent = raw.iter().fold(0f64, |m, x| m.max(x.abs()));
+        v.range = [-extent, extent];
+        v.dead = fields::neutral_width(&v.sorted, extent);
+        v
+    };
+    // Convexo: todo positivo y lejos de cero; ningún valor se queda sin tinta.
+    let convex = build((0..100).map(|i| 1. + i as f64 * 0.01).collect());
+    assert!((0..100).all(|i| encode::slot(&config, convex.normalize(1. + i as f64 * 0.01), 0).is_some()));
+    // Con ceros reales, esos sí caen en la franja neutra y la rampa se recupera con raw_at.
+    let mixed = build((0..100).map(|i| i as f64 * 0.02 - 1.).collect());
+    assert_eq!(encode::slot(&config, mixed.normalize(0.), 0), None);
+    assert!(encode::slot(&config, mixed.normalize(-0.9), 0).is_some());
+    for t in [0.1, 0.3, 0.7, 0.9] {
+        assert!((mixed.normalize(mixed.raw_at(t)) - t).abs() < 0.02, "{t}");
     }
 }
 fn sample(point: P, value: f64) -> surface::Sample {

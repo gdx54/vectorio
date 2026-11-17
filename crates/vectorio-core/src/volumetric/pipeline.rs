@@ -307,17 +307,40 @@ pub fn feature_edges(mesh: &Mesh, camera: &Camera, angle: f64) -> Vec<[V3; 2]> {
         }
     }
     let threshold = angle.to_radians().cos();
-    edges
+    let kept: Vec<_> = edges
         .into_iter()
-        .filter(|((a, _), n)| {
-            n.len() != 2
-                || camera.facing_at(n[0], weld.points[*a])
-                    != camera.facing_at(n[1], weld.points[*a])
-                || n[0].dot(n[1]).abs() < threshold
+        .filter_map(|((a, b), n)| {
+            let outline = n.len() != 2
+                || camera.facing_at(n[0], weld.points[a]) != camera.facing_at(n[1], weld.points[a]);
+            let crease = !outline && n[0].dot(n[1]).abs() < threshold;
+            (outline || crease).then_some((a, b, crease))
         })
-        .map(|((a, b), _)| [weld.points[a], weld.points[b]])
+        .collect();
+    // En mallas esculpidas el umbral de ángulo deja pliegues sueltos que parecen ruido:
+    // un pliegue solo cuenta si forma, con las demás aristas, una cadena conectada de cierta longitud.
+    let mut parent: Vec<usize> = (0..weld.points.len()).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    for &(a, b, _) in &kept {
+        let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
+        parent[ra] = rb;
+    }
+    let mut size = vec![0usize; parent.len()];
+    for &(a, _, _) in &kept {
+        let r = root(&mut parent, a);
+        size[r] += 1;
+    }
+    kept.into_iter()
+        .filter(|&(a, _, crease)| !crease || size[root(&mut parent, a)] >= MIN_CREASE_CHAIN)
+        .map(|(a, b, _)| [weld.points[a], weld.points[b]])
         .collect()
 }
+const MIN_CREASE_CHAIN: usize = 12;
 
 fn section_key_eq(a: &Settings, b: &Settings) -> bool {
     a.field == b.field
