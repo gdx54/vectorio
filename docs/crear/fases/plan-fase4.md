@@ -19,7 +19,7 @@ No new scenes are added.
 
 The same as the 3 phase:
 
-- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` and `docs/crear-fase3-entrega.md` before we start.
+- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` and `docs/crear/fases/entrega-fase3.md` before we start.
 - The interface is in Spanish, with its English translation in `locales/app.yml`. The separation between objects/layers and inks is maintained.
 - **Original work.** SVGeometric (`jarvisar/geometric`) is not licensed. Do not open, copy or translate its code or paste its scenes, its pieces or its palette.
 - Identifiers in English; comments and documentation in Spanish.
@@ -137,13 +137,13 @@ Make sure you keep reading all this with one ink: the difference between white, 
   4. `python3 scripts/install-macos.py`.
   5. Visual verification on `/Applications/Vectorio.app`, only if there is no open vector.
 - **Comparison:** stores in `target/phase4/` the 3 phase contact sheet and the new one, with the same 12 seeds, for comparison before and after.
-- **Delivery:** writes `docs/crear-fase4-entrega.md` with:
+- **Delivery:** writes `docs/crear/fases/entrega-fase4.md` with:
   - what is done at each step and the new API;
   - the times;
   - Your sincere evaluation of seed to seed of the new leaf: which plots and which not, and why;
   - Which doesn't convince you.
 
-> **Made.** Framed to 500 seeds in three areas, 500 seeds per generator without notices or NaN and below 80 m, lime coverage and determinism in green; times, comparison and valuation in [create-phase4-delivery.md](crear-fase4-entrega.md).
+> **Made.** Framed to 500 seeds in three areas, 500 seeds per generator without notices or NaN and below 80 m, lime coverage and determinism in green; times, comparison and valuation in [create-phase4-delivery.md](entrega-fase4.md).
 
 ## Outside this phase
 

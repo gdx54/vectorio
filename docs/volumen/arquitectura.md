@@ -98,4 +98,4 @@ The 3D view adds curves/edges to the full reference; the 2D view and SVG remove 
 
 ## Updated · Phase G (16 November 2026)
 
-The A-D phases replace the exclusive modes with a stack of passes and preserve the scene/paper/pass interface. Phase G adds `volumetric/reading/` for measurements, ramps and reading effects, and `volumetric_reading.rs` for its editor. `DrawingPart` holds one part per pass, with ink families that the document gathers per pen. The recipe continues in 2 version with new optional fields and retains migration since v1. The current details, checks and limitations are described in [docs/volume-phase-g.md](docs/volumen-fase-g.md).
+The A-D phases replace the exclusive modes with a stack of passes and preserve the scene/paper/pass interface. Phase G adds `volumetric/reading/` for measurements, ramps and reading effects, and `volumetric_reading.rs` for its editor. `DrawingPart` holds one part per pass, with ink families that the document gathers per pen. The recipe continues in 2 version with new optional fields and retains migration since v1. The current details, checks and limitations are described in [fases/fase-g.md](fases/fase-g.md).

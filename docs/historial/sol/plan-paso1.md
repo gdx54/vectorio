@@ -4,7 +4,7 @@ Short budget (≈ 8 % weekly). The plan goes for **milestones that leave the pro
 
 ## 0. Before we start (just read this)
 
-- `AGENTS.md` (project standards) and the 3 section of `docs/plan-crear-fase5.md`.
+- `AGENTS.md` (project standards) and the 3 section of `docs/crear/fases/plan-fase5.md`.
 - `crates/vectorio-core/examples/kit_denso.rs`: **is the** chuleta. It teaches how
   It's called each piece of the kit (multitude, tapes, vehicles, facades, tower,
   roof, labels) and how to frame a scene with `fit_scene`.
@@ -99,7 +99,7 @@ Check of the milestone: `cargo test -p vectorio-core --lib -- festival` and `car
   `cargo clippy --workspace --all-targets`. The new code must not give any
   Notice; old notices from other files are not touched.
 - `python3 scripts/install-macos.py`.
-- In `docs/plan-crear-fase5.md`, under the point 1 of  « Steps », a note
+- In `docs/crear/fases/plan-fase5.md`, under the point 1 of  « Steps », a note
    "  *Made (shortened version).  "*  "  What goes in and what goes out.
 
 ## Outside of this assignment (don't do it)

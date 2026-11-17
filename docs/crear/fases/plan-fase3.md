@@ -18,7 +18,7 @@ Then I'll review your work with another agent, so leave the code clear, proven a
 
 The same as the 2 phase:
 
-- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` and `docs/crear-fase2-entrega.md` before we start.
+- Lee `AGENTS.md`, `crates/vectorio-core/src/scene/README.md` and `docs/crear/fases/entrega-fase2.md` before we start.
 - The interface is in Spanish, with its English translation in `locales/app.yml`. The separation between objects/layers and inks is maintained.
 - **Original work.** SVGeometric (`jarvisar/geometric`) is not licensed. Do not open, copy or translate its code or paste its scenes, its pieces or its palette.
 - Identifiers in English; comments and documentation in Spanish.
@@ -203,7 +203,7 @@ The castle, stadium and other scenes will reuse this kit in later stages. Shadow
 
 ## What to deliver
 
-A brief summary in Spanish (you can go to `docs/crear-fase3-entrega.md`) with:
+A brief summary in Spanish (you can go to `docs/crear/fases/entrega-fase3.md`) with:
 
 - what is done at each step and the files touched;
 - the new public API (firms);

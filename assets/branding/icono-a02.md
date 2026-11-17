@@ -2,7 +2,7 @@
 
 Applied at the request of the user. It retains the concept of Relief with soft lemon background and indigo contours. Generated with the integrated tool `image_gen`; converted to 1024 px PNG and `.icns` multi-resolution by `sips` and `iconutil`.
 
-Assets: `vectorio-icon.png` and `../../packaging/macos/Vectorio.icns`. The previous ivory version is preserved in `vectorio-icon-relieve-marfil.png`.
+Assets: `vectorio-icon.png` and `../../packaging/macos/Vectorio.icns`. The previous ivory version is preserved in `exploracion/vectorio-icon-relieve-marfil.png`.
 
 ## Production speed
 

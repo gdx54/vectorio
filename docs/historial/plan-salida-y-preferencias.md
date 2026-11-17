@@ -73,7 +73,7 @@ A cell with `total_heat ≤ max_wet_passes` can never get past it, so:
   - `generator: "Vectorio <versión>"`. The core doesn't know the version of the app: recycle it as a parameter of `prepare` or fill it in the app before serializing.
   - `origin: "top-left"` and `y_axis: "down"`.
   - The margin is already within `paper`.
-- Create `docs/formato-salida.md` with the `vectorio-output-v1` scheme: units, shares (`change_pen`, `travel`, `wait`, `draw`) and what each field means.
+- Create `docs/referencia/formato-salida.md` with the `vectorio-output-v1` scheme: units, shares (`change_pen`, `travel`, `wait`, `draw`) and what each field means.
 - Schematic test: Serialise a small plan and check the list of first-level keys and those of each action. If someone changes the format without changing the version, they fail.
 
 ### A8. Heat map as texture (measured before)

@@ -2,7 +2,7 @@
 
 From here on, you're still with the city. This document summarizes what state it is in and what is missing, so you don't have to reconstruct it by reading everything.
 
-The rules of `docs/plan-paso1-sol.md` shall continue to apply:
+The rules of `docs/historial/sol/plan-paso1.md` shall continue to apply:
 - Spanish at the interface, and each new recipe text with its translation into
   `crates/vectorio-app/locales/app.yml`;
 - without `cargo fmt`, no new dependencies and no commits;
@@ -35,7 +35,7 @@ Rama `feat/crear-motor-escena`, with many changes **unconfirmed** (neither confi
 
 ### What has been done (corrections 1 to 3)
 
-You 'll find the details in the 1 passage from `docs/plan-crear-fase5.md`.
+You 'll find the details in the 1 passage from `docs/crear/fases/plan-fase5.md`.
 
 - **Base:** city full bleed, urban race, shadows projected, the four
   events and street life.
@@ -96,7 +96,7 @@ They're strokes and they don't cover anything: don't turn them into shutters, or
 
 ## I did. 4 · Review sheet by sheet
 
-It generates the seeds 0 to 11 in the 225 view and four more in each of the other views, with random parameters. Note in `docs/plan-crear-fase5.md`, in one line per sheet, what fails:
+It generates the seeds 0 to 11 in the 225 view and four more in each of the other views, with random parameters. Note in `docs/crear/fases/plan-fase5.md`, in one line per sheet, what fails:
 - something floating or cut;
 - empty asphalt;
 - the covered square;
@@ -116,7 +116,7 @@ Set aside what's obvious and write down what doesn't take time.
   Cut each sheet in its own SVG, as in the previous order.
 - `python3 scripts/install-macos.py`. It takes a few minutes. Throw it in a second.
   It's a plan.
-- In `docs/plan-crear-fase5.md`, a note  « Correction 4  »  below the previous ones.
+- In `docs/crear/fases/plan-fase5.md`, a note  « Correction 4  »  below the previous ones.
 
 ## How to look at a sheet
 

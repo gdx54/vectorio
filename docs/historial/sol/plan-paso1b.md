@@ -1,6 +1,6 @@
 # Task for Sol · Festival city, correction 1
 
-File: `crates/vectorio-core/src/generate/festival.rs` (you wrote it). The rules of `docs/plan-paso1-sol.md` remain valid: Spanish, without `cargo fmt`, without dependencies, without commit, translations into `app.yml`, `--test-threads=1`. Go down landmarks that leave the evidence green, until there's no room for you.
+File: `crates/vectorio-core/src/generate/festival.rs` (you wrote it). The rules of `docs/historial/sol/plan-paso1.md` remain valid: Spanish, without `cargo fmt`, without dependencies, without commit, translations into `app.yml`, `--test-threads=1`. Go down landmarks that leave the evidence green, until there's no room for you.
 
 ## What's wrong (review of 12 seeds)
 
@@ -84,7 +84,7 @@ Delete `circuit()` and `supports()`. The `circuit` parameter is called  « Urban
   - The race reads like fenced streets.
 - `cargo test --workspace -- --test-threads=1`, `cargo clippy --workspace --all-targets`
   (the new code, no warnings) and `python3 scripts/install-macos.py`.
-- In `docs/plan-crear-fase5.md`, add a line to the 1 Pass note with
+- In `docs/crear/fases/plan-fase5.md`, add a line to the 1 Pass note with
   "Correction 1: city full bleed and city race".
 
 ## Outside of this assignment

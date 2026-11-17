@@ -2,7 +2,7 @@
 
 Comparison pending election. It doesn't replace the installed icon.
 
-`propuestas-amarillo.png`. Generated with the integrated tool `image_gen`, taking `vectorio-icon.png` as a reference. Orientation colours on this sheet; selection will be prepared as a production icon.
+`propuestas-amarillo.png`. Generated with the integrated tool `image_gen`, taking `../vectorio-icon.png` as a reference. Orientation colours on this sheet; selection will be prepared as a production icon.
 
 ## Prompt
 

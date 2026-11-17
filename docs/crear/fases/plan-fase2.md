@@ -139,7 +139,7 @@ Starting points:
 - the bar mode selector (search for `ViewMode::Output, tr!("Salida")`);
 - the shortcuts and the menu in `commands.rs` (`⌘1` Design, `⌘2` Output);
 - `output.rs::show`, as an example in its own panel mode;
-- `theme.rs` and `docs/plan-liquid-glass.md` for the current Liquid Glass style.
+- `theme.rs` and `docs/historial/plan-liquid-glass.md` for the current Liquid Glass style.
 
 It should look like this:
 

@@ -253,7 +253,7 @@ Vertical slide with a waterline (or spatial horizon) and bubbles.
 3. **Testing and delivery  —  completed:** 500 seeds per scene without NaN
    or off-sheet coordinates,
    times below 250 ms in Preview and from 1.5 s in Final, clippy, examples,
-   installation, contact sheets and `docs/crear-fase5-entrega.md`. Drying
+   installation, contact sheets and `docs/crear/fases/entrega-fase5.md`. Drying
    Additional preview and final domes (maximum 13.50 and 13.15 ms); 24 sheets
    Reviewed from both worlds and egui panel verified in two sizes. Details
    of the tests, clippy advance notices and files on delivery.

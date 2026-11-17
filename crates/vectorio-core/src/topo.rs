@@ -1,6 +1,6 @@
 //! Topografía por Fast Marching, adaptación nativa de FastMarchingTopoPlot
 //! de Roland Blok (Unlicense): https://github.com/rolandblok/FastMarchingTopoPlot.
-//! Véanse `third_party/FastMarchingTopoPlot` y `docs/topografia.md`.
+//! Véanse `third_party/FastMarchingTopoPlot` y `docs/referencia/topografia.md`.
 //!
 //! Luz → velocidad F → solución de |∇T| F = 1 → isolíneas del tiempo T.
 //! El alfa recorta los trazos; no impide que la onda atraviese el fondo blanco.

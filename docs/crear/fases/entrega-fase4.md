@@ -1,6 +1,6 @@
 # Create · Phase 4 delivery
 
-I order in [plan-create-phase4.md](plan-crear-fase4.md); each step carries there its note  «  Done »  with the detail. Here's the summary, the new API, the timing and a sincere evaluation of the contact sheet.
+I order in [plan-create-phase4.md](plan-fase4.md); each step carries there its note  «  Done »  with the detail. Here's the summary, the new API, the timing and a sincere evaluation of the contact sheet.
 
 Warning: `village.rs` and much of the kit remain unconfirmed on git (the 3 phase recipe was also not saved). The recipe version of the White village is still in 1.
 

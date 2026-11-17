@@ -2,10 +2,10 @@
 
 Concept chosen by the user: **E · Relief**, with the **A02 palette · Soft Lemon /** index. A V of contour lines linked to the continuous stroke and the paths of a plotter. Reference fund `#F6F095`, contours `#35216C`.
 
-- `propuestas.png`: exploration of six concepts.
+- `exploracion/propuestas.png`: exploration of six concepts.
 - `vectorio-icon.png`: icon chosen, 1024 × 1024, with external transparency.
-- `vectorio-icon-relieve-marfil.png`: previously preserved version.
-- `paletas-a-amarillos.png`: comparative in which A02 was chosen.
+- `exploracion/vectorio-icon-relieve-marfil.png`: previously preserved version.
+- `exploracion/paletas-a-amarillos.png`: comparative in which A02 was chosen.
 - `vectorio-icon-macos.png`: the icon for macOS, with the V centered on a 824 px 1024 plate (Apple grid) and a soft shadow. It 's generated with `cargo run -p vectorio-core --example icono_macos --release`.
 - `../../packaging/macos/Vectorio.icns`: Multi-resolution icon installed in macOS, from the same generator.
 

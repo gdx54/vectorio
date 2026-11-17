@@ -64,13 +64,13 @@ This also removes examples and screenshots generated inside `target/`. Save any 
 
 ## Documentation
 
-All project documentation is in English. Existing filenames are retained so that paths and links remain valid.
+All project documentation is in English. The [documentation index](docs/README.md) groups it by area: Volume, Create, reference and history.
 
 - [Features, installation, and keyboard shortcuts](LEEME.md).
-- [Volume redesign plan](docs/plan-volumen-rediseno.md).
-- [Volume architecture](VOLUMETRIC_ARCHITECTURE.md), [test coverage](VOLUMETRIC_TESTS.md), and [roadmap](VOLUMETRIC_ROADMAP.md).
-- [Ink sets, optical mixing, and isolines](docs/volumen-ampliacion-g.md).
-- [Output plan format](docs/formato-salida.md).
+- [Volume redesign plan](docs/volumen/plan-rediseno.md).
+- [Volume architecture](docs/volumen/arquitectura.md), [test coverage](docs/volumen/pruebas.md), and [roadmap](docs/volumen/hoja-de-ruta.md).
+- [Ink sets, optical mixing, and isolines](docs/volumen/ampliacion-g.md).
+- [Output plan format](docs/referencia/formato-salida.md).
 
 The core lives in `crates/vectorio-core`; the egui interface lives in `crates/vectorio-app`. `.vectorio` projects preserve objects, inks, and recipes. Historical plans describe the state and intentions at their recorded dates.
 
