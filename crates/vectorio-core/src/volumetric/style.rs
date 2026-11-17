@@ -274,8 +274,6 @@ impl Settings {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadingStyle {
-    VoxelGrid,
-    VoxelHatch,
     Curvature,
     Gaussian,
     Light,
@@ -298,9 +296,7 @@ pub enum ReadingStyle {
     PrincipalFlow,
 }
 impl ReadingStyle {
-    pub const ALL: [Self; 22] = [
-        Self::VoxelGrid,
-        Self::VoxelHatch,
+    pub const ALL: [Self; 20] = [
         Self::Curvature,
         Self::Gaussian,
         Self::Light,
@@ -324,8 +320,6 @@ impl ReadingStyle {
     ];
     pub fn name(self) -> &'static str {
         match self {
-            Self::VoxelGrid => "Vóxeles · retícula",
-            Self::VoxelHatch => "Vóxeles · caras tramadas",
             Self::Curvature => "Mapa de curvatura",
             Self::Gaussian => "Mapa gaussiano",
             Self::Light => "Mapa de luz",
@@ -352,13 +346,6 @@ impl ReadingStyle {
         let mut map = ReadingMap::default();
         let mut params = ReadingParams::default();
         match self {
-            Self::VoxelGrid | Self::VoxelHatch => {
-                let hatch = self == Self::VoxelHatch;
-                map.measure = Measure::Objects;
-                map.ramp = Ramp::Categorical;
-                map.pens = if hatch { vec![6, 2, 4] } else { vec![4, 2, 6] };
-                params.effect = ReadingEffect::Voxels { divisions: if hatch { 13 } else { 27 }, hatch, spacing_mm: 0.4 };
-            }
             Self::PrincipalFlow => {
                 map.ramp = Ramp::Sequential;
                 map.pens = vec![0];

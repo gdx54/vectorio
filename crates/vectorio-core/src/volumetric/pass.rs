@@ -192,7 +192,6 @@ impl Pass {
                     p.effect,
                     ReadingEffect::Unfold { .. }
                         | ReadingEffect::Anaglyph { .. }
-                        | ReadingEffect::Voxels { .. }
                         | ReadingEffect::Spin { .. }
                         | ReadingEffect::Section { .. }
                         | ReadingEffect::Horizons { .. }
@@ -203,9 +202,6 @@ impl Pass {
             let Some(map) = &self.reading else {
                 return Err("La pasada de lectura necesita una medida y una rampa.".into());
             };
-            if matches!(p.effect, ReadingEffect::Voxels { .. }) && (map.pens.len() != 3 || map.ramp == Ramp::Sequential) {
-                return Err("El volumen en vóxeles necesita una tinta por eje X, Y y Z.".into());
-            }
             let required = match p.effect {
                 ReadingEffect::Anaglyph { .. } | ReadingEffect::Ridges { .. } => 2,
                 ReadingEffect::Unfold { .. } | ReadingEffect::Section { .. } => 3,

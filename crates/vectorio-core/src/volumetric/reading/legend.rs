@@ -88,7 +88,6 @@ pub(super) fn add(
                 ]);
             }
             let label = match kind {
-                PassKind::Reading(ReadingParams { effect: ReadingEffect::Voxels { .. }, .. }) => ["X", "Y", "Z"][i].into(),
                 PassKind::Reading(ReadingParams {
                     effect: ReadingEffect::Unfold { .. },
                     ..
@@ -143,7 +142,6 @@ pub(super) fn add(
         }
     }
     let title = match kind {
-        PassKind::Reading(ReadingParams { effect: ReadingEffect::Voxels { .. }, .. }) => "Caras X / Y / Z".into(),
         PassKind::Reading(ReadingParams {
             effect: ReadingEffect::PrincipalFlow { .. },
             ..

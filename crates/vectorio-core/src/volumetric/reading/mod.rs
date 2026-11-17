@@ -17,7 +17,6 @@ mod surface;
 #[cfg(test)]
 mod tests;
 mod unfold;
-mod voxels;
 use super::*;
 use crate::{p, BBox, Polyline, P};
 use std::sync::Arc;
@@ -248,7 +247,6 @@ pub fn lightness(rgb: [u8; 3]) -> f64 {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ReadingEffect {
-    Voxels { divisions: usize, hatch: bool, spacing_mm: f64 },
     Surface,
     Relief {
         length_mm: f64,
@@ -316,7 +314,6 @@ fn show_dimensions_default() -> bool {
 impl ReadingParams {
     pub fn validate(&self) -> Result<(), String> {
         let valid = match self.effect {
-            ReadingEffect::Voxels { divisions, spacing_mm, .. } => (4..=36).contains(&divisions) && (0.15..=3.).contains(&spacing_mm),
             ReadingEffect::Surface => true,
             ReadingEffect::Relief { length_mm } | ReadingEffect::Needles { size_mm: length_mm } => {
                 length_mm.is_finite() && (0.2..=12.).contains(&length_mm)
@@ -501,8 +498,7 @@ impl Cache {
         let needs_surface = !matches!(
             &pass.kind,
             PassKind::Reading(ReadingParams {
-                effect: ReadingEffect::Voxels { .. }
-                    | ReadingEffect::Ridges { .. }
+                effect: ReadingEffect::Ridges { .. }
                     | ReadingEffect::Suggestive { .. }
                     | ReadingEffect::ApparentRidges { .. }
                     | ReadingEffect::PrincipalFlow { .. }
@@ -522,10 +518,6 @@ impl Cache {
         let mut legend_scale = d.camera.scale;
         let lines = if let PassKind::Reading(params) = &pass.kind {
             match &params.effect {
-                ReadingEffect::Voxels { divisions, hatch, spacing_mm } => {
-                    direct = Some(voxels::draw(d, s, &geometry, *divisions, *hatch, *spacing_mm, paper, cancel)?);
-                    vec![]
-                }
                 ReadingEffect::Surface
                     if matches!(map.encoding, Encoding::Optical | Encoding::Isolines) =>
                 {
