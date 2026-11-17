@@ -69,6 +69,7 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::Num2, Command::Mode(ViewMode::Create)),
     (Modifiers::COMMAND, Key::Num3, Command::Mode(ViewMode::Output)),
     (Modifiers::COMMAND, Key::Num4, Command::Mode(ViewMode::Volumetric)),
+    (Modifiers::COMMAND, Key::Num5, Command::Mode(ViewMode::Photo)),
     (Modifiers::COMMAND, Key::Equals, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Plus, Command::ZoomIn),
     (Modifiers::COMMAND, Key::Minus, Command::ZoomOut),
@@ -142,10 +143,6 @@ impl VectorioApp {
             }
             return;
         }
-        // Una hoja modal abierta gestiona su propio teclado.
-        if self.vec_ui.open {
-            return;
-        }
         if self.show_help {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape) || i.consume_key(Modifiers::COMMAND, Key::Slash) || i.consume_key(Modifiers::COMMAND, Key::W)) {
                 self.show_help = false;
@@ -175,7 +172,7 @@ impl VectorioApp {
         }
         let focused = ctx.memory(|m| m.focused());
         let control_focus = focused.is_some() && focused != self.canvas_id;
-        if typing || control_focus || matches!(self.mode, ViewMode::Create | ViewMode::Volumetric) {
+        if typing || control_focus || matches!(self.mode, ViewMode::Create | ViewMode::Photo | ViewMode::Volumetric) {
             return;
         }
         for &(k, cmd) in PLAIN_KEYS {
@@ -219,7 +216,7 @@ impl VectorioApp {
             return;
         }
         if self.mode == ViewMode::Create { self.create_ui.cancel(); self.mode = ViewMode::Design; return; }
-        if self.mode == ViewMode::Volumetric { self.mode = ViewMode::Design; return; }
+        if matches!(self.mode, ViewMode::Volumetric | ViewMode::Photo) { self.mode = ViewMode::Design; return; }
         match std::mem::take(&mut self.interaction) {
             Interaction::None | Interaction::Pan => {}
             Interaction::Move { orig, .. } | Interaction::Scale { orig, .. } | Interaction::Rotate { orig, .. } => {
@@ -250,12 +247,14 @@ impl VectorioApp {
     pub fn run(&mut self, ctx: &egui::Context, cmd: Command) {
         // Menú y teclado comparten la misma barrera: ninguna hoja permite editar detrás.
         if self.prefs_ui.open && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
-        if (self.vec_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open)
+        if (self.color_edit.is_some() || self.show_help || self.palette_ui.open)
             && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
         match cmd {
             Command::New => self.new_document(ctx),
             Command::Open => self.open_dialog(ctx),
-            Command::ImportImage => self.vec_ui.open_dialog(ctx),
+            Command::ImportImage => {
+                if self.vec_ui.open_dialog(ctx) { self.mode = ViewMode::Photo; }
+            }
             Command::Save => { self.save(ctx, false); }
             Command::SaveAs => { self.save(ctx, true); }
             Command::ExportSvg => self.export_svg(ctx),
@@ -267,8 +266,6 @@ impl VectorioApp {
                     self.prefs_ui.open = false;
                 } else if self.color_edit.is_some() {
                     self.cancel_color_edit();
-                } else if self.vec_ui.open {
-                    self.vec_ui.open = false;
                 } else if self.show_help {
                     self.show_help = false;
                 } else {
@@ -517,6 +514,7 @@ impl NativeMenu {
                 &item(&tr!("Crear"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Create)),
                 &item(&tr!("Salida"), Some("CmdOrCtrl+3"), Command::Mode(ViewMode::Output)),
                 &item(&tr!("Volumen"), Some("CmdOrCtrl+4"), Command::Mode(ViewMode::Volumetric)),
+                &item(&tr!("Foto"), Some("CmdOrCtrl+5"), Command::Mode(ViewMode::Photo)),
                 &appearance,
                 &item(&tr!("Simular o pausar la salida"), None, Command::PlayPause),
                 &sep(),

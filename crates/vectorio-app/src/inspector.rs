@@ -475,8 +475,9 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
 
 fn reopen_photo(app: &mut VectorioApp, ctx: &egui::Context, group: u64) {
     let Some(photo) = app.doc.photo(group).cloned() else { return };
-    if app.vec_ui.reopen(ctx, &photo).is_err() {
-        app.notify(ctx, ts!("No se ha podido abrir la foto guardada."));
+    match app.vec_ui.reopen(ctx, &photo) {
+        Ok(()) => app.mode = crate::app::ViewMode::Photo,
+        Err(_) => app.notify(ctx, ts!("No se ha podido abrir la foto guardada.")),
     }
 }
 

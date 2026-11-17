@@ -286,6 +286,7 @@ fn dropping_obj_or_stl_from_every_workspace_opens_the_3d_model_and_keeps_the_doc
     for (mode, extension) in [
         ViewMode::Design,
         ViewMode::Create,
+        ViewMode::Photo,
         ViewMode::Output,
         ViewMode::Volumetric,
     ]
@@ -325,7 +326,7 @@ fn dropping_obj_or_stl_from_every_workspace_opens_the_3d_model_and_keeps_the_doc
         );
         assert_eq!(app.mode, ViewMode::Volumetric);
         assert!(app.volumetric_ui.layout == Layout::Paper);
-        assert!(!app.vec_ui.open);
+        assert!(!app.vec_ui.has_photo());
         let mut state = std::mem::take(&mut app.volumetric_ui);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while state.loading.is_some() && std::time::Instant::now() < deadline {
