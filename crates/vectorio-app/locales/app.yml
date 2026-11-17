@@ -2656,3 +2656,45 @@ _version: 2
   en: "Smooths skin, sky and fine textures without blurring the outlines."
 "Separa los tonos parecidos dentro de cada zona de la foto.":
   en: "Separates similar tones within each area of the photo."
+"Un solo trazo":
+  en: "Single stroke"
+"Sombreado cruzado":
+  en: "Cross-hatching"
+"Buril":
+  en: "Burin"
+"Línea continua":
+  en: "Continuous line"
+"Bucles":
+  en: "Loops"
+"Relieve":
+  en: "Relief"
+"Ensanche":
+  en: "Swell"
+"Paradas":
+  en: "Stops"
+"Capas de rayas en varias direcciones: cuanto más oscura la zona, más capas se cruzan.":
+  en: "Layers of lines in several directions: the darker the area, the more layers cross."
+"Rayas paralelas que se curvan con el relieve de la foto y se ensanchan en las sombras, como un grabado a buril.":
+  en: "Parallel lines that bend with the photo's relief and swell in the shadows, like a burin engraving."
+"Un único trazo, sin levantar la punta, que recorre la foto y se apretuja en las sombras.":
+  en: "A single stroke that never lifts the pen, travelling across the photo and crowding into the shadows."
+"Un trazo de bucles enlazados que se amontonan en las sombras, como un garabato a mano.":
+  en: "A stroke of linked loops that pile up in the shadows, like a hand-drawn scribble."
+"Cuántas direcciones de rayas se cruzan en las zonas más oscuras.":
+  en: "How many line directions cross in the darkest areas."
+"Ondula un poco las rayas, como trazadas a mano.":
+  en: "Makes the lines waver slightly, as if drawn by hand."
+"Cuánto se curvan las rayas siguiendo la luz de la foto.":
+  en: "How much the lines bend following the light in the photo."
+"Ancho máximo del surco en las sombras.":
+  en: "Maximum width of the groove in the shadows."
+"Idas y vueltas de la punta donde el surco es más ancho.":
+  en: "Back-and-forth passes of the pen where the groove is widest."
+"Puntos por los que pasa la línea: más paradas, más detalle y más tinta.":
+  en: "Points the line passes through: more stops, more detail and more ink."
+"Redondea las esquinas de la línea.":
+  en: "Rounds the corners of the line."
+"Tamaño de los bucles respecto a la distancia entre paradas.":
+  en: "Size of the loops relative to the distance between stops."
+"Cuánto cambia el tamaño de los bucles por el camino.":
+  en: "How much the loop size changes along the way."

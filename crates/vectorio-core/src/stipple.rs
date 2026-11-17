@@ -48,14 +48,7 @@ pub fn render(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     }
     let cfg = &prm.stipple;
     let a = Analysis::new(rgb, &prm.analysis, prm.blur);
-    let density = density(&a, cfg);
-    let n = cfg.dots.clamp(50, 60_000) as usize;
-    let mut points = seed(&density, n);
-    let spacing = (a.w as f64 * a.h as f64 / n as f64).sqrt();
-    for _ in 0..cfg.relax.min(40) {
-        points = lloyd(&density, &points, spacing);
-    }
-    let dots = order(points, spacing);
+    let (dots, spacing) = relaxed_points(&a, cfg);
     let lines = dots
         .into_iter()
         .map(|q| match cfg.shape {
@@ -68,6 +61,20 @@ pub fn render(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
         })
         .collect();
     vec![VecLayer::lines([20, 20, 24], false, lines)]
+}
+
+/// Puntos repartidos según tono y detalle, ya relajados y en recorrido de bandas,
+/// con su separación media en px. También sirven de paradas a los estilos de un
+/// solo trazo.
+pub(crate) fn relaxed_points(a: &Analysis, cfg: &StippleParams) -> (Vec<P>, f64) {
+    let density = density(a, cfg);
+    let n = cfg.dots.clamp(50, 60_000) as usize;
+    let mut points = seed(&density, n);
+    let spacing = (a.w as f64 * a.h as f64 / n as f64).sqrt();
+    for _ in 0..cfg.relax.min(40) {
+        points = lloyd(&density, &points, spacing);
+    }
+    (order(points, spacing), spacing)
 }
 
 fn density(a: &Analysis, cfg: &StippleParams) -> Grid<f32> {
