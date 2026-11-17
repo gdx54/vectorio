@@ -46,13 +46,16 @@ pub enum VecMode {
     Loops,
     /// Dibujo a mano construido trazo a trazo mirando la tinta ya puesta.
     Sketch,
+    /// Toques de color que se construyen mirando la pintura ya puesta.
+    Paint,
 }
 
 impl VecMode {
-    pub const ALL: [VecMode; 14] = [
+    pub const ALL: [VecMode; 15] = [
         VecMode::Colors,
         VecMode::Mix,
         VecMode::Sketch,
+        VecMode::Paint,
         VecMode::Portrait,
         VecMode::Topography,
         VecMode::Stipple,
@@ -81,6 +84,7 @@ impl VecMode {
             VecMode::Continuous => "Línea continua",
             VecMode::Loops => "Bucles",
             VecMode::Sketch => "Boceto",
+            VecMode::Paint => "Pinceladas",
         }
     }
     pub fn help(self) -> &'static str {
@@ -99,6 +103,7 @@ impl VecMode {
             VecMode::Continuous => "Un único trazo, sin levantar la punta, que recorre la foto y se apretuja en las sombras.",
             VecMode::Loops => "Un trazo de bucles enlazados que se amontonan en las sombras, como un garabato a mano.",
             VecMode::Sketch => "Un dibujo a mano que se construye mirando el papel: encaja las masas, modela con rayas que siguen las formas, cruza en las sombras y repasa el detalle. Con una tinta o sanguina y carbón.",
+            VecMode::Paint => "Una pintura de toques cortos de color, entre puntos y rayas, que se construye mirando el papel: cada toque elige el rotulador que más acerca el color a la foto, sigue las formas y alterna colores vecinos que se mezclan en el ojo.",
         }
     }
 }
@@ -154,6 +159,8 @@ pub struct VecParams {
     pub loops: crate::tour::LoopParams,
     #[serde(default)]
     pub sketch: crate::sketch::SketchParams,
+    #[serde(default)]
+    pub paint: crate::paint::PaintParams,
 }
 
 fn default_palette() -> MixPalette {
@@ -188,6 +195,7 @@ impl Default for VecParams {
             continuous: Default::default(),
             loops: Default::default(),
             sketch: Default::default(),
+            paint: Default::default(),
         }
     }
 }
@@ -261,7 +269,7 @@ pub(crate) fn flatten_white(rgba: &image::RgbaImage) -> RgbImage {
     })
 }
 
-fn luma(c: [u8; 3]) -> f64 {
+pub(crate) fn luma(c: [u8; 3]) -> f64 {
     0.2126 * c[0] as f64 + 0.7152 * c[1] as f64 + 0.0722 * c[2] as f64
 }
 
@@ -292,6 +300,7 @@ pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
         VecMode::Continuous => crate::tour::continuous(&rgb, prm),
         VecMode::Loops => crate::tour::loops(&rgb, prm),
         VecMode::Sketch => crate::sketch::render(&rgb, prm),
+        VecMode::Paint => crate::paint::render(&rgb, prm),
         VecMode::Topography => unreachable!("Topografía conserva el canal alfa antes de convertir a RGB"),
     };
     VecResult { width: w as f64, height: h as f64, layers }
@@ -533,7 +542,7 @@ fn colors_mode(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     layers
 }
 
-fn to_u8(c: [f64; 3]) -> [u8; 3] {
+pub(crate) fn to_u8(c: [f64; 3]) -> [u8; 3] {
     [c[0].round().clamp(0.0, 255.0) as u8, c[1].round().clamp(0.0, 255.0) as u8, c[2].round().clamp(0.0, 255.0) as u8]
 }
 

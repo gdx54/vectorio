@@ -21,6 +21,7 @@ pub mod raster;
 pub mod scene;
 pub mod shapes;
 pub mod shared;
+pub mod paint;
 pub mod sketch;
 pub mod stipple;
 pub mod hatching;

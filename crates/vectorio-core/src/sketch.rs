@@ -733,7 +733,7 @@ impl Sketch {
 }
 
 /// La misma línea desplazada de lado, en anchos de punta.
-fn offset(line: &[P], by: f64) -> Polyline {
+pub(crate) fn offset(line: &[P], by: f64) -> Polyline {
     (0..line.len())
         .map(|i| {
             let (a, b) = (line[i.saturating_sub(1)], line[(i + 1).min(line.len() - 1)]);
@@ -746,7 +746,7 @@ fn offset(line: &[P], by: f64) -> Polyline {
 
 /// Dónde mira el dibujo: cerca de lo importante y del centro de interés lleva todo
 /// el tono; hacia los bordes y en las zonas sin detalle se disuelve.
-struct Focus {
+pub(crate) struct Focus {
     amount: f32,
     near: Grid<f32>,
     center: P,
@@ -754,7 +754,7 @@ struct Focus {
 }
 
 impl Focus {
-    fn new(a: &Analysis, amount: f64) -> Focus {
+    pub(crate) fn new(a: &Analysis, amount: f64) -> Focus {
         let side = a.w.max(a.h) as f64;
         let near = analysis::gaussian(&a.importance, side * 0.05);
         let mut sorted: Vec<f32> = near.data.iter().step_by(5).copied().collect();
@@ -777,7 +777,7 @@ impl Focus {
     }
 
     /// Parte del tono que se dibuja en un punto, en px de la imagen.
-    fn at(&self, q: P) -> f32 {
+    pub(crate) fn at(&self, q: P) -> f32 {
         if self.amount <= 0.0 {
             return 1.0;
         }
@@ -792,7 +792,7 @@ impl Focus {
 
 /// Gaussiana normalizada de sigma 1 (celdas): la tinta de una raya repartida a
 /// través.
-fn gauss(d: f64) -> f64 {
+pub(crate) fn gauss(d: f64) -> f64 {
     (-0.5 * d * d).exp() / (2.0 * PI).sqrt()
 }
 
@@ -823,7 +823,7 @@ fn level(density: &Grid<f32>, important: &Grid<f32>, cell: f64, rng: &mut Rng) -
 
 
 /// Ruido de valor suave, −1–1, con celdas de `cell` px.
-fn value_noise(w: usize, h: usize, cell: f64, rng: &mut Rng) -> Vec<f32> {
+pub(crate) fn value_noise(w: usize, h: usize, cell: f64, rng: &mut Rng) -> Vec<f32> {
     let (gw, gh) = ((w as f64 / cell).ceil() as usize + 2, (h as f64 / cell).ceil() as usize + 2);
     let knots: Vec<f64> = (0..gw * gh).map(|_| rng.sym()).collect();
     let smooth = |t: f64| t * t * (3.0 - 2.0 * t);
