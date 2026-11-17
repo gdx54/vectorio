@@ -40,11 +40,13 @@ fn main() {
         let original = image::imageops::resize(&img.to_rgb8(), (res.width * k) as u32, (res.height * k) as u32, image::imageops::FilterType::Triangle);
         image::imageops::overlay(&mut sheet, &original, 0, (row as u32 * cell) as i64);
         let (mut segments, mut strokes, mut ink_mm) = (0usize, 0usize, 0.0);
-        let half = pen_mm * PX_PER_MM / 2.0;
         let oy = (row as u32 * cell) as f64;
         let ox = cell as f64;
         for layer in &res.layers {
             let [r, g, b] = layer.color;
+            // La esquirla de Topografía lleva una punta más fina.
+            let fine = if layer.name == Some(vectorio_core::topo::FINE_LAYER) { prm.topo.shard_fine.max(1) as f64 } else { 1.0 };
+            let half = pen_mm * PX_PER_MM / 2.0 / fine;
             if std::env::var("VECTORIO_DEBUG").is_ok() {
                 let mm: f64 = layer.lines.iter().map(|l| vectorio_core::geom::length(l) * k / PX_PER_MM).sum();
                 eprintln!("  {:?} {:?}: {} trazos, {:.1} m", layer.name, layer.color, layer.lines.len(), mm / 1000.0);

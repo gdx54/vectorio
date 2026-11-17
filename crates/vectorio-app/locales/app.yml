@@ -1749,14 +1749,6 @@ _version: 2
   en: "Topography"
 "Una onda recorre la foto y dibuja curvas de nivel: se juntan en las sombras y se separan en las luces.":
   en: "A wave travels through the photo and draws contour lines: closer in shadows, farther apart in highlights."
-"Gamma":
-  en: "Gamma"
-"Valores altos juntan más las curvas en los tonos medios y oscuros.":
-  en: "Higher values bring contours closer in midtones and shadows."
-"Velocidad mín.":
-  en: "Min. speed"
-"Evita que la onda se detenga en el negro; valores bajos aumentan la densidad de las sombras.":
-  en: "Keep the wave moving through black; lower values increase shadow density."
 "Origen X":
   en: "Origin X"
 "Origen Y":
@@ -2790,3 +2782,27 @@ _version: 2
   en: "Accents"
 "Toques oscuros que marcan los bordes más fuertes.":
   en: "Dark touches that mark the strongest edges."
+"Ajustar a la punta y al tamaño":
+  en: "Fit to the pen and the size"
+"Calcula cuántas curvas caben para que en el negro se junten sin empastarse.":
+  en: "Works out how many curves fit so that they close up in the blacks without merging."
+"Punta de %{pen} mm en %{long} mm de lado mayor.":
+  en: "%{pen} mm pen over a %{long} mm longest side."
+"Tinta máx.":
+  en: "Max. ink"
+"Parte del papel que cubren las curvas en las sombras: por debajo del 100 % no se empastan.":
+  en: "Share of the paper the curves cover in the shadows: below 100 % they don't merge."
+"Distancia máxima entre curvas en el blanco, en anchos de punta.":
+  en: "Largest distance between curves in the whites, in pen widths."
+"Esquirla":
+  en: "Shard"
+"Un fragmento donde las curvas se multiplican y se trazan con una punta más fina.":
+  en: "A fragment where the curves multiply and are drawn with a finer pen."
+"Más fina":
+  en: "Finer"
+"Cuántas veces más curvas, y más fina la punta, dentro de la esquirla.":
+  en: "How many times more curves, and how much finer the pen, inside the shard."
+"Colocar la esquirla en la imagen":
+  en: "Place the shard on the image"
+"Pulsa sobre la foto para colocar el centro de la esquirla.":
+  en: "Click on the photo to place the centre of the shard."
