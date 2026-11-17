@@ -133,9 +133,16 @@ impl OutputUi {
         self.pending = None;
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
+        // En el orden del lienzo, los trazos de cada objeto (ya calculados) se recorren
+        // de abajo arriba; si no, sirven las capas por tinta del dibujo.
+        let stacked = doc.output.canvas_order.then(|| {
+            let per_item: Vec<_> = doc.items.iter().map(|it| rendered.items.get(&it.id).map(|plot| plot.parts.clone()).unwrap_or_default()).collect();
+            (doc.clone(), per_item)
+        });
         let (layers, paper, pens, motion, cfg, flag, ctx) =
-            (rendered.layers.clone(), doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), cancel.clone(), ctx.clone());
+            (if stacked.is_some() { vec![] } else { rendered.layers.clone() }, doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), cancel.clone(), ctx.clone());
         std::thread::spawn(move || {
+            let layers = match stacked { Some((doc, per_item)) => doc.canvas_layers_from(per_item), None => layers };
             let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &flag);
             let _ = tx.send(result); ctx.request_repaint();
         });
@@ -144,6 +151,13 @@ impl OutputUi {
 
     fn settings(&mut self, ui: &mut egui::Ui, doc: &mut Document, sim: &mut Sim) {
         let pal = theme::current(ui.ctx());
+        theme::section(ui, &tr!("ORDEN DE LAS TINTAS"));
+        ui.checkbox(&mut doc.output.canvas_order, tr!("Seguir el orden del lienzo"))
+            .on_hover_text(tr!("Traza los objetos de abajo arriba, como se ven en Diseño: lo que queda encima se dibuja al final. Útil con tintas opacas, como los rotuladores acrílicos; puede cambiar de tinta más veces."));
+        let order = if doc.output.canvas_order { tr!("De abajo arriba, como en el lienzo. Los objetos seguidos con la misma tinta se trazan juntos.") }
+            else { tr!("Una tinta tras otra, en el orden de la paleta: los menos cambios posibles.") };
+        ui.label(RichText::new(order).small().color(pal.tertiary));
+        ui.add_space(8.0);
         theme::section(ui, &tr!("SECADO POR ZONAS"));
         ui.checkbox(&mut doc.output.drying, tr!("Proteger las zonas húmedas"));
         ui.add_enabled_ui(doc.output.drying, |ui| {
@@ -169,7 +183,9 @@ impl OutputUi {
             setting(ui, &tr!("Subir/bajar"), &mut doc.plot.lift_time, 0.0..=3.0, " s");
             setting(ui, &tr!("Pausa al cambiar tinta"), &mut doc.output.pen_change_seconds, 0.0..=300.0, " s");
             setting(ui, &tr!("Celda del mapa"), &mut doc.output.cell_mm, 0.1..=2.0, " mm");
-            ui.label(RichText::new(tr!("Cambios manuales con esta pausa mínima prevista. Se conserva el orden de la paleta.")).small().color(pal.tertiary));
+            let note = if doc.output.canvas_order { tr!("Cambios manuales con esta pausa mínima prevista. Se sigue el orden del lienzo.") }
+                else { tr!("Cambios manuales con esta pausa mínima prevista. Se conserva el orden de la paleta.") };
+            ui.label(RichText::new(note).small().color(pal.tertiary));
         });
         self.details(ui, sim);
         ui.add_space(8.0);
@@ -686,6 +702,37 @@ mod tests {
             assert!(!app.output_ui.ready(app.rev, &app.doc.output), "No se puede exportar el plan con ajustes anteriores");
         }
         rust_i18n::set_locale("es");
+    }
+    #[test]
+    fn canvas_order_follows_the_objects_bottom_to_top_only_when_asked() {
+        let ctx = egui::Context::default();
+        let mut doc = Document::default();
+        for (i, pen) in [1, 0, 1].into_iter().enumerate() {
+            let y = 30.0 + 10.0 * i as f64;
+            let mut item = vectorio_core::Item::new("Raya", vectorio_core::Geometry::Path {
+                lines: vec![vec![vectorio_core::p(30.0, y), vectorio_core::p(80.0, y)]], closed: false }, P::default());
+            item.stroke = Some(pen);
+            doc.add(item);
+        }
+        let per_item = doc.plot_items();
+        let items = doc.items.iter().zip(&per_item).map(|(it, parts)| (it.id, crate::app::ItemPlot { snapshot: it.clone(), parts: parts.clone() })).collect();
+        let rendered = Rendered { rev: 1, layers: doc.layers_from(per_item), items, ..Default::default() };
+        let mut plan_pens = |doc: &Document| {
+            let mut ui = OutputUi::default();
+            let mut sim = Sim::default();
+            for _ in 0..500 {
+                let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, doc, &rendered, true, &mut sim));
+                if ui.ready(rendered.rev, &doc.output) { break; }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            let plan = ui.plan.expect("plan");
+            (plan.layers().iter().map(|l| l.pen).collect::<Vec<_>>(), plan.stats.pen_changes)
+        };
+        // Por defecto, una tinta tras otra en el orden de la paleta.
+        assert_eq!(plan_pens(&doc), (vec![0, 1], 1));
+        // Con la casilla, como en el lienzo: el rojo de encima se traza al final.
+        doc.output.canvas_order = true;
+        assert_eq!(plan_pens(&doc), (vec![1, 0, 1], 2));
     }
     #[test]
     fn rapid_changes_wait_before_recalculating_and_cancel_the_stale_job() {

@@ -2714,3 +2714,15 @@ _version: 2
   en: "Draw this style earlier, underneath"
 "Dibujar este estilo después, por encima":
   en: "Draw this style later, on top"
+"ORDEN DE LAS TINTAS":
+  en: "INK ORDER"
+"Seguir el orden del lienzo":
+  en: "Follow the canvas order"
+"Traza los objetos de abajo arriba, como se ven en Diseño: lo que queda encima se dibuja al final. Útil con tintas opacas, como los rotuladores acrílicos; puede cambiar de tinta más veces.":
+  en: "Plots the objects from bottom to top, as they appear in Design: whatever is on top is drawn last. Useful with opaque inks such as acrylic markers; it may change ink more often."
+"De abajo arriba, como en el lienzo. Los objetos seguidos con la misma tinta se trazan juntos.":
+  en: "Bottom to top, as on the canvas. Consecutive objects with the same ink are plotted together."
+"Una tinta tras otra, en el orden de la paleta: los menos cambios posibles.":
+  en: "One ink after another, in palette order: as few changes as possible."
+"Cambios manuales con esta pausa mínima prevista. Se sigue el orden del lienzo.":
+  en: "Manual changes with this minimum expected pause. The canvas order is followed."
