@@ -35,12 +35,15 @@ pub struct OutputSettings {
     pub cell_mm: f64,
     pub chunk_mm: f64,
     pub pen_change_seconds: f64,
+    /// Trazar los objetos en el orden del lienzo (de abajo arriba) en vez de una
+    /// tinta tras otra en el orden de la paleta.
+    pub canvas_order: bool,
 }
 
 impl Default for OutputSettings {
     fn default() -> Self {
         Self { drying: true, reorder: true, dry_seconds: 20.0, max_wet_passes: 3,
-            soak_mm: 0.3, cell_mm: 0.5, chunk_mm: 30.0, pen_change_seconds: 30.0 }
+            soak_mm: 0.3, cell_mm: 0.5, chunk_mm: 30.0, pen_change_seconds: 30.0, canvas_order: false }
     }
 }
 

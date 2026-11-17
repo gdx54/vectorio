@@ -568,6 +568,31 @@ impl Document {
                 }
             }
         }
+        self.optimized(layers)
+    }
+
+    /// Capas en el orden del lienzo: los objetos de abajo arriba, como se ven en
+    /// Diseño. Los objetos seguidos con la misma tinta forman una sola capa; si las
+    /// tintas se intercalan, la misma tinta vuelve a aparecer más tarde.
+    pub fn canvas_layers_from(&self, per_item: Vec<Vec<(usize, Vec<Polyline>)>>) -> Vec<PlotLayer> {
+        let mut layers: Vec<PlotLayer> = Vec::new();
+        for (pen, lines) in per_item.into_iter().flatten() {
+            if pen >= self.pens.len() {
+                continue;
+            }
+            let lines: Vec<Polyline> = lines.into_iter().filter(|l| l.len() >= 2).collect();
+            if lines.is_empty() {
+                continue;
+            }
+            match layers.last_mut() {
+                Some(layer) if layer.pen == pen => layer.paths.extend(lines),
+                _ => layers.push(PlotLayer { pen, paths: lines }),
+            }
+        }
+        self.optimized(layers)
+    }
+
+    fn optimized(&self, mut layers: Vec<PlotLayer>) -> Vec<PlotLayer> {
         if self.plot.optimize {
             let tol = self.plot.join_tolerance;
             layers.par_iter_mut().for_each(|l| {
@@ -764,6 +789,16 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canvas_layers_keep_the_object_order_and_join_neighbours_with_the_same_ink() {
+        let doc = Document::default();
+        let line = |y: f64| vec![crate::p(0.0, y), crate::p(10.0, y)];
+        let per_item = vec![vec![(1, vec![line(0.0)])], vec![(1, vec![line(1.0)]), (0, vec![line(2.0)])], vec![], vec![(1, vec![line(3.0), vec![crate::p(5.0, 5.0)]])], vec![(99, vec![line(4.0)])]];
+        let layers = doc.canvas_layers_from(per_item.clone());
+        assert_eq!(layers.iter().map(|l| (l.pen, l.paths.len())).collect::<Vec<_>>(), vec![(1, 2), (0, 1), (1, 1)]);
+        assert_eq!(doc.layers_from(per_item).iter().map(|l| (l.pen, l.paths.len())).collect::<Vec<_>>(), vec![(0, 1), (1, 3)]);
+    }
 
     #[test]
     fn loading_repairs_next_id_and_rejects_duplicate_ids_and_broken_references() {
