@@ -1462,7 +1462,7 @@ fn group_layout_section(app: &mut VectorioApp, ui: &mut Ui, ids: &[u64]) {
     if ui.button(ts!("Centrar en el papel")).clicked() {
         center_on_paper = true;
     }
-    ui.label(RichText::new(ts!("También con las asas del recuadro: la esquina escala y el círculo gira (⇧ de 15 en 15°).")).small().color(theme::current(ui.ctx()).secondary));
+    ui.label(RichText::new(ts!("También con las asas del recuadro: cada esquina escala desde la opuesta (⌥ desde el centro) y el círculo gira (⇧ de 15 en 15°).")).small().color(theme::current(ui.ctx()).secondary));
     let k = if new_w != w { new_w / w.max(1e-6) } else if new_h != h { new_h / h.max(1e-6) } else { 1.0 };
     let shift = if center_on_paper { vectorio_core::p(app.doc.paper.width_mm / 2.0, app.doc.paper.height_mm / 2.0) - c } else { vectorio_core::p(0.0, 0.0) };
     if k != 1.0 || turn != 0.0 || center_on_paper {

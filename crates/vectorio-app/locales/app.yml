@@ -1205,8 +1205,8 @@ _version: 2
   en: "Size of each mark. In Auto, circles are the pen's width and crosses and dashes are almost one spacing long. A large circle is filled in."
 "Tamaño de las ondas de la deformación: pequeñas o amplias.":
   en: "Size of the warp waves: small or wide."
-"También con las asas del recuadro: la esquina escala y el círculo gira (⇧ de 15 en 15°).":
-  en: "Also with the box handles: the corner scales and the circle rotates (⇧ in 15° steps)."
+"También con las asas del recuadro: cada esquina escala desde la opuesta (⌥ desde el centro) y el círculo gira (⇧ de 15 en 15°).":
+  en: "Also with the box handles: each corner scales from the opposite one (⌥ from the centre) and the circle rotates (⇧ in 15° steps)."
 "Temblor":
   en: "Tremor"
 "Temperatura":
@@ -2726,3 +2726,37 @@ _version: 2
   en: "One ink after another, in palette order: as few changes as possible."
 "Cambios manuales con esta pausa mínima prevista. Se sigue el orden del lienzo.":
   en: "Manual changes with this minimum expected pause. The canvas order is followed."
+"Boceto":
+  en: "Sketch"
+"Un dibujo a mano que se construye mirando el papel: encaja las masas, modela con rayas que siguen las formas, cruza en las sombras y repasa el detalle. Con una tinta o sanguina y carbón.":
+  en: "A hand drawing built by looking at the paper: it blocks in the masses, models with strokes that follow the forms, crosshatches the shadows and goes over the detail. In one ink, or sanguine and charcoal."
+"Una":
+  en: "One"
+"Sanguina y carbón":
+  en: "Sanguine and charcoal"
+"Finura":
+  en: "Fineness"
+"Anchos de punta que caben en el lado mayor: más finura, trazos más finos y apretados.":
+  en: "Pen widths that fit along the longest side: more fineness gives thinner, tighter strokes."
+"Parte de los tonos claros que se queda sin dibujar.":
+  en: "Share of the light tones left undrawn."
+"Foco":
+  en: "Focus"
+"El centro de interés se lleva el tono y los bordes se disuelven en el papel.":
+  en: "The centre of interest takes the tone and the edges dissolve into the paper."
+"Soltura":
+  en: "Looseness"
+"Trazos en arco y contornos repasados, como una mano suelta.":
+  en: "Arcing strokes and restated outlines, like a loose hand."
+"Haces":
+  en: "Bundles"
+"Agrupa las rayas en haces paralelos, como al sombrear a mano.":
+  en: "Groups the strokes into parallel bundles, as when shading by hand."
+"Líneas de encaje en los bordes; se pierden y reaparecen.":
+  en: "Blocking-in lines along the edges; they fade out and come back."
+"Cruce":
+  en: "Crossing"
+"Cuánto se cruzan las rayas en las sombras profundas, como en un aguafuerte.":
+  en: "How much the strokes cross in deep shadows, as in an etching."
+"Trazos máx.":
+  en: "Max. strokes"

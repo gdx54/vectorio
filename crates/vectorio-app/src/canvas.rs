@@ -63,8 +63,10 @@ pub enum Interaction {
     Pan,
     /// Mueve todos los objetos seleccionados (sin bloquear) a la vez.
     Move { start: P, orig: Vec<(u64, Placement)> },
-    /// Escala o gira uno o varios objetos alrededor del centro de la selección.
-    Scale { center: P, start_d: f64, orig: Vec<(u64, Placement)> },
+    /// Escala uno o varios objetos desde una esquina: la opuesta queda fija (con ⌥,
+    /// el centro).
+    Scale { anchor: P, corner: P, center: P, orig: Vec<(u64, Placement)> },
+    /// Gira uno o varios objetos alrededor del centro de la selección.
     Rotate { center: P, start_a: f64, orig: Vec<(u64, Placement)> },
     Draw(Vec<P>),
     Box(P, P),
@@ -278,10 +280,59 @@ fn hit_item(app: &VectorioApp, q: P, tol: f64) -> Option<u64> {
     app.doc.items.iter().rev().find(|it| it.visible && it.hit(q, tol)).map(|it| it.id)
 }
 
-/// Asas de la selección en pantalla: caja, esquina de escala y punto de giro.
-fn handles(bb: &BBox, xf: &Xf) -> (Rect, Pos2, Pos2) {
+/// Distancia en pantalla a la que se agarra un asa.
+const GRAB: f32 = 12.0;
+
+/// Asas de la selección en pantalla: caja, las cuatro esquinas de escala (en orden
+/// arriba izquierda, arriba derecha, abajo derecha, abajo izquierda) y el punto de giro.
+#[derive(Clone, Copy)]
+struct Handles {
+    rect: Rect,
+    corners: [Pos2; 4],
+    rot: Pos2,
+}
+
+impl Handles {
+    /// Esquina más cercana al puntero, si está a mano.
+    fn corner_at(&self, s: Pos2, allowed: &[usize]) -> Option<usize> {
+        allowed
+            .iter()
+            .copied()
+            .map(|i| (i, self.corners[i].distance(s)))
+            .filter(|(_, d)| *d < GRAB)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+    fn on_rot(&self, s: Pos2) -> bool {
+        self.rot.distance(s) < GRAB
+    }
+}
+
+fn handles(bb: &BBox, xf: &Xf) -> Handles {
     let r = Rect::from_min_max(xf.s(bb.min), xf.s(bb.max)).expand(6.0);
-    (r, r.right_bottom(), Pos2::new(r.center().x, r.top() - 22.0))
+    Handles { rect: r, corners: [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], rot: Pos2::new(r.center().x, r.top() - 22.0) }
+}
+
+/// Esquinas del recuadro en mm, en el mismo orden que las asas.
+fn bbox_corners(bb: &BBox) -> [P; 4] {
+    [bb.min, p(bb.max.x, bb.min.y), bb.max, p(bb.min.x, bb.max.y)]
+}
+
+/// Escala que lleva la esquina agarrada hasta el puntero, proyectado sobre la
+/// diagonal para que el objeto no se deforme ni salte al cruzar el ancla.
+fn corner_scale(base: P, corner: P, q: P) -> f64 {
+    let d = corner - base;
+    ((q - base).dot(d) / d.dot(d).max(1e-12)).clamp(0.01, 100.0)
+}
+
+/// Gesto de escala desde la esquina `i` del recuadro.
+fn scale_from(bb: &BBox, i: usize, orig: Vec<(u64, Placement)>) -> Interaction {
+    let c = bbox_corners(bb);
+    Interaction::Scale { anchor: c[(i + 2) % 4], corner: c[i], center: bb.center(), orig }
+}
+
+fn resize_cursor(i: usize) -> CursorIcon {
+    if i.is_multiple_of(2) { CursorIcon::ResizeNwSe } else { CursorIcon::ResizeNeSw }
 }
 
 /// Recuadro común de varios objetos y la colocación de los que se pueden mover.
@@ -300,19 +351,33 @@ fn group_of(app: &VectorioApp, ids: &[u64]) -> Option<(BBox, Vec<(u64, Placement
     (!all.is_empty() && !orig.is_empty()).then_some((all, orig))
 }
 
-fn draw_handles(painter: &egui::Painter, r: Rect, scale_h: Pos2, rot_h: Pos2, acc: Color32) {
-    painter.line_segment([Pos2::new(r.center().x, r.top()), rot_h], Stroke::new(1.0f32, acc));
-    for (h, round) in [(scale_h, false), (rot_h, true)] {
-        if round {
-            painter.circle_filled(h, 5.0, Color32::WHITE);
-            painter.circle_stroke(h, 5.0, Stroke::new(1.5f32, acc));
-        } else {
-            let hr = Rect::from_center_size(h, Vec2::splat(9.0));
-            painter.rect_filled(hr, Rounding::same(2.0), Color32::WHITE);
-            painter.rect_stroke(hr, Rounding::same(2.0), Stroke::new(1.5f32, acc));
+fn draw_handles(painter: &egui::Painter, h: &Handles, corners: &[usize], acc: Color32) {
+    let r = h.rect;
+    painter.line_segment([Pos2::new(r.center().x, r.top()), h.rot], Stroke::new(1.0f32, acc));
+    painter.circle_filled(h.rot, 5.0, Color32::WHITE);
+    painter.circle_stroke(h.rot, 5.0, Stroke::new(1.5f32, acc));
+    for &i in corners {
+        let hr = Rect::from_center_size(h.corners[i], Vec2::splat(9.0));
+        painter.rect_filled(hr, Rounding::same(2.0), Color32::WHITE);
+        painter.rect_stroke(hr, Rounding::same(2.0), Stroke::new(1.5f32, acc));
+    }
+}
+
+/// Cursor sobre las asas de escala y de giro.
+fn handle_cursor(ui: &egui::Ui, resp: &egui::Response, h: &Handles, corners: &[usize]) {
+    if let Some(s) = resp.hover_pos() {
+        if let Some(i) = h.corner_at(s, corners) {
+            ui.ctx().set_cursor_icon(resize_cursor(i));
+        } else if h.on_rot(s) {
+            ui.ctx().set_cursor_icon(CursorIcon::Alias);
         }
     }
 }
+
+/// Todas las esquinas escalan, salvo en los marcos de texto: allí la de abajo a la
+/// derecha cambia el tamaño del marco.
+const ALL_CORNERS: [usize; 4] = [0, 1, 2, 3];
+const FRAME_CORNERS: [usize; 1] = [2];
 
 fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
     let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
@@ -341,40 +406,42 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
     let group = (!single).then(|| group_of(app, &selection)).flatten();
     let add_mod = ui.input(|i| i.modifiers.shift || i.modifiers.command);
     let sel_handles = sel.as_ref().map(|(_, bb, _, _)| handles(bb, xf)).or_else(|| group.as_ref().map(|(bb, _)| handles(bb, xf)));
-    let near = |a: Pos2, b: Option<Pos2>| b.is_some_and(|b| a.distance(b) < 9.0);
+    let near = |a: Pos2, b: Option<Pos2>| b.is_some_and(|b| a.distance(b) < GRAB);
+    let sel_frame = sel.is_some_and(|(id, ..)| app.doc.get(id).is_some_and(|it| matches!(&it.geometry, Geometry::Text(spec) if spec.is_frame())));
+    let sel_corners: &[usize] = if sel_frame { &FRAME_CORNERS } else { &ALL_CORNERS };
 
-    // Inicio de gestos con el botón principal.
+    // Inicio de gestos con el botón principal. egui da el arrastre por empezado cuando
+    // el puntero ya se ha movido unos píxeles: las asas y los objetos se buscan donde
+    // se pulsó, no donde está ahora, para que un asa pequeña no se escape.
     if resp.drag_started_by(PointerButton::Primary) && !panning {
         app.pen_focus = false;
-        if let Some(s) = pointer {
+        if let Some(s) = ui.input(|i| i.pointer.press_origin()).or(pointer) {
             let q = xf.mm(s);
             match app.tool {
                 Tool::Select => {
-                    let on_scale = sel_handles.map(|h| h.1);
-                    let on_rot = sel_handles.map(|h| h.2);
+                    let corner = sel_handles.and_then(|h| h.corner_at(s, sel_corners));
+                    let on_rot = sel_handles.is_some_and(|h| h.on_rot(s));
                     match sel {
-                        Some((id, _, place, false)) if app.doc.get(id).is_some_and(|it| matches!(&it.geometry, Geometry::Text(spec) if spec.is_frame()))
-                            && sel_handles.is_some_and(|h| near(s, Some(h.0.right_center())) || near(s, Some(h.0.center_bottom())) || near(s, Some(h.1))) => {
+                        Some((id, _, place, false)) if sel_frame
+                            && sel_handles.is_some_and(|h| near(s, Some(h.rect.right_center())) || near(s, Some(h.rect.center_bottom())) || corner.is_some()) => {
                             let Geometry::Text(spec) = &app.doc.get(id).unwrap().geometry else { unreachable!() };
                             let h = sel_handles.unwrap();
                             app.interaction = Interaction::ResizeText { id, start: place.inverse(q), width: spec.wrap_mm, height: spec.frame_height_mm,
-                                horizontal: !near(s, Some(h.0.center_bottom())), vertical: !near(s, Some(h.0.right_center())) };
+                                horizontal: !near(s, Some(h.rect.center_bottom())), vertical: !near(s, Some(h.rect.right_center())) };
                         }
-                        Some((id, bb, place, false)) if near(s, on_scale) => {
-                            let c = bb.center();
-                            app.interaction = Interaction::Scale { center: c, start_d: q.dist(c).max(1e-6), orig: vec![(id, place)] };
+                        Some((id, bb, place, false)) if corner.is_some() => {
+                            app.interaction = scale_from(&bb, corner.unwrap(), vec![(id, place)]);
                         }
-                        Some((id, bb, place, false)) if near(s, on_rot) => {
+                        Some((id, bb, place, false)) if on_rot => {
                             let c = bb.center();
                             app.interaction = Interaction::Rotate { center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig: vec![(id, place)] };
                         }
-                        None if group.is_some() && (near(s, on_scale) || near(s, on_rot)) => {
+                        None if group.is_some() && (corner.is_some() || on_rot) => {
                             let (bb, orig) = group.clone().unwrap();
                             let c = bb.center();
-                            app.interaction = if near(s, on_scale) {
-                                Interaction::Scale { center: c, start_d: q.dist(c).max(1e-6), orig }
-                            } else {
-                                Interaction::Rotate { center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig }
+                            app.interaction = match corner {
+                                Some(i) => scale_from(&bb, i, orig),
+                                None => Interaction::Rotate { center: c, start_a: (q.y - c.y).atan2(q.x - c.x), orig },
                             };
                         }
                         _ => {
@@ -444,9 +511,10 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     *o = orig;
                 }
             }
-            Interaction::Scale { center, start_d, orig } => {
-                let k = (q.dist(*center) / *start_d).clamp(0.01, 100.0);
-                let c = *center;
+            Interaction::Scale { anchor, corner, center, orig } => {
+                // Con ⌥ escala desde el centro; si no, la esquina opuesta queda fija.
+                let c = if ui.input(|i| i.modifiers.alt) { *center } else { *anchor };
+                let k = corner_scale(c, *corner, q);
                 for (id, place) in orig.clone() {
                     if let Some(it) = app.doc.get_mut(id) {
                         it.place = place.around(c, k, 0.0);
@@ -569,26 +637,21 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
             all.union(&bb);
         }
         if !all.is_empty() {
-            let (r, scale_h, rot_h) = handles(&all, xf);
-            painter.rect_stroke(r, Rounding::same(3.0), Stroke::new(1.2f32, pal.accent));
+            let h = handles(&all, xf);
+            painter.rect_stroke(h.rect, Rounding::same(3.0), Stroke::new(1.2f32, pal.accent));
             if group.is_some() {
-                draw_handles(painter, r, scale_h, rot_h, pal.accent);
-                if let Some(s) = resp.hover_pos() {
-                    if s.distance(scale_h) < 9.0 {
-                        ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
-                    } else if s.distance(rot_h) < 9.0 {
-                        ui.ctx().set_cursor_icon(CursorIcon::Alias);
-                    }
-                }
+                draw_handles(painter, &h, &ALL_CORNERS, pal.accent);
+                handle_cursor(ui, resp, &h, &ALL_CORNERS);
             }
         }
     }
     if let Some(it) = app.selected_item().filter(|_| single) {
-        let (r, scale_h, rot_h) = handles(&it.bbox(), xf);
+        let h = handles(&it.bbox(), xf);
+        let r = h.rect;
         let acc = pal.accent;
         painter.rect_stroke(r, Rounding::same(3.0), Stroke::new(1.2f32, acc));
         if !it.locked {
-            draw_handles(painter, r, scale_h, rot_h, acc);
+            draw_handles(painter, &h, sel_corners, acc);
             if let Geometry::Text(spec) = &it.geometry {
                 if spec.is_frame() {
                     for handle in [r.right_center(), r.center_bottom()] {
@@ -607,13 +670,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     }
                 }
             }
-            if let Some(s) = resp.hover_pos() {
-                if s.distance(scale_h) < 9.0 {
-                    ui.ctx().set_cursor_icon(CursorIcon::ResizeNwSe);
-                } else if s.distance(rot_h) < 9.0 {
-                    ui.ctx().set_cursor_icon(CursorIcon::Alias);
-                }
-            }
+            handle_cursor(ui, resp, &h, sel_corners);
         }
     }
 
@@ -715,5 +772,99 @@ mod rendering_tests {
         let mut shapes = Vec::new();
         add_line(&mut shapes, points, Stroke::new(0.8f32, Color32::BLACK));
         assert!(matches!(shapes.as_slice(), [EShape::Circle(circle)] if circle.radius > 0.0));
+    }
+}
+
+#[cfg(test)]
+mod handle_tests {
+    use super::*;
+
+    /// Lienzo con un cuadrado de 40 mm pegado a la esquina inferior derecha del papel.
+    fn setup(ctx: &egui::Context) -> (VectorioApp, u64) {
+        let mut app = VectorioApp::blank(ctx);
+        let (w, h) = (app.doc.paper.width_mm, app.doc.paper.height_mm);
+        let square = vec![p(w - 40.0, h - 40.0), p(w, h - 40.0), p(w, h), p(w - 40.0, h), p(w - 40.0, h - 40.0)];
+        let id = app.doc.add(Item::new("Foto", Geometry::Path { lines: vec![square], closed: true }, P::default()));
+        app.tool = Tool::Select;
+        app.set_selection(vec![id]);
+        (app, id)
+    }
+
+    fn frame(app: &mut VectorioApp, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
+        let input = egui::RawInput { time: Some(time), screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), events, ..Default::default() };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| show(app, ui));
+        });
+    }
+
+    fn xf(app: &VectorioApp) -> Xf {
+        Xf { origin: app.view.rect.min + app.view.offset, zoom: app.view.zoom }
+    }
+
+    /// Pulsa en `from` y arrastra hasta `to` en pasos de 2 px, como una mano lenta.
+    fn drag(app: &mut VectorioApp, ctx: &egui::Context, from: Pos2, to: Pos2) {
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let mut t = 1.0;
+        frame(app, ctx, t, vec![egui::Event::PointerMoved(from)]);
+        frame(app, ctx, t + 0.01, vec![button(from, true)]);
+        let steps = (from.distance(to) / 2.0).ceil().max(1.0) as usize;
+        for k in 1..=steps {
+            t += 0.03;
+            let pos = from + (to - from) * (k as f32 / steps as f32);
+            frame(app, ctx, t, vec![egui::Event::PointerMoved(pos)]);
+        }
+        frame(app, ctx, t + 0.05, vec![button(to, false)]);
+        frame(app, ctx, t + 0.1, vec![]);
+    }
+
+    #[test]
+    fn a_corner_next_to_the_paper_edge_scales_without_letting_go() {
+        let ctx = egui::Context::default();
+        let (mut app, id) = setup(&ctx);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        let before = app.doc.get(id).unwrap().bbox();
+        let h = handles(&before, &xf(&app));
+        // Se agarra el asa por su borde exterior y se tira despacio hacia fuera, más
+        // allá del papel, para agrandar.
+        let grab = h.corners[2] + Vec2::new(5.0, 5.0);
+        drag(&mut app, &ctx, grab, grab + Vec2::new(60.0, 60.0));
+        assert_eq!(app.selection(), vec![id], "la selección se ha soltado");
+        let after = app.doc.get(id).unwrap().bbox();
+        assert!(after.width() > before.width() * 1.15, "no ha escalado: {:.1} → {:.1} mm", before.width(), after.width());
+        // La esquina opuesta queda en su sitio.
+        assert!(after.min.dist(before.min) < 0.2, "la esquina opuesta se ha movido: {:?} → {:?}", before.min, after.min);
+    }
+
+    #[test]
+    fn every_corner_scales_from_the_opposite_one() {
+        for corner in 0..4 {
+            let ctx = egui::Context::default();
+            let (mut app, id) = setup(&ctx);
+            // Se aparta del borde para poder tirar hacia fuera desde cualquier esquina.
+            app.doc.get_mut(id).unwrap().place.pos = p(-80.0, -80.0);
+            frame(&mut app, &ctx, 0.0, vec![]);
+            let before = app.doc.get(id).unwrap().bbox();
+            let h = handles(&before, &xf(&app));
+            let out = (h.corners[corner] - h.rect.center()).normalized() * 40.0;
+            drag(&mut app, &ctx, h.corners[corner], h.corners[corner] + out);
+            let after = app.doc.get(id).unwrap().bbox();
+            assert!(after.width() > before.width() * 1.1, "esquina {corner}: {:.1} → {:.1} mm", before.width(), after.width());
+            let fixed = (corner + 2) % 4;
+            assert!(bbox_corners(&after)[fixed].dist(bbox_corners(&before)[fixed]) < 0.2, "esquina {corner}: la opuesta se ha movido");
+        }
+    }
+
+    #[test]
+    fn dragging_an_object_follows_the_pointer_from_where_it_was_pressed() {
+        let ctx = egui::Context::default();
+        let (mut app, id) = setup(&ctx);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        let before = app.doc.get(id).unwrap().bbox();
+        let x = xf(&app);
+        let on_edge = x.s(p(before.min.x, before.center().y));
+        drag(&mut app, &ctx, on_edge, on_edge - Vec2::new(50.0, 0.0));
+        let moved = app.doc.get(id).unwrap().bbox().min.x - before.min.x;
+        let expected = -50.0 / x.zoom as f64;
+        assert!((moved - expected).abs() < 0.3, "se ha movido {moved:.2} mm en vez de {expected:.2}");
     }
 }

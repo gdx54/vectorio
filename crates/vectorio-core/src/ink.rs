@@ -58,6 +58,11 @@ pub fn render(rgb: &RgbImage, prm: &VecParams) -> Vec<VecLayer> {
     vec![VecLayer::lines([20, 20, 24], false, lines)]
 }
 
+/// Contornos coherentes ya recorridos como trazos, en px de la imagen.
+pub(crate) fn contour_lines(a: &Analysis, cfg: &InkParams) -> Vec<Polyline> {
+    trace_mask(edge_mask(a, cfg), a.scale, cfg)
+}
+
 /// Respuesta de diferencia de gaussianas a través del borde, acumulada a lo largo de
 /// las formas. Negativa en el lado oscuro de cada borde.
 fn flow_dog(a: &Analysis, cfg: &InkParams) -> Grid<f32> {

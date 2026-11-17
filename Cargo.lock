@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "vectorio-app"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "eframe",
  "egui",
@@ -3856,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "vectorio-core"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "hyphenation",
  "image",

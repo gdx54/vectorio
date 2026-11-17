@@ -717,7 +717,7 @@ mod tests {
         let per_item = doc.plot_items();
         let items = doc.items.iter().zip(&per_item).map(|(it, parts)| (it.id, crate::app::ItemPlot { snapshot: it.clone(), parts: parts.clone() })).collect();
         let rendered = Rendered { rev: 1, layers: doc.layers_from(per_item), items, ..Default::default() };
-        let mut plan_pens = |doc: &Document| {
+        let plan_pens = |doc: &Document| {
             let mut ui = OutputUi::default();
             let mut sim = Sim::default();
             for _ in 0..500 {
