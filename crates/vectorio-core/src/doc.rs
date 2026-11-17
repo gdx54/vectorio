@@ -809,7 +809,7 @@ mod tests {
     }
 
     fn photo_stub(name: &str) -> crate::photo::Photo {
-        crate::photo::Photo { id: 0, name: name.into(), image: crate::Shared::new(crate::photo::EncodedImage { bytes: vec![1, 2, 3] }), params: Default::default(), size_pct: 80.0 }
+        crate::photo::Photo { id: 0, name: name.into(), image: crate::Shared::new(crate::photo::EncodedImage { bytes: vec![1, 2, 3] }), params: Default::default(), layers: vec![], size_pct: 80.0 }
     }
 
     fn ink(name: &str) -> Item {

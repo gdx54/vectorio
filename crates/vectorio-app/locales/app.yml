@@ -2698,3 +2698,15 @@ _version: 2
   en: "Size of the loops relative to the distance between stops."
 "Cuánto cambia el tamaño de los bucles por el camino.":
   en: "How much the loop size changes along the way."
+"Añadir otro estilo encima":
+  en: "Add another style on top"
+"Dibuja otro estilo sobre este con la misma foto: por ejemplo, tinta sobre manchas de color.":
+  en: "Draws another style over this one from the same photo: for example, ink over colour patches."
+"Ver y añadir al papel este estilo":
+  en: "Show this style and add it to the paper"
+"Editar este estilo":
+  en: "Edit this style"
+"Todos los estilos están ocultos":
+  en: "All styles are hidden"
+"Quitar":
+  en: "Remove"
