@@ -1,5 +1,7 @@
-//! Ventana «Foto → dibujo»: vectoriza en segundo plano (todos los núcleos) y enseña en
-//! vivo cómo quedará en el papel: rellenos, tramas de mezcla y grosor de cada rotulador.
+//! Espacio «Foto»: vectoriza en segundo plano (todos los núcleos) y enseña en vivo, sobre
+//! el papel, cómo quedará: rellenos, tramas de mezcla y grosor de cada rotulador. Sigue
+//! la disposición de Crear y Volumen: panel a la izquierda con el selector de estilos
+//! arriba y la hoja a la derecha.
 
 use crate::theme;
 use egui::{Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -100,10 +102,12 @@ impl PreviewView {
 }
 
 pub struct VectorizeUi {
-    pub open: bool,
     load_error: Option<String>,
     name: String,
     image: Option<Arc<DynamicImage>>,
+    /// Foto reducida con que se hacen las miniaturas del selector de estilos.
+    thumb_image: Option<Arc<DynamicImage>>,
+    thumbs: Thumbnails,
     texture: Option<egui::TextureHandle>,
     /// Foto reducida sin ajustes, para rehacer la vista previa al mover los ajustes de color.
     source: Option<Arc<image::RgbImage>>,
@@ -129,6 +133,14 @@ pub struct VectorizeUi {
     choosing_seed: bool,
 }
 
+/// Cómo termina el espacio Foto en este fotograma.
+pub enum Outcome {
+    /// Añadir (o sustituir) en el papel y volver a Diseño.
+    Add(Box<Import>),
+    /// Volver a Diseño sin cambiar el documento. La foto se conserva para retomarla.
+    Cancel,
+}
+
 /// Lo que se añade al documento al aceptar.
 pub struct Import {
     pub items: Vec<Item>,
@@ -141,10 +153,11 @@ pub struct Import {
 impl Default for VectorizeUi {
     fn default() -> Self {
         VectorizeUi {
-            open: false,
             load_error: None,
             name: String::new(),
             image: None,
+            thumb_image: None,
+            thumbs: Thumbnails::default(),
             texture: None,
             source: None,
             shown_adjust: ColorAdjust::default(),
@@ -175,11 +188,17 @@ enum PenChoice {
 }
 
 impl VectorizeUi {
-    pub fn open_dialog(&mut self, ctx: &egui::Context) {
-        if self.image.is_some() && !self.open {
-            self.open = true;
-            return;
+    /// Abre el espacio Foto: retoma la foto que haya o pide una. Devuelve si hay foto
+    /// con que trabajar.
+    pub fn open_dialog(&mut self, ctx: &egui::Context) -> bool {
+        if self.image.is_none() {
+            self.pick(ctx);
         }
+        self.image.is_some()
+    }
+
+    /// Pide otra foto. Si falla, se conserva la anterior y queda el error para avisar.
+    fn pick(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Imagen", IMAGE_EXT)
             .pick_file()
@@ -187,6 +206,9 @@ impl VectorizeUi {
             self.load_from_dialog(ctx, &path);
         }
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn has_photo(&self) -> bool { self.image.is_some() }
 
     fn load_from_dialog(&mut self, ctx: &egui::Context, path: &Path) {
         self.load_error = self.load(ctx, path).err().map(|error| tr!("No se pudo abrir la imagen: %{error}", error = error));
@@ -217,6 +239,8 @@ impl VectorizeUi {
         self.source = Some(Arc::new(vectorize::working_image(&img, 1600)));
         self.texture = None;
         self.refresh_texture(ctx);
+        self.thumb_image = Some(Arc::new(img.thumbnail(THUMB_PX, THUMB_PX)));
+        self.thumbs = Thumbnails::default();
         self.image = Some(Arc::new(img));
         self.name = name;
         self.computed = None;
@@ -229,7 +253,6 @@ impl VectorizeUi {
         self.pending_key = None;
         self.view = PreviewView::default();
         self.choosing_seed = false;
-        self.open = true;
     }
 
     /// Pinta la vista «Original» con los ajustes de color actuales.
@@ -287,116 +310,38 @@ impl VectorizeUi {
         }
     }
 
-    /// Muestra la hoja modal. Devuelve los objetos (y rotuladores nuevos) al aceptar.
-    pub fn show(&mut self, ctx: &egui::Context, doc: &Document) -> Option<Import> {
-        if !self.open {
-            return None;
-        }
+    /// Dibuja el espacio Foto: hoja de papel con la vista previa y panel de ajustes a la
+    /// izquierda. `enabled` es falso mientras otra hoja (Ajustes, Atajos…) lo tapa.
+    pub fn show(&mut self, ctx: &egui::Context, doc: &Document, paper: Color32, enabled: bool) -> Option<Outcome> {
         self.refresh_texture(ctx);
         self.poll(ctx);
         if let Some(res) = self.result.clone() {
             self.pending_key = Some(self.key(doc, &res));
         }
         self.poll_plot(ctx);
+        self.thumbs.poll();
         let pal = theme::current(ctx);
         let ready = self.result.is_some() && self.computed.as_ref() == Some(&self.params);
+        let mut accept = enabled && !ctx.wants_keyboard_input() && ready && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+        let mut cancel = false;
 
-        // Teclado: Esc o ⌘W cierran, ⏎ añade (si no se está escribiendo en un campo).
-        let mut close = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape) || i.consume_key(Modifiers::COMMAND, Key::W));
-        let mut accept = !ctx.wants_keyboard_input() && ready && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+            if !enabled { ui.disable(); }
+            self.sheet(ui, doc, paper);
+        });
 
-        // Velo sobre el resto de la ventana: bloquea el lienzo y cierra al pulsar fuera.
-        let screen = ctx.screen_rect();
-        let veil = egui::Area::new(egui::Id::new("vectorize-veil"))
-            .fixed_pos(screen.min)
-            .order(egui::Order::Middle)
-            .interactable(true)
-            .show(ctx, |ui| {
-                let resp = ui.allocate_rect(screen, Sense::click());
-                let a = if ui.visuals().dark_mode { 110 } else { 60 };
-                ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(a));
-                resp.clicked()
-            });
-        ctx.move_to_top(veil.response.layer_id);
-        close |= veil.inner;
-
-        let size = Vec2::new((screen.width() - 80.0).clamp(760.0f32.min(screen.width() - 16.0), 1240.0), (screen.height() - theme::TOOLBAR_H - 60.0).clamp(420.0, 680.0));
-        let pos = Pos2::new(screen.center().x - size.x / 2.0, (theme::TOOLBAR_H + (screen.height() - theme::TOOLBAR_H - size.y) / 2.0).max(theme::TOOLBAR_H));
-        egui::Area::new(egui::Id::new("vectorize-sheet"))
-            .fixed_pos(pos)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                theme::glass_panel_with(ui, &pal, theme::SHEET_RADIUS, egui::Margin::ZERO, theme::Material::Sheet, |ui| {
-                    ui.set_width(size.x);
-                    ui.set_max_width(size.x);
-                    ui.set_height(size.y);
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    // Cabecera.
-                    let head = ui.horizontal(|ui| {
-                        ui.set_height(52.0);
-                        ui.add_space(18.0);
-                        ui.label(RichText::new(if self.replacing.is_some() { ts!("Volver a separar la foto") } else { ts!("Foto → dibujo") }).size(15.0).strong().color(pal.text));
-                        ui.label(RichText::new(&self.name).color(pal.secondary));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(14.0);
-                            if close_button(ui, &pal).on_hover_text(ts!("Cerrar (Esc)")).clicked() {
-                                close = true;
-                            }
-                            ui.add_space(8.0);
-                            ui.allocate_ui(Vec2::new(250.0, 28.0), |ui| {
-                                crate::app::choice(ui, &mut self.preview, &[(Preview::Original, ts!("Original")), (Preview::Result, ts!("Dibujo")), (Preview::Overlay, ts!("Superpuesto"))]);
-                            });
-                        });
-                    });
-                    separator(ui, &pal, pos.x..=pos.x + size.x, head.response.rect.bottom());
-
-                    // Cuerpo: color de la foto, vista previa y ajustes del dibujo.
-                    let side = 288.0;
-                    let left = 252.0;
-                    let body_h = size.y - 52.0 - 56.0;
-                    ui.horizontal_top(|ui| {
-                        ui.set_height(body_h);
-                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 0.0);
-                        ui.allocate_ui_with_layout(Vec2::new(left, body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
-                            egui::ScrollArea::vertical().id_salt("vec-color").max_height(body_h).show(ui, |ui| {
-                                egui::Frame::none().inner_margin(egui::Margin { left: 16.0, right: 16.0, top: 10.0, bottom: 12.0 }).show(ui, |ui| {
-                                    ui.set_width(left - 32.0);
-                                    ui.set_max_width(left - 32.0);
-                                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
-                                    self.color_panel(ui);
-                                });
-                            });
-                        });
-                        let x = ui.cursor().left();
-                        ui.painter().vline(x, ui.min_rect().top()..=ui.min_rect().top() + body_h, Stroke::new(1.0f32, pal.separator));
-                        ui.add_space(1.0);
-                        let preview = Vec2::new(size.x - side - left - 2.0, body_h);
-                        ui.allocate_ui(preview, |ui| {
-                            let (r, _) = ui.allocate_exact_size(preview, Sense::hover());
-                            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink(14.0)).layout(egui::Layout::top_down(egui::Align::Min)));
-                            child.set_clip_rect(child.clip_rect().intersect(r.shrink(14.0)));
-                            self.preview_area(&mut child, r.shrink(14.0).size(), doc);
-                        });
-                        let x = ui.cursor().left();
-                        ui.painter().vline(x, ui.min_rect().top()..=ui.min_rect().top() + body_h, Stroke::new(1.0f32, pal.separator));
-                        ui.add_space(1.0);
-                        ui.allocate_ui_with_layout(Vec2::new(side, body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
-                            egui::ScrollArea::vertical().id_salt("vec-controls").max_height(body_h).show(ui, |ui| {
-                                egui::Frame::none().inner_margin(egui::Margin { left: 16.0, right: 16.0, top: 10.0, bottom: 12.0 }).show(ui, |ui| {
-                                    ui.set_width(side - 32.0);
-                                    ui.set_max_width(side - 32.0);
-                                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 7.0);
-                                    self.controls(ui, doc);
-                                });
-                            });
-                        });
-                    });
-
-                    // Pie: resumen y acciones.
-                    separator(ui, &pal, pos.x..=pos.x + size.x, pos.y + 52.0 + body_h);
-                    ui.horizontal(|ui| {
-                        ui.set_height(56.0);
-                        ui.add_space(18.0);
+        let top = theme::TOOLBAR_H + theme::INSET;
+        let height = (ctx.screen_rect().height() - top - theme::INSET).max(120.0);
+        egui::Area::new(egui::Id::new("photo-controls")).enabled(enabled).fixed_pos(Pos2::new(theme::INSET, top)).constrain(false)
+            .default_size(Vec2::new(PANEL_WIDTH, height)).order(egui::Order::Middle).show(ctx, |ui| {
+            theme::glass_panel(ui, &pal, |ui| {
+                let width = PANEL_WIDTH - 2.0 * theme::PANEL_PAD;
+                ui.set_width(width);
+                ui.set_max_width(width);
+                ui.set_height(height - 2.0 * theme::PANEL_PAD);
+                egui::TopBottomPanel::bottom("photo-actions").frame(egui::Frame::none()).show_inside(ui, |ui| {
+                    ui.separator();
+                    if self.image.is_some() {
                         let summary = match &self.result {
                             Some(res) => {
                                 let (w, h) = self.target_size(doc, res);
@@ -408,78 +353,113 @@ impl VectorizeUi {
                             }
                             None => ts!("Calculando…").into(),
                         };
-                        ui.label(RichText::new(summary).color(pal.secondary));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
-                            ui.spacing_mut().item_spacing.x = 8.0;
-                            let add = ui.add_enabled_ui(ready, |ui| theme::accent_button(ui, if self.replacing.is_some() { ts!("Sustituir en el papel") } else { ts!("Añadir al papel") })).inner;
-                            if add.on_hover_text("⏎").clicked() {
-                                accept = true;
-                            }
-                            if ui.button(ts!("Cancelar")).on_hover_text("Esc").clicked() {
-                                close = true;
-                            }
-                            if ui.button(ts!("Otra foto…")).clicked() {
-                                if let Some(path) = rfd::FileDialog::new().add_filter("Imagen", IMAGE_EXT).pick_file() {
-                                    let _ = self.load(ui.ctx(), &path);
-                                }
-                            }
+                        ui.label(RichText::new(summary).strong());
+                        ui.add_enabled_ui(ready, |ui| {
+                            let label = if self.replacing.is_some() { ts!("Sustituir en el papel") } else { ts!("Añadir al papel") };
+                            if theme::accent_button(ui, label).on_hover_text("⏎").clicked() { accept = true; }
                         });
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(ts!("Cancelar")).on_hover_text("Esc").clicked() { cancel = true; }
+                        // Sin foto, «Abrir foto…» ya encabeza el panel.
+                        if self.image.is_some() && ui.button(ts!("Otra foto…")).clicked() { self.pick(ui.ctx()); }
+                    });
+                });
+                egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt("photo-settings").auto_shrink([false, false]).show(ui, |ui| {
+                        ui.set_max_width(ui.available_width());
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        if self.image.is_some() {
+                            self.controls(ui, doc);
+                        } else {
+                            ui.label(RichText::new(ts!("Foto → dibujo")).strong());
+                            ui.label(RichText::new(ts!("Abre una foto para convertirla en dibujo vectorial. También puedes arrastrarla a la ventana.")).color(pal.secondary));
+                            ui.add_space(6.0);
+                            if theme::accent_button(ui, ts!("Abrir foto…")).clicked() { self.pick(ui.ctx()); }
+                        }
                     });
                 });
             });
+        });
 
         if accept && ready {
-            let built = self.build(doc).map(|(items, pens)| Import { photo: self.photo(), items, pens, replacing: self.replacing });
-            self.open = false;
-            return built;
+            return self.build(doc).map(|(items, pens)| Outcome::Add(Box::new(Import { photo: self.photo(), items, pens, replacing: self.replacing })));
         }
-        if close {
-            self.open = false;
-        }
-        None
+        cancel.then_some(Outcome::Cancel)
     }
 
-    fn preview_area(&mut self, ui: &mut egui::Ui, size: Vec2, doc: &Document) {
-        let pal = theme::current(ui.ctx());
-        // Los controles de navegación quedan fuera del área que se amplía y recorta.
-        ui.horizontal(|ui| {
-            ui.set_min_height(30.0);
-            ui.spacing_mut().item_spacing.x = 6.0;
-            if ui.button(ts!("Alejar")).clicked() { self.view.zoom = (self.view.zoom * 0.8).clamp(0.25, 32.0); }
-            ui.label(RichText::new(format!("{:.0} %", self.view.zoom * 100.0)).color(pal.secondary));
-            if ui.button(ts!("Acercar")).clicked() { self.view.zoom = (self.view.zoom * 1.25).clamp(0.25, 32.0); }
-            if ui.button(ts!("Ajustar")).clicked() { self.view = PreviewView::default(); }
-        });
-        let preview_size = Vec2::new(size.x, (size.y - 38.0).max(1.0));
-        let (rect, response) = ui.allocate_exact_size(preview_size, Sense::click_and_drag());
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, egui::Rounding::same(theme::CONTROL_RADIUS), Color32::WHITE);
-        let Some(tex) = &self.texture else {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, ts!("Abre una imagen"), egui::FontId::proportional(14.0), pal.secondary);
-            return;
+    /// Dónde cae la foto en el papel, en mm: centrada en el área útil, como al añadirla.
+    fn placement(&self, doc: &Document) -> Option<(f64, f64, f64)> {
+        let (w, h) = match (&self.result, &self.texture) {
+            (Some(res), _) => (res.width, res.height),
+            (None, Some(tex)) => (tex.size()[0] as f64, tex.size()[1] as f64),
+            _ => return None,
         };
-        let ts = tex.size_vec2();
+        let paper = &doc.paper;
+        let (pw, ph) = (paper.width_mm - 2.0 * paper.margin_mm, paper.height_mm - 2.0 * paper.margin_mm);
+        let s = (pw / w).min(ph / h) * self.size_pct / 100.0;
+        Some((w, h, s))
+    }
+
+    /// Hoja de papel con la vista previa, navegable como la de Crear.
+    fn sheet(&mut self, ui: &mut egui::Ui, doc: &Document, paper_color: Color32) {
+        let pal = theme::current(ui.ctx());
+        theme::paint_canvas(ui.painter(), ui.max_rect(), &pal);
+        let mut space = ui.max_rect().shrink(theme::INSET);
+        space.min.x += PANEL_WIDTH + theme::INSET;
+        space.min.y = space.min.y.max(theme::TOOLBAR_H + theme::INSET + 50.0);
+        let source = Vec2::new(doc.paper.width_mm as f32, doc.paper.height_mm as f32);
+        let response = ui.interact(space, ui.id().with("photo-navigation"), Sense::click_and_drag());
         let (zoom, scroll, touch) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta, i.multi_touch()));
         if let Some(pos) = response.hover_pos() {
-            if zoom != 1.0 { self.view.zoom_at(zoom, pos, rect, ts); }
+            if zoom != 1.0 { self.view.zoom_at(zoom, pos, space, source); }
             if let Some(touch) = touch {
-                self.view.pan(touch.translation_delta, rect, ts);
+                self.view.pan(touch.translation_delta, space, source);
             } else if zoom == 1.0 && scroll != Vec2::ZERO {
-                self.view.pan(scroll, rect, ts);
+                self.view.pan(scroll, space, source);
             }
         }
         if response.dragged() && touch.is_none() {
-            self.view.pan(response.drag_delta(), rect, ts);
+            self.view.pan(response.drag_delta(), space, source);
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Grab); }
         if response.double_clicked() { self.view = PreviewView::default(); }
-        let img_rect = self.view.image_rect(rect, ts);
+        let sheet = self.view.image_rect(space, source);
+        let mm = sheet.width() / source.x;
+        theme::set_backdrop(ui.ctx(), Some((sheet, paper_color)));
+
+        // Controles de vista sobre el lienzo, como en Crear.
+        egui::Area::new(egui::Id::new("photo-view-controls")).enabled(ui.is_enabled()).fixed_pos(Pos2::new(space.left(), theme::TOOLBAR_H + theme::INSET)).show(ui.ctx(), |ui| {
+            theme::glass_panel_with(ui, &pal, theme::CONTROL_RADIUS, egui::Margin::symmetric(10.0, 6.0), theme::Material::Panel, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button(ts!("Alejar")).clicked() { self.view.zoom_at(0.8, space.center(), space, source); }
+                    ui.label(format!("{:.0} %", self.view.zoom * 100.0));
+                    if ui.button(ts!("Acercar")).clicked() { self.view.zoom_at(1.25, space.center(), space, source); }
+                    if ui.button(ts!("Ajustar")).clicked() { self.view = PreviewView::default(); }
+                    if self.image.is_some() {
+                        ui.add_space(8.0);
+                        ui.allocate_ui(Vec2::new(250.0, 28.0), |ui| {
+                            crate::app::choice(ui, &mut self.preview, &[(Preview::Original, ts!("Original")), (Preview::Result, ts!("Dibujo")), (Preview::Overlay, ts!("Superpuesto"))]);
+                        });
+                    }
+                });
+            });
+        });
+
+        ui.painter().rect_filled(sheet.translate(Vec2::new(0.0, 3.0)).expand(2.0), 0.0, Color32::from_black_alpha(24));
+        ui.painter().rect_filled(sheet, 0.0, paper_color);
+        let painter = ui.painter().with_clip_rect(sheet.intersect(ui.max_rect()));
+        let (Some(tex), Some((w, h, s))) = (&self.texture, self.placement(doc)) else {
+            painter.text(sheet.center(), egui::Align2::CENTER_CENTER, ts!("Abre una foto"), egui::FontId::proportional(14.0), pal.secondary);
+            return;
+        };
+        let center = sheet.min + Vec2::new(doc.paper.width_mm as f32, doc.paper.height_mm as f32) * 0.5 * mm;
+        let img_rect = Rect::from_center_size(center, Vec2::new((w * s) as f32, (h * s) as f32) * mm);
         if self.params.mode == VecMode::Topography && self.choosing_seed {
             if let Some(pos) = response.hover_pos().filter(|pos| img_rect.contains(*pos)) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if response.clicked() {
-                    let uv = (pos-img_rect.min)/img_rect.size();
+                    let uv = (pos - img_rect.min) / img_rect.size();
                     self.params.topo.seed = [uv.x as f64, uv.y as f64];
                     self.choosing_seed = false;
                 }
@@ -487,12 +467,8 @@ impl VectorizeUi {
         }
         let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         match self.preview {
-            Preview::Original => {
-                painter.image(tex.id(), img_rect, uv, Color32::WHITE);
-            }
-            Preview::Overlay => {
-                painter.image(tex.id(), img_rect, uv, Color32::from_white_alpha(70));
-            }
+            Preview::Original => { painter.image(tex.id(), img_rect, uv, Color32::WHITE); }
+            Preview::Overlay => { painter.image(tex.id(), img_rect, uv, Color32::from_white_alpha(70)); }
             Preview::Result => {}
         }
         if self.preview != Preview::Original {
@@ -507,7 +483,7 @@ impl VectorizeUi {
                     Some((key, plot)) => {
                         let mm = img_rect.width() / (res.width * key.scale) as f32;
                         for ((lines, c), w) in plot.layers.iter().zip(&colors).zip(&widths) {
-                            let st = Stroke::new((*w as f32 * mm).max(0.6), Color32::from_rgba_unmultiplied(c[0], c[1], c[2], 225));
+                            let st = Stroke::new((*w as f32 * mm).max(0.6), theme::pen_color(*c).gamma_multiply(0.9));
                             for l in lines {
                                 let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * mm).collect();
                                 if pts.len() >= 2 {
@@ -518,11 +494,11 @@ impl VectorizeUi {
                     }
                     // Mientras se calcula la primera vez: contornos finos.
                     None => {
-                        let s = img_rect.width() / res.width as f32;
+                        let k = img_rect.width() / res.width as f32;
                         for (layer, c) in res.layers.iter().zip(&colors) {
-                            let st = Stroke::new(1.0f32, Color32::from_rgb(c[0], c[1], c[2]));
+                            let st = Stroke::new(1.0f32, theme::pen_color(*c));
                             for l in &layer.lines {
-                                let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * s).collect();
+                                let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * k).collect();
                                 if pts.len() >= 2 {
                                     shapes.push(egui::Shape::line(pts, st));
                                 }
@@ -535,28 +511,20 @@ impl VectorizeUi {
         }
         if self.params.mode == VecMode::Topography {
             let seed = self.params.topo.seed;
-            let center = img_rect.min + Vec2::new(seed[0] as f32, seed[1] as f32)*img_rect.size();
-            painter.circle_filled(center, 5.0, Color32::WHITE);
-            painter.circle_stroke(center, 5.0, Stroke::new(1.5_f32, pal.accent));
-            painter.line_segment([center-Vec2::new(8.0, 0.0), center+Vec2::new(8.0, 0.0)], Stroke::new(1.0_f32, pal.accent));
-            painter.line_segment([center-Vec2::new(0.0, 8.0), center+Vec2::new(0.0, 8.0)], Stroke::new(1.0_f32, pal.accent));
+            let c = img_rect.min + Vec2::new(seed[0] as f32, seed[1] as f32) * img_rect.size();
+            painter.circle_filled(c, 5.0, Color32::WHITE);
+            painter.circle_stroke(c, 5.0, Stroke::new(1.5_f32, pal.accent));
+            painter.line_segment([c - Vec2::new(8.0, 0.0), c + Vec2::new(8.0, 0.0)], Stroke::new(1.0_f32, pal.accent));
+            painter.line_segment([c - Vec2::new(0.0, 8.0), c + Vec2::new(0.0, 8.0)], Stroke::new(1.0_f32, pal.accent));
         }
-        if self.plot_job.is_some() && self.job.is_none() {
-            let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
-            let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
-            overlay.add(egui::Spinner::new());
-        }
-        if self.job.is_some() {
-            let c = rect.right_top() + Vec2::new(-24.0, 24.0);
-            painter.add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
+        if self.job.is_some() || self.plot_job.is_some() {
+            let c = space.right_top() + Vec2::new(-24.0, 24.0);
+            ui.painter().add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
             let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
             overlay.add(egui::Spinner::new());
         }
     }
 
-    /// Rotulador de cada capa. En Colores y Mezcla se crean rotuladores nuevos, salvo
-    /// que ya tengas uno casi igual; en los modos de tinta se usa el tuyo más parecido.
     /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
     /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
     fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
@@ -624,11 +592,9 @@ impl VectorizeUi {
         self.plot_job = Some((key, rx));
     }
 
-    /// Ajustes de la columna derecha.
-    /// Panel izquierdo: cómo se leen la luz y los colores de la foto antes de separarla.
+    /// Cómo se leen la luz y los colores de la foto antes de separarla.
     fn color_panel(&mut self, ui: &mut egui::Ui) {
         let pal = theme::current(ui.ctx());
-        theme::section(ui, ts!("COLOR DE LA FOTO"));
         ui.label(RichText::new(ts!("Cambia cómo se interpretan la luz y los colores. Mira el efecto en «Original» o en el dibujo.")).small().color(pal.tertiary));
         // Histograma de luz: de sombras (izquierda) a luces (derecha).
         let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 54.0), Sense::hover());
@@ -676,16 +642,41 @@ impl VectorizeUi {
 
     fn controls(&mut self, ui: &mut egui::Ui, doc: &Document) {
         let pal = theme::current(ui.ctx());
-        theme::section(ui, ts!("ESTILO"));
-        egui::ComboBox::from_id_salt("vec-mode").icon(crate::theme::combo_icon)
-            .width(ui.available_width())
-            .selected_text(crate::i18n::ts(self.params.mode.label()))
-            .show_ui(ui, |ui| {
-                for m in VecMode::ALL {
-                    ui.selectable_value(&mut self.params.mode, m, crate::i18n::ts(m.label()));
-                }
+        // Selector de estilos: el mismo de Crear y Volumen, con miniaturas de esta foto.
+        ui.horizontal(|ui| {
+            ui.weak(ts!("Estilo"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(&self.name).color(pal.secondary)).truncate());
             });
-        ui.label(RichText::new(crate::i18n::ts(self.params.mode.help())).small().color(pal.tertiary));
+        });
+        let entries: Vec<crate::catalog::Entry> = STYLES.iter().map(|(style, category)| crate::catalog::Entry {
+            label: style.label(),
+            category: crate::i18n::tr_key(category),
+        }).collect();
+        let current = Style::of(&self.params, &self.look);
+        let active = STYLES.iter().position(|(style, _)| *style == current);
+        let (Some(thumb_image), look) = (self.thumb_image.clone(), self.look.clone()) else { return };
+        let params = self.params.clone();
+        let thumbs = &mut self.thumbs;
+        let chosen = crate::catalog::selector(ui, egui::Id::new("photo-style"), &current.label(), active, &entries, ui.available_width(), |i, ui| {
+            let style = STYLES[i].0;
+            let mut wanted = ThumbKey { params: VecParams { max_px: THUMB_PX, ..params.clone() }, look: look.clone() };
+            style.apply(&mut wanted.params, &mut wanted.look);
+            thumbs.request(ui.ctx(), &thumb_image, &wanted);
+            thumbnail(ui, thumbs.get(style));
+            ui.set_max_width(190.0);
+            ui.label(RichText::new(style.help()).small());
+        });
+        if let Some(i) = chosen {
+            STYLES[i].0.apply(&mut self.params, &mut self.look);
+        }
+        let current = Style::of(&self.params, &self.look);
+        ui.label(RichText::new(current.help()).small().color(pal.tertiary));
+        if current != Style::Mode(self.params.mode) {
+            // La trama es solo cómo se rellena: lo que la hace mezcla es superponer tintas.
+            ui.label(RichText::new(crate::i18n::ts(VecMode::Mix.help())).small().color(pal.tertiary));
+        }
+        ui.add_space(4.0);
         if self.params.mode != VecMode::Topography { self.choosing_seed = false; }
         let prm = &mut self.params;
         match prm.mode {
@@ -818,7 +809,7 @@ impl VectorizeUi {
                 // tinta y las demás se reparten en 180°.
                 let sc = &mut look.screen;
                 let base = TraceParams { style: sc.screen, spacing_mm: sc.spacing_mm, angle_deg: sc.angle_deg, ..sc.trace.clone() };
-                let new = crate::inspector::trace_controls_in(ui, ts!("TRAMA INICIAL"), &base, false, false);
+                let new = crate::inspector::trace_controls_without_style(ui, ts!("TRAMA INICIAL"), &base);
                 if new != base {
                     sc.screen = new.style;
                     sc.spacing_mm = new.spacing_mm;
@@ -857,7 +848,18 @@ impl VectorizeUi {
             });
         }
 
-        theme::section(ui, ts!("DETALLE"));
+        theme::section(ui, ts!("TAMAÑO EN EL PAPEL"));
+        field(ui, ts!("Área útil"), |ui| ui.add(egui::Slider::new(&mut self.size_pct, 10.0..=100.0).suffix(" %")));
+
+        ui.add_space(4.0);
+        let tuned = if self.params.adjust.is_identity() { "" } else { " ●" };
+        egui::CollapsingHeader::new(format!("{}{tuned}", ts!("Color de la foto"))).id_salt("photo-colour").default_open(false).show(ui, |ui| {
+            self.color_panel(ui);
+        });
+        egui::CollapsingHeader::new(ts!("Detalle")).id_salt("photo-detail").default_open(false).show(ui, |ui| self.detail(ui));
+    }
+
+    fn detail(&mut self, ui: &mut egui::Ui) {
         let prm = &mut self.params;
         let blur_max = if prm.mode == VecMode::Topography { 20.0 } else { 4.0 };
         field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
@@ -878,9 +880,6 @@ impl VectorizeUi {
                 })
                 .response
         });
-
-        theme::section(ui, ts!("TAMAÑO EN EL PAPEL"));
-        field(ui, ts!("Área útil"), |ui| ui.add(egui::Slider::new(&mut self.size_pct, 10.0..=100.0).suffix(" %")));
     }
 
     fn scale(&self, doc: &Document, res: &VecResult) -> f64 {
@@ -962,6 +961,189 @@ impl VectorizeUi {
 
 /// Diferencia máxima (RGB) para considerar que una tinta de la paleta ya es ese color.
 const SAME_INK: f64 = 6.0;
+
+/// Ancho del panel izquierdo: el mismo que el de Crear.
+pub(crate) const PANEL_WIDTH: f32 = 360.0;
+
+/// Lado mayor, en px, de la foto con que se calculan las miniaturas.
+const THUMB_PX: u32 = 320;
+
+/// Ancho en mm con que se simula cada miniatura: tramas y separaciones a escala real.
+const THUMB_MM: f64 = 90.0;
+
+/// Estilos del selector, agrupados por categoría y en el orden en que se muestran.
+/// Cada trama de la mezcla es un estilo más, al mismo nivel que los demás.
+const STYLES: [(Style, &str); 17] = [
+    (Style::Mode(VecMode::Colors), tm!("Tramas de color")),
+    (Style::Mix(Screen::Hatch), tm!("Tramas de color")),
+    (Style::Mix(Screen::Waves), tm!("Tramas de color")),
+    (Style::Mix(Screen::Flow), tm!("Tramas de color")),
+    (Style::Mix(Screen::Contour), tm!("Tramas de color")),
+    (Style::Mix(Screen::Dots), tm!("Tramas de color")),
+    (Style::Mix(Screen::Scribble), tm!("Tramas de color")),
+    (Style::Mix(Screen::Spiral), tm!("Patrones de color")),
+    (Style::Mix(Screen::Circles), tm!("Patrones de color")),
+    (Style::Mix(Screen::Radial), tm!("Patrones de color")),
+    (Style::Mix(Screen::Truchet), tm!("Patrones de color")),
+    (Style::Mix(Screen::Hilbert), tm!("Patrones de color")),
+    (Style::Mode(VecMode::Portrait), tm!("Trazo")),
+    (Style::Mode(VecMode::Topography), tm!("Trazo")),
+    (Style::Mode(VecMode::Engrave), tm!("Trazo")),
+    (Style::Mode(VecMode::Lines), tm!("Dibujo a tinta")),
+    (Style::Mode(VecMode::Silhouette), tm!("Dibujo a tinta")),
+];
+
+/// Una entrada del selector: un modo de separación o, en la mezcla de rotuladores,
+/// la trama con que se rellena cada tinta.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Style {
+    Mode(VecMode),
+    Mix(Screen),
+}
+
+impl Style {
+    fn of(params: &VecParams, look: &Look) -> Style {
+        match params.mode {
+            VecMode::Mix => Style::Mix(look.screen.screen),
+            mode => Style::Mode(mode),
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Style::Mode(mode) => crate::i18n::tr_key(mode.label()),
+            Style::Mix(screen) => crate::i18n::tr_key(screen.label()),
+        }
+    }
+
+    fn help(self) -> &'static str {
+        match self {
+            Style::Mode(mode) => crate::i18n::ts(mode.help()),
+            Style::Mix(screen) => crate::i18n::ts(screen.help()),
+        }
+    }
+
+    fn apply(self, params: &mut VecParams, look: &mut Look) {
+        match self {
+            Style::Mode(mode) => params.mode = mode,
+            Style::Mix(screen) => {
+                params.mode = VecMode::Mix;
+                look.screen.screen = screen;
+                look.screen.trace.style = screen;
+            }
+        }
+    }
+}
+
+/// Qué se dibuja en una miniatura: los ajustes actuales con el estilo de esa entrada.
+#[derive(Clone, PartialEq)]
+struct ThumbKey {
+    params: VecParams,
+    look: Look,
+}
+
+/// Trazos de una miniatura en mm, con el color de cada capa.
+struct Thumb {
+    size: Vec2,
+    layers: Vec<([u8; 3], Vec<Polyline>)>,
+}
+
+impl ThumbKey {
+    fn style(&self) -> Style { Style::of(&self.params, &self.look) }
+}
+
+type ThumbReply = (ThumbKey, Thumb);
+type ThumbWorker = (mpsc::Sender<(Arc<DynamicImage>, ThumbKey)>, mpsc::Receiver<ThumbReply>);
+
+/// Miniaturas del selector de estilos, hechas con la propia foto. Tienen su propio
+/// trabajador: se calculan al pasar por cada estilo y nunca retrasan la vista previa.
+#[derive(Default)]
+struct Thumbnails {
+    worker: Option<ThumbWorker>,
+    /// Lo último pedido para cada estilo.
+    pending: Vec<ThumbKey>,
+    /// La miniatura más reciente de cada estilo, aunque sea de ajustes anteriores.
+    done: Vec<(ThumbKey, Arc<Thumb>)>,
+}
+
+impl Thumbnails {
+    fn poll(&mut self) {
+        let Some((_, rx)) = &self.worker else { return };
+        for (key, thumb) in rx.try_iter() {
+            self.pending.retain(|k| *k != key);
+            self.done.retain(|(k, _)| k.style() != key.style());
+            self.done.push((key, Arc::new(thumb)));
+        }
+    }
+
+    fn request(&mut self, ctx: &egui::Context, image: &Arc<DynamicImage>, key: &ThumbKey) {
+        if self.done.iter().any(|(k, _)| k == key) || self.pending.contains(key) {
+            return;
+        }
+        let (tx, _) = self.worker.get_or_insert_with(|| {
+            let (tx, rx) = mpsc::channel::<(Arc<DynamicImage>, ThumbKey)>();
+            let (out, input) = mpsc::channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                while let Ok(first) = rx.recv() {
+                    // De lo que se haya acumulado, solo cuenta lo último de cada estilo.
+                    let mut batch: Vec<(Arc<DynamicImage>, ThumbKey)> = Vec::new();
+                    for job in std::iter::once(first).chain(rx.try_iter()) {
+                        batch.retain(|(_, k)| k.style() != job.1.style());
+                        batch.push(job);
+                    }
+                    for (image, key) in batch {
+                        let thumb = make_thumb(&image, &key);
+                        if out.send((key, thumb)).is_err() {
+                            return;
+                        }
+                        ctx.request_repaint();
+                    }
+                }
+            });
+            (tx, input)
+        });
+        self.pending.retain(|k| k.style() != key.style());
+        self.pending.push(key.clone());
+        let _ = tx.send((image.clone(), key.clone()));
+    }
+
+    fn get(&self, style: Style) -> Option<&Thumb> {
+        self.done.iter().find(|(k, _)| k.style() == style).map(|(_, t)| t.as_ref())
+    }
+}
+
+fn make_thumb(image: &DynamicImage, key: &ThumbKey) -> Thumb {
+    let res = vectorize::vectorize(image, &key.params);
+    let scale = THUMB_MM / res.width.max(res.height).max(1.0);
+    let widths = vec![0.35; res.layers.len()];
+    let plot = plot_lines(&res, &PlotKey { result: 0, look: key.look.clone(), scale, widths });
+    Thumb {
+        size: Vec2::new((res.width * scale) as f32, (res.height * scale) as f32),
+        layers: res.layers.iter().map(|l| l.color).zip(plot.layers).collect(),
+    }
+}
+
+/// Miniatura de un estilo, del mismo tamaño que las de Crear.
+fn thumbnail(ui: &mut egui::Ui, thumb: Option<&Thumb>) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(190.0, 133.0), Sense::hover());
+    ui.painter().rect_filled(rect, 4.0, Color32::WHITE);
+    let Some(thumb) = thumb else {
+        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, ts!("Preparando miniatura…"), egui::FontId::proportional(12.0), Color32::from_gray(120));
+        return;
+    };
+    let k = ((rect.width() - 10.0) / thumb.size.x).min((rect.height() - 10.0) / thumb.size.y);
+    let origin = rect.center() - thumb.size * k * 0.5;
+    let painter = ui.painter().with_clip_rect(rect);
+    for (color, lines) in &thumb.layers {
+        let stroke = Stroke::new(0.6f32, theme::pen_color(*color));
+        for line in lines {
+            if line.len() >= 2 {
+                painter.add(egui::Shape::line(line.iter().map(|q| origin + Vec2::new(q.x as f32, q.y as f32) * k).collect(), stroke));
+            }
+        }
+    }
+}
 
 fn color_distance(a: [u8; 3], b: [u8; 3]) -> f64 {
     a.iter().zip(b).map(|(&x, y)| (x as f64 - y as f64).powi(2)).sum::<f64>().sqrt()
@@ -1068,23 +1250,6 @@ fn adjust_slider(ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::R
     }
 }
 
-fn separator(ui: &egui::Ui, pal: &theme::Palette, x: std::ops::RangeInclusive<f32>, y: f32) {
-    ui.painter().with_clip_rect(ui.ctx().screen_rect()).hline(x, y, Stroke::new(1.0f32, pal.separator));
-}
-
-/// Botón redondo de cerrar, como el de las hojas de macOS.
-fn close_button(ui: &mut egui::Ui, pal: &theme::Palette) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-    let c = rect.center();
-    let bg = if resp.hovered() { pal.control_hover } else { pal.control };
-    ui.painter().circle_filled(c, 12.0, bg);
-    let s = Stroke::new(1.6f32, pal.secondary);
-    let d = 4.0;
-    ui.painter().line_segment([c + Vec2::new(-d, -d), c + Vec2::new(d, d)], s);
-    ui.painter().line_segment([c + Vec2::new(-d, d), c + Vec2::new(d, -d)], s);
-    resp
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1159,10 +1324,12 @@ mod tests {
         view.preview = Preview::Original;
         view.choosing_seed = true;
         view.view.zoom = 2.0;
-        view.view.center = Vec2::new(0.4, 0.6);
+        view.view.center = Vec2::new(0.47, 0.53);
         let frame = |view: &mut VectorizeUi, events| ctx.run(egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))), events, ..Default::default()
-        }, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.preview_area(ui, Vec2::new(400.0, 300.0), &Document::default())); });
+        }, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.sheet(ui, &Document::default(), Color32::WHITE)); });
+        // El primer fotograma solo mide los controles flotantes.
+        frame(&mut view, vec![]);
         let output = frame(&mut view, vec![]);
         let texture = view.texture.as_ref().unwrap().id();
         let image = output.shapes.iter().find_map(|shape| match &shape.shape {
@@ -1273,13 +1440,14 @@ mod tests {
         let doc = Document::default();
         let mut frame = |time: f64, events| {
             let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(640.0, 480.0))), time: Some(time), events, ..Default::default() };
-            let _ = ctx.run(input, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.preview_area(ui, Vec2::new(400.0, 300.0), &doc)); });
+            let _ = ctx.run(input, |ctx| { egui::CentralPanel::default().show(ctx, |ui| view.sheet(ui, &doc, Color32::WHITE)); });
             view.view.zoom
         };
         frame(0.0, vec![]);
-        frame(0.1, vec![egui::Event::PointerMoved(Pos2::new(180.0, 140.0))]);
+        // Dentro del papel acerca; bajo el panel de la izquierda no.
+        frame(0.1, vec![egui::Event::PointerMoved(Pos2::new(560.0, 260.0))]);
         assert_eq!(frame(0.2, vec![egui::Event::Zoom(2.0)]), 2.0);
-        frame(0.3, vec![egui::Event::PointerMoved(Pos2::new(600.0, 140.0))]);
+        frame(0.3, vec![egui::Event::PointerMoved(Pos2::new(120.0, 260.0))]);
         assert_eq!(frame(0.4, vec![egui::Event::Zoom(2.0)]), 2.0);
     }
 
@@ -1368,7 +1536,7 @@ mod tests {
     }
 
     #[test]
-    fn the_colour_panel_sits_left_and_repaints_the_original_view() {
+    fn the_style_selector_sits_top_left_and_colour_changes_repaint() {
         let ctx = egui::Context::default();
         let doc = Document::default();
         let mut view = VectorizeUi::default();
@@ -1377,7 +1545,7 @@ mod tests {
         let input = || egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 800.0))), ..Default::default() };
         let mut texts = Vec::new();
         for _ in 0..2 {
-            let out = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc); });
+            let out = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc, Color32::WHITE, true); });
             texts.clear();
             fn collect(shape: &egui::Shape, texts: &mut Vec<(String, f32)>) {
                 match shape {
@@ -1389,13 +1557,96 @@ mod tests {
             out.shapes.iter().for_each(|c| collect(&c.shape, &mut texts));
         }
         let x_of = |w: &str| texts.iter().find(|(t, _)| t == w).map(|(_, x)| *x).unwrap_or_else(|| panic!("falta «{w}»: {texts:?}"));
-        for w in ["COLOR DE LA FOTO", "Brillo", "Contraste", "Tonos medios", "Saturación", "Tono", "Temperatura", "Restablecer"] {
-            assert!(x_of(w) < x_of("ESTILO"), "«{w}» debería ir en el panel izquierdo");
+        let y_of = |w: &str| texts.iter().position(|(t, _)| t == w).unwrap_or_else(|| panic!("falta «{w}»: {texts:?}"));
+        // El selector de estilos encabeza el panel de la izquierda, como en Crear y Volumen.
+        for w in ["Estilo", "Color de la foto", "Detalle", "TAMAÑO EN EL PAPEL", "Añadir al papel"] {
+            assert!(x_of(w) < PANEL_WIDTH + 40.0, "«{w}» debería ir en el panel izquierdo");
         }
-        assert!(x_of("COLOR DE LA FOTO") < 400.0);
+        assert!(y_of("Estilo") < y_of("Color de la foto"));
         // Mover un ajuste rehace la vista «Original» y lo pasa a la separación.
         view.params.adjust.saturation = 0.0;
-        let _ = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc); });
+        let _ = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc, Color32::WHITE, true); });
         assert_eq!(view.shown_adjust.saturation, 0.0);
+    }
+
+    #[test]
+    fn every_mix_screen_is_its_own_style_and_round_trips() {
+        for screen in Screen::ALL {
+            assert!(STYLES.iter().any(|(s, _)| *s == Style::Mix(screen)), "falta la trama {screen:?} en el selector");
+        }
+        assert!(!STYLES.iter().any(|(s, _)| *s == Style::Mode(VecMode::Mix)), "la mezcla no debe ser una entrada aparte");
+        for (style, _) in STYLES {
+            let (mut params, mut look) = (VecParams::default(), Look::default());
+            style.apply(&mut params, &mut look);
+            assert_eq!(Style::of(&params, &look), style);
+        }
+    }
+
+    /// Capturas del espacio Foto en `target/photo`, sin abrir ni reiniciar ventanas.
+    #[test]
+    #[ignore = "Capturas del espacio Foto sin abrir ni reiniciar ventanas"]
+    fn render_photo_workspace() {
+        use image::{Rgba, RgbaImage};
+        use std::collections::HashMap;
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/photo");
+        std::fs::create_dir_all(&dir).unwrap();
+        let photo = image::RgbImage::from_fn(360, 480, |x, y| {
+            let (dx, dy) = (x as f32 - 180.0, y as f32 - 200.0);
+            let face = (dx * dx / 110.0f32.powi(2) + dy * dy / 150.0f32.powi(2)).sqrt();
+            let shade = (0.5 + 0.5 * (dx / 110.0)).clamp(0.0, 1.0);
+            if face < 1.0 { image::Rgb([(230.0 - 110.0 * shade) as u8, (180.0 - 90.0 * shade) as u8, (150.0 - 80.0 * shade) as u8]) }
+            else { image::Rgb([40 + (y / 6) as u8, 70 + (x / 8) as u8, 120]) }
+        });
+        for (width, height, dark, empty) in [(1440, 900, false, false), (980, 620, true, false), (1440, 900, false, true)] {
+            let ctx = egui::Context::default();
+            ctx.options_mut(|o| o.theme_preference = if dark { egui::ThemePreference::Dark } else { egui::ThemePreference::Light });
+            let mut app = crate::app::VectorioApp::blank(&ctx);
+            app.mode = crate::app::ViewMode::Photo;
+            if !empty {
+                app.vec_ui.set_image(&ctx, DynamicImage::ImageRgb8(photo.clone()), "retrato.jpg".into());
+                // Una trama de color en la ventana pequeña; Retrato en la grande.
+                let style = if width < 1200 { Style::Mix(Screen::Waves) } else { Style::Mode(VecMode::Portrait) };
+                style.apply(&mut app.vec_ui.params, &mut app.vec_ui.look);
+            }
+            let mut textures = HashMap::new();
+            let mut output = None;
+            for i in 0..400 {
+                let out = ctx.run(egui::RawInput {
+                    time: Some(i as f64 * 0.1),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width as f32, height as f32))),
+                    ..Default::default()
+                }, |ctx| { app.toolbar(ctx, &theme::current(ctx)); app.show_photo(ctx); });
+                for (id, delta) in &out.textures_delta.set {
+                    let size = delta.image.size();
+                    let pixels: Vec<_> = match &delta.image {
+                        egui::ImageData::Color(i) => i.pixels.clone(),
+                        egui::ImageData::Font(i) => i.srgba_pixels(None).collect(),
+                    };
+                    if delta.pos.is_none() { textures.insert(*id, RgbaImage::new(size[0] as u32, size[1] as u32)); }
+                    let texture = textures.get_mut(id).unwrap();
+                    let offset = delta.pos.unwrap_or([0, 0]);
+                    for (i, color) in pixels.iter().enumerate() {
+                        texture.put_pixel((offset[0] + i % size[0]) as u32, (offset[1] + i / size[0]) as u32, Rgba(color.to_array()));
+                    }
+                }
+                output = Some(out);
+                let busy = app.vec_ui.job.is_some() || app.vec_ui.plot_job.is_some() || (app.vec_ui.result.is_some() && app.vec_ui.plot.is_none());
+                if i > 8 && (empty || (app.vec_ui.result.is_some() && !busy)) { break; }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            let output = output.unwrap();
+            let mut canvas = RgbaImage::from_pixel(width, height, Rgba([245, 245, 245, 255]));
+            for primitive in ctx.tessellate(output.shapes, output.pixels_per_point) {
+                if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                    for tri in mesh.indices.as_chunks::<3>().0 {
+                        crate::volumetric_ui::render_qa::raster(&mut canvas, &textures[&mesh.texture_id],
+                            [mesh.vertices[tri[0] as usize], mesh.vertices[tri[1] as usize], mesh.vertices[tri[2] as usize]], primitive.clip_rect);
+                    }
+                }
+            }
+            canvas.save(dir.join(format!("{}-{width}.png", if empty { "vacio" } else { "retrato" }))).unwrap();
+        }
     }
 }

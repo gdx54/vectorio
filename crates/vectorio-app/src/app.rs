@@ -25,6 +25,7 @@ pub enum Tool {
 pub enum ViewMode {
     Design,
     Create,
+    Photo,
     Volumetric,
     Output,
 }
@@ -524,7 +525,7 @@ impl VectorioApp {
     pub fn modified(&self) -> bool { self.doc != self.saved }
 
     pub(crate) fn document_modal(&self) -> bool {
-        self.prefs_ui.open || self.vec_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open
+        self.prefs_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open
     }
 
     fn confirm_document_change(&mut self, ctx: &egui::Context) -> bool {
@@ -625,7 +626,7 @@ impl VectorioApp {
             },
             "svg" => self.import_svg(ctx, path),
             _ => match self.vec_ui.load(ctx, path) {
-                Ok(()) => {}
+                Ok(()) => self.mode = ViewMode::Photo,
                 Err(e) => self.notify(ctx, tr!("No se pudo abrir la imagen: %{error}", error = e)),
             },
         }
@@ -757,6 +758,30 @@ impl VectorioApp {
 
     // ── Entrada ─────────────────────────────────────────────────────────────────
 
+    /// Espacio Foto: al añadir, el dibujo pasa al documento y se vuelve a Diseño con él
+    /// seleccionado; al cancelar se vuelve sin tocar nada.
+    pub(crate) fn show_photo(&mut self, ctx: &egui::Context) {
+        let paper = theme::pen_color(PAPER_TINTS[self.prefs.paper_tint].1);
+        let enabled = !self.document_modal();
+        match self.vec_ui.show(ctx, &self.doc, paper, enabled) {
+            Some(crate::vectorize_ui::Outcome::Add(import)) => {
+                self.doc.pens.extend(import.pens);
+                let replacing = import.replacing.is_some();
+                let ids = self.doc.add_photo_items(import.items, import.photo, import.replacing);
+                self.set_selection(ids);
+                self.tool = Tool::Select;
+                self.mode = ViewMode::Design;
+                self.notify(ctx, if replacing {
+                    tr!("Foto separada de nuevo en el mismo sitio.")
+                } else {
+                    tr!("Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho.")
+                });
+            }
+            Some(crate::vectorize_ui::Outcome::Cancel) => self.mode = ViewMode::Design,
+            None => {}
+        }
+    }
+
     pub(crate) fn dropped_files(&mut self, ctx: &egui::Context) {
         if self.document_modal() { return; }
         let files: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
@@ -834,15 +859,15 @@ impl VectorioApp {
                 }
                 ui.add_space(6.0);
                 capsule(ui, pal, |ui| {
-                    if icon_button(ui, pal, Icon::Image, false).on_hover_text(tr!("Foto → dibujo (I)")).clicked() {
-                        self.vec_ui.open_dialog(ctx);
+                    if icon_button(ui, pal, Icon::Image, false).on_hover_text(tr!("Foto → dibujo (I)")).clicked() && self.vec_ui.open_dialog(ctx) {
+                        self.mode = ViewMode::Photo;
                     }
                     if icon_button(ui, pal, Icon::Open, false).on_hover_text(tr!("Abrir proyecto, SVG o imagen (⌘O)")).clicked() {
                         self.open_dialog(ctx);
                     }
                 });
                 } else {
-                    ui.label(egui::RichText::new(if self.mode == ViewMode::Create { tr!("Generadores de dibujo") } else if self.mode == ViewMode::Volumetric { String::new() } else { tr!("Preparación · %{plotter}", plotter = self.prefs.plotter()) }).color(pal.secondary));
+                    ui.label(egui::RichText::new(if self.mode == ViewMode::Create { tr!("Generadores de dibujo") } else if self.mode == ViewMode::Photo { tr!("Foto → dibujo") } else if self.mode == ViewMode::Volumetric { String::new() } else { tr!("Preparación · %{plotter}", plotter = self.prefs.plotter()) }).color(pal.secondary));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -877,7 +902,7 @@ impl VectorioApp {
                         }
                     });
                     ui.add_space(8.0);
-                    let modes=[(ViewMode::Design,tr!("Diseño")),(ViewMode::Create,tr!("Crear")),(ViewMode::Volumetric,tr!("Volumen")),(ViewMode::Output,tr!("Salida"))];
+                    let modes=[(ViewMode::Design,tr!("Diseño")),(ViewMode::Create,tr!("Crear")),(ViewMode::Photo,tr!("Foto")),(ViewMode::Volumetric,tr!("Volumen")),(ViewMode::Output,tr!("Salida"))];
                     if workspace_selector(ui,pal,&mut self.mode,&modes)&&self.mode==ViewMode::Output&&self.sim.progress<=0.{self.sim.progress=1.;}
                     ui.add_space(8.0);
                     capsule(ui, pal, |ui| {
@@ -1035,6 +1060,8 @@ impl eframe::App for VectorioApp {
             crate::create::show(self, ctx);
         } else if self.mode == ViewMode::Volumetric {
             crate::volumetric_ui::show(self, ctx);
+        } else if self.mode == ViewMode::Photo {
+            self.show_photo(ctx);
         } else {
             egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
                 if self.document_modal() { ui.disable(); }
@@ -1043,18 +1070,6 @@ impl eframe::App for VectorioApp {
             });
             self.floating_panels(ctx, &pal);
             self.status_bar(ctx, &pal);
-        }
-        if let Some(import) = self.vec_ui.show(ctx, &self.doc) {
-            self.doc.pens.extend(import.pens);
-            let replacing = import.replacing.is_some();
-            let ids = self.doc.add_photo_items(import.items, import.photo, import.replacing);
-            self.set_selection(ids);
-            self.tool = Tool::Select;
-            self.notify(ctx, if replacing {
-                tr!("Foto separada de nuevo en el mismo sitio.")
-            } else {
-                tr!("Dibujo añadido y seleccionado entero. Retoca cada tinta en el panel derecho.")
-            });
         }
         if let Some(error) = self.vec_ui.take_load_error() { self.notify(ctx, error); }
         if self.show_help {
@@ -1565,7 +1580,7 @@ mod workspace_coherence_tests{
         let _=frame(&mut app,&ctx,0.);let out=frame(&mut app,&ctx,0.3);let before=knob(&out);
         app.mode=ViewMode::Volumetric;let transition=knob(&frame(&mut app,&ctx,0.316));let settled=knob(&frame(&mut app,&ctx,0.6));
         assert!(before.center().distance(settled.center())>50.);assert!(transition.center().distance(settled.center())>5.,"el selector salta al destino sin animación");
-        for(index,mode)in [ViewMode::Design,ViewMode::Create,ViewMode::Volumetric,ViewMode::Output].into_iter().enumerate(){
+        for(index,mode)in [ViewMode::Design,ViewMode::Create,ViewMode::Photo,ViewMode::Volumetric,ViewMode::Output].into_iter().enumerate(){
             app.mode=mode;let out=frame(&mut app,&ctx,1.+index as f64);
             let export=out.shapes.iter().find_map(|s|if let egui::Shape::Text(t)=&s.shape{(t.galley.text()=="Exportar").then_some(t)}else{None}).unwrap();
             assert!(export.fallback_color==Color32::WHITE,"Exportar cambia de estilo en {mode:?}");
@@ -1576,13 +1591,13 @@ mod workspace_coherence_tests{
 mod compact_workspace_tests{
     use super::*;
     #[test]
-    fn the_four_workspace_segments_remain_visible_in_small_windows_and_both_languages(){
+    fn the_five_workspace_segments_remain_visible_in_small_windows_and_both_languages(){
         let _lock=crate::i18n::locale_lock();
         for lang in ["es","en"]{rust_i18n::set_locale(lang);
-            for mode in [ViewMode::Design,ViewMode::Create,ViewMode::Volumetric,ViewMode::Output]{
+            for mode in [ViewMode::Design,ViewMode::Create,ViewMode::Photo,ViewMode::Volumetric,ViewMode::Output]{
                 let ctx=egui::Context::default();let mut app=VectorioApp::blank(&ctx);app.mode=mode;app.tool=Tool::Shape;let mut output=None;
                 for frame in 0..3{output=Some(ctx.run(egui::RawInput{time:Some(frame as f64),screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(980.,620.))),..Default::default()},|ctx|app.toolbar(ctx,&theme::current(ctx))));}
-                for label in [tr!("Diseño"),tr!("Crear"),tr!("Volumen"),tr!("Salida"),tr!("Exportar")]{
+                for label in [tr!("Diseño"),tr!("Crear"),tr!("Foto"),tr!("Volumen"),tr!("Salida"),tr!("Exportar")]{
                     let rect=output.as_ref().unwrap().shapes.iter().find_map(|s|if let egui::Shape::Text(t)=&s.shape{(t.galley.text()==label).then_some(Rect::from_min_size(t.pos,t.galley.size()))}else{None}).unwrap_or_else(||panic!("Falta {label} ({lang}, {mode:?})"));
                     assert!(rect.left()>=0.&&rect.right()<=980.,"{label}: {rect:?} ({lang},{mode:?})");
                 }

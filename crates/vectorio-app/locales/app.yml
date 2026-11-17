@@ -551,8 +551,6 @@ _version: 2
   en: "Fan"
 "Abre la foto con sus ajustes (también los de luz y color); las tintas nuevas sustituyen a estas en el mismo sitio":
   en: "Opens the photo with its settings (light and color too); the new pens replace these in the same place"
-"Abre una imagen":
-  en: "Open an image"
 "Agranda los puntos donde hay más color.":
   en: "Enlarges the dots where there is more color."
 "Ahora":
@@ -613,8 +611,6 @@ _version: 2
   en: "LAYERS"
 "COLOR":
   en: "COLOR"
-"COLOR DE LA FOTO":
-  en: "PHOTO COLOR"
 "COLOR DEL RELLENO":
   en: "FILL COLOR"
 "CONTORNO":
@@ -659,8 +655,6 @@ _version: 2
   en: "Center X"
 "Centro Y":
   en: "Center Y"
-"Cerrar (Esc)":
-  en: "Close (Esc)"
 "Cian · magenta · amarillo · negro":
   en: "Cyan · magenta · yellow · black"
 "Claras primero":
@@ -729,8 +723,6 @@ _version: 2
   en: "Circle"
 "Círculos":
   en: "Circles"
-"DETALLE":
-  en: "DETAIL"
 "Deformación":
   en: "Warp"
 "Derecha":
@@ -769,8 +761,6 @@ _version: 2
   en: "Duplicate selection"
 "EFECTOS DEL RELLENO":
   en: "FILL EFFECTS"
-"ESTILO":
-  en: "STYLE"
 "ESTILOS":
   en: "STYLES"
 "Editar el color de este objeto":
@@ -1279,8 +1269,6 @@ _version: 2
   en: "Vivid"
 "Volver a separar colores…":
   en: "Separate colors again…"
-"Volver a separar la foto":
-  en: "Separate the photo again"
 "Vueltas":
   en: "Turns"
 "Zigzag":
@@ -2606,3 +2594,23 @@ _version: 2
   en: "Colour maps"
 "Técnico":
   en: "Technical"
+"Abre una foto":
+  en: "Open a photo"
+"Abre una foto para convertirla en dibujo vectorial. También puedes arrastrarla a la ventana.":
+  en: "Open a photo to turn it into a vector drawing. You can also drag it onto the window."
+"Abrir foto…":
+  en: "Open photo…"
+"Color de la foto":
+  en: "Photo color"
+"Detalle":
+  en: "Detail"
+"Dibujo a tinta":
+  en: "Ink drawing"
+"Foto":
+  en: "Photo"
+"Trazo":
+  en: "Stroke"
+"Tramas de color":
+  en: "Color screens"
+"Patrones de color":
+  en: "Color patterns"

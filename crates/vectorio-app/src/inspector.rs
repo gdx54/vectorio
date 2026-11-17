@@ -475,8 +475,9 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
 
 fn reopen_photo(app: &mut VectorioApp, ctx: &egui::Context, group: u64) {
     let Some(photo) = app.doc.photo(group).cloned() else { return };
-    if app.vec_ui.reopen(ctx, &photo).is_err() {
-        app.notify(ctx, ts!("No se ha podido abrir la foto guardada."));
+    match app.vec_ui.reopen(ctx, &photo) {
+        Ok(()) => app.mode = crate::app::ViewMode::Photo,
+        Err(_) => app.notify(ctx, ts!("No se ha podido abrir la foto guardada.")),
     }
 }
 
@@ -673,12 +674,23 @@ fn fill_trace_controls(ui: &mut Ui, fill: &mut Fill) {
 }
 
 pub fn trace_controls_in(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, busy: bool) -> TraceParams {
+    trace_controls_with(ui, title, base, many, busy, true)
+}
+
+/// Los mismos controles cuando la trama ya se ha elegido fuera, como en el selector de Foto.
+pub fn trace_controls_without_style(ui: &mut Ui, title: &str, base: &TraceParams) -> TraceParams {
+    trace_controls_with(ui, title, base, false, false, false)
+}
+
+fn trace_controls_with(ui: &mut Ui, title: &str, base: &TraceParams, many: bool, busy: bool, with_style: bool) -> TraceParams {
     let pal = theme::current(ui.ctx());
     let mut t = base.clone();
     let percent = |v: f64, _| format!("{:.0} %", v * 100.0);
     theme::section(ui, title);
-    style_choice(ui, &mut t.style);
-    ui.label(RichText::new(crate::i18n::ts(t.style.help())).small().color(pal.tertiary));
+    if with_style {
+        style_choice(ui, &mut t.style);
+        ui.label(RichText::new(crate::i18n::ts(t.style.help())).small().color(pal.tertiary));
+    }
     row(ui, ts!("Separación"), |ui| { ui.add(egui::Slider::new(&mut t.spacing_mm, 0.3..=6.0).logarithmic(true).suffix(" mm")); });
     if t.style.uses_angle() {
         let label = if many { ts!("Girar") } else { ts!("Ángulo") };
