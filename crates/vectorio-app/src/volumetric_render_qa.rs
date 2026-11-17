@@ -85,7 +85,30 @@ fn render_volumetric_workspace() {
             (1440, 900, false, "extra-light"),
         ];
     }
-    if model_path.is_some() {
+    let features = std::env::var_os("VECTORIO_QA_FEATURES").is_some();
+    if features {
+        cases = vec![
+            (1440, 900, false, "features-suggestive"),
+            (980, 620, true, "features-suggestive"),
+            (1440, 900, false, "features-apparent"),
+            (980, 620, true, "features-apparent"),
+        ];
+        if model_path.is_some() {
+            cases.extend([
+                (1440, 900, false, "features-spider-suggestive"),
+                (980, 620, true, "features-spider-suggestive"),
+                (1440, 900, false, "features-spider-apparent"),
+                (980, 620, true, "features-spider-apparent"),
+            ]);
+        }
+    }
+    if std::env::var_os("VECTORIO_QA_FLOW").is_some() {
+        cases = vec![(1440,900,false,"features-flow"),(980,620,true,"features-flow"), (1440,900,false,"features-flow-minimum")];
+        if model_path.is_some() {
+            cases.extend([(1440,900,false,"features-spider-flow"),(980,620,true,"features-spider-flow")]);
+        }
+    }
+    if model_path.is_some() && !features && std::env::var_os("VECTORIO_QA_FLOW").is_none() {
         cases.extend([(1440, 900, false, "large"), (980, 620, true, "drop")]);
     }
     let shadow = std::env::var_os("VECTORIO_QA_SHADOW").is_some();
@@ -306,6 +329,21 @@ fn render_volumetric_workspace() {
             state.selected = Some(state.passes[0].id);
             state.passes_open = width < 1100;
         }
+        if case.starts_with("features-") {
+            if case.contains("spider") {
+                state.mesh = Arc::new(load_mesh(model_path.as_ref().unwrap()).unwrap().0);
+                state.primitive = None;
+            } else {
+                state.choose_primitive(Primitive::Torus);
+            }
+            let style = if case.contains("flow") { ReadingStyle::PrincipalFlow } else if case.ends_with("suggestive") { ReadingStyle::Suggestive } else { ReadingStyle::ApparentRidges };
+            state.replace_passes(style.passes(&state.settings), style.name().into(), false);
+            if case.ends_with("minimum") {
+                if let PassKind::Reading(ReadingParams {effect:ReadingEffect::PrincipalFlow {minimum,..},..}) = &mut state.passes[0].pass.kind {*minimum=true;}
+            }
+            state.selected = Some(state.passes[0].id);
+            state.passes_open = width < 1100;
+        }
         tests::prepare(&mut state, &app.doc.paper);
         if case == "selected" || case == "passes-sheet" {
             state.selected = Some(state.passes[0].id);
@@ -455,7 +493,7 @@ fn render_volumetric_workspace() {
             .unwrap();
     }
 }
-fn raster(
+pub(crate) fn raster(
     canvas: &mut RgbaImage,
     texture: &RgbaImage,
     vertices: [egui::epaint::Vertex; 3],

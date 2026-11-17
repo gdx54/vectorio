@@ -176,6 +176,10 @@ pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
     ui.add_space(6.0);
     ui.separator();
     theme::section(ui, ts!("TINTAS"));
+    if ui.button(tr!("Paletas…")).clicked() {
+        let _ = app.palettes.reload();
+        app.palette_ui.open_for(crate::palette_ui::Destination::Document, app.doc.pens.clone());
+    }
     ui.label(RichText::new(ts!("Arrastra para ordenar o suéltala en una capa")).small().color(pal.tertiary));
     ui.add_space(4.0);
     pen_cards(app, ui);

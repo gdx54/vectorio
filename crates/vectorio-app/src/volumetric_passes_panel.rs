@@ -281,7 +281,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
             });
     }
     state.menu_open |= ui
-        .push_id(("reading", id), |ui| reading_ui::controls(ui, pass, app))
+        .push_id(("reading", id), |ui| reading_ui::controls(ui, pass, app, id))
         .inner;
     if !matches!(pass.kind, PassKind::ToneHatch(_) | PassKind::Reading(_)) {
         ui.label(tr!("Visibilidad"));

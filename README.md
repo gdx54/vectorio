@@ -71,6 +71,8 @@ All project documentation is in English. The [documentation index](docs/README.m
 - [Volume architecture](docs/volumen/arquitectura.md), [test coverage](docs/volumen/pruebas.md), and [roadmap](docs/volumen/hoja-de-ruta.md).
 - [Ink sets, optical mixing, and isolines](docs/volumen/ampliacion-g.md).
 - [Output plan format](docs/referencia/formato-salida.md).
+- [Reusable palettes and the unified scene catalog](docs/paletas-y-catalogo-escenas.md).
+- [View-dependent contours and large-model performance](docs/volumen/contours-and-large-models.md).
 
 The core lives in `crates/vectorio-core`; the egui interface lives in `crates/vectorio-app`. `.vectorio` projects preserve objects, inks, and recipes. Historical plans describe the state and intentions at their recorded dates.
 

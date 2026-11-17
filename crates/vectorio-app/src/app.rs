@@ -81,6 +81,8 @@ pub struct VectorioApp {
     /// Rotulador cuyo color se está eligiendo en el editor integrado.
     pub color_edit: Option<usize>,
     pub color_picker: crate::colorpanel::ColorEditor,
+    pub palettes: crate::palettes::Library,
+    pub palette_ui: crate::palette_ui::PaletteUi,
     color_original: Option<Document>,
     color_targets: Vec<usize>,
     /// Rotulador que se está renombrando.
@@ -116,6 +118,7 @@ pub struct VectorioApp {
 impl VectorioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::blank(&cc.egui_ctx);
+        app.palettes = crate::palettes::Library::load_user();
         app.prefs = crate::prefs::Preferences::load();
         app.apply_prefs(&cc.egui_ctx);
         // Los documentos nuevos salen con el papel y los ajustes elegidos en Ajustes.
@@ -171,6 +174,8 @@ impl VectorioApp {
             pen_focus: false,
             color_edit: None,
             color_picker: Default::default(),
+            palettes: Default::default(),
+            palette_ui: Default::default(),
             color_original: None,
             color_targets: vec![],
             renaming_pen: None,
@@ -519,7 +524,7 @@ impl VectorioApp {
     pub fn modified(&self) -> bool { self.doc != self.saved }
 
     pub(crate) fn document_modal(&self) -> bool {
-        self.prefs_ui.open || self.vec_ui.open || self.color_edit.is_some() || self.show_help
+        self.prefs_ui.open || self.vec_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open
     }
 
     fn confirm_document_change(&mut self, ctx: &egui::Context) -> bool {
@@ -1058,6 +1063,7 @@ impl eframe::App for VectorioApp {
         if let Some(prefs) = self.prefs_ui.show(ctx, &self.prefs, &self.doc, &pal) { self.set_prefs(ctx, prefs); }
         self.save_prefs(ctx);
         self.show_color_panel(ctx);
+        crate::palette_ui::show(self, ctx);
         self.toast(ctx, &pal);
         theme::restyle_controls(ctx);
         self.update_traces(ctx);

@@ -1,5 +1,56 @@
 use super::*;
 #[test]
+fn saved_palettes_apply_to_the_target_pass_and_undo_restores_its_families() {
+    let mut state = VolumetricUi::default();
+    let mut doc = vectorio_core::Document::default();
+    state.replace_passes(ReadingStyle::OpticalThermal.passes(&state.settings), "Prueba".into(), false);
+    let id = state.passes[0].id;
+    let before = state.passes[0].pass.clone();
+    let original = doc.pens.clone();
+    let palette = crate::palettes::presets().remove(1);
+    state.apply_palette(id, &palette, &mut doc).unwrap();
+    let map = state.passes[0].pass.reading.as_ref().unwrap();
+    assert!(palette.matches(&map.pens, &doc.pens));
+    assert_eq!(map.optical.inks.len(), 4);
+    assert_eq!(&doc.pens[..original.len()], original);
+    state.passes[0].pass.validate().unwrap();
+    let applied = state.passes[0].pass.clone();
+    state.undo_stack(false);
+    assert_eq!(state.passes[0].pass, before);
+    state.undo_stack(true);
+    assert_eq!(state.passes[0].pass, applied);
+    assert!(state.apply_palette(u64::MAX, &palette, &mut doc).is_err());
+    assert_eq!(state.passes[0].pass, applied);
+}
+
+#[test]
+fn palettes_respect_section_family_minimum_and_density_uses_only_one_ink() {
+    let mut state = VolumetricUi::default();
+    let mut doc = vectorio_core::Document::default();
+    state.replace_passes(ReadingStyle::Section.passes(&state.settings), "Sección".into(), false);
+    let before = doc.clone();
+    let pass = state.passes[0].clone();
+    let palette = crate::palettes::presets().remove(0);
+    assert!(state.apply_palette(pass.id, &palette, &mut doc).is_err());
+    assert_eq!(doc, before);
+    assert_eq!(state.passes[0].pass, pass.pass);
+    let map = state.passes[0].pass.reading.as_mut().unwrap();
+    map.encoding = Encoding::Density;
+    map.ramp = Ramp::Sequential;
+    // Una vista de sección sigue necesitando sus tres familias aunque el campo tenga densidad.
+    assert!(state.apply_palette(pass.id, &palette, &mut doc).is_err());
+    state.replace_passes(ReadingStyle::Thermal.passes(&state.settings), "Densidad".into(), false);
+    let map = state.passes[0].pass.reading.as_mut().unwrap();
+    map.encoding = Encoding::Density;
+    map.ramp = Ramp::Sequential;
+    map.pens.truncate(1);
+    let count = doc.pens.len();
+    state.apply_palette(state.passes[0].id, &crate::palettes::presets().remove(1), &mut doc).unwrap();
+    assert_eq!(state.passes[0].pass.reading.as_ref().unwrap().pens.len(), 1);
+    assert!(doc.pens.len() <= count + 1, "no añade las tintas descartadas de la paleta");
+    state.passes[0].pass.validate().unwrap();
+}
+#[test]
 fn worker_rejects_stale_replies_and_inks_do_not_invalidate_geometry() {
     let ctx = egui::Context::default();
     let mut app = VectorioApp::blank(&ctx);
@@ -995,6 +1046,9 @@ fn reading_controls_and_output_actions_fit_both_languages_and_window_sizes() {
                 ReadingStyle::Ambient,
                 ReadingStyle::Anaglyph,
                 ReadingStyle::Section,
+                ReadingStyle::Suggestive,
+                ReadingStyle::ApparentRidges,
+                ReadingStyle::PrincipalFlow,
             ] {
                 let ctx = egui::Context::default();
                 let mut app = VectorioApp::blank(&ctx);

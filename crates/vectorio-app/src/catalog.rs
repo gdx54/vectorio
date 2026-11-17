@@ -39,22 +39,27 @@ pub(crate) fn selector(
         .data(|d| d.get_temp::<String>(query_id))
         .unwrap_or_default();
     let mut choice = None;
-    egui::ComboBox::from_id_salt(id)
+    let height = (ui.ctx().screen_rect().height() * 0.55).min(400.);
+    let opened_id = id.with("was-open");
+    let was_open = ui.ctx().data(|d| d.get_temp::<bool>(opened_id)).unwrap_or(false);
+    let menu = egui::ComboBox::from_id_salt(id)
         .icon(crate::theme::combo_icon)
         .selected_text(label)
         .width(width)
+        .height(height)
         .show_ui(ui, |ui| {
             ui.set_min_width(260.);
             ui.set_max_width(330.);
-            ui.add(
+            let search = ui.add(
                 egui::TextEdit::singleline(&mut query)
                     .hint_text(tr!("Buscar por nombre o categoría…"))
                     .desired_width(f32::INFINITY),
             );
+            if !was_open { search.request_focus(); }
             let mut found = false;
             egui::ScrollArea::vertical()
                 .id_salt(id.with("list"))
-                .max_height((ui.ctx().screen_rect().height() * 0.55).min(400.))
+                .max_height((height - 44.).max(100.))
                 .show(ui, |ui| {
                     let mut category = "";
                     for (index, entry) in entries.iter().enumerate() {
@@ -70,6 +75,9 @@ pub(crate) fn selector(
                             ui.label(egui::RichText::new(category).small().strong());
                         }
                         let response = ui.selectable_label(selected == Some(index), &entry.label);
+                        if !was_open && query.is_empty() && selected == Some(index) {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
                         if response.clicked() {
                             choice = Some(index);
                             ui.close_menu();
@@ -81,6 +89,7 @@ pub(crate) fn selector(
                 ui.weak(tr!("No hay resultados"));
             }
         });
+    ui.ctx().data_mut(|d| d.insert_temp(opened_id, menu.inner.is_some()));
     if choice.is_some() {
         query.clear();
     }

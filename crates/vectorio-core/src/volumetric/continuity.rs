@@ -93,6 +93,7 @@ impl Engine {
         };
         self.views.resize_with(views.len(), Engine::default);
         self.views.truncate(views.len());
+        self.prepare_views(&source, scene, passes, cancel)?;
         let mut result: Option<Drawing> = None;
         for (i, (yaw, elev)) in views.into_iter().enumerate() {
             if cancel() {

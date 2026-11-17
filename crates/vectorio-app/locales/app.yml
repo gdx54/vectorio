@@ -2413,3 +2413,180 @@ _version: 2
   en: "Sequential"
 "Escala de trama (mm)":
   en: "Screen scale (mm)"
+
+"Escribe un nombre de paleta de hasta 256 caracteres.":
+  en: "Enter a palette name of up to 256 characters."
+
+"Una paleta debe tener entre 1 y 64 tintas.":
+  en: "A palette needs between 1 and 64 inks."
+
+"Cada tinta necesita un nombre y un grosor entre 0 y 100 mm.":
+  en: "Each ink needs a name and a width greater than 0 and up to 100 mm."
+
+"La biblioteca admite hasta 128 paletas.":
+  en: "The library supports up to 128 palettes."
+
+"Ya existe una paleta con ese nombre. Elige otro.":
+  en: "A palette with that name already exists. Choose another name."
+
+"No se pudo leer la biblioteca de paletas. Se conserva el archivo.":
+  en: "Could not read the palette library. The file has been preserved."
+
+"La biblioteca de paletas supera 1 MB. Se conserva el archivo.":
+  en: "The palette library exceeds 1 MB. The file has been preserved."
+
+"La biblioteca de paletas no es válida. Se conserva el archivo.":
+  en: "The palette library is invalid. The file has been preserved."
+
+"Esta versión de la biblioteca de paletas no es compatible.":
+  en: "This palette library version is not supported."
+
+"No se pudo guardar la paleta. Tus cambios siguen en el editor.":
+  en: "Could not save the palette. Your changes remain in the editor."
+
+"La biblioteca cambió en otra ventana. Pulsa Recargar antes de guardar.":
+  en: "The library changed in another window. Reload before saving."
+
+"La paleta ya no existe. Pulsa Recargar.":
+  en: "The palette no longer exists. Reload the library."
+
+"Paletas":
+  en: "Palettes"
+
+"Tus juegos de tintas, disponibles en cualquier proyecto.":
+  en: "Your ink sets, available in any project."
+
+"Predefinidas":
+  en: "Built-in"
+
+"Mis paletas":
+  en: "My palettes"
+
+"Aún no has guardado ninguna.":
+  en: "You have not saved any palettes yet."
+
+"Nueva paleta":
+  en: "New palette"
+
+"Mi paleta":
+  en: "My palette"
+
+"Guardar tintas actuales…":
+  en: "Save current inks…"
+
+"Recargar":
+  en: "Reload"
+
+"Editar":
+  en: "Edit"
+
+"Copia de %{name}":
+  en: "Copy of %{name}"
+
+"Eliminar paleta…":
+  en: "Delete palette…"
+
+"Se elimina de la biblioteca. Los dibujos conservan sus tintas.":
+  en: "This removes it from the library. Drawings keep their inks."
+
+"Eliminar paleta":
+  en: "Delete palette"
+
+"Esta pasada necesita entre %{min} y 8 tintas.":
+  en: "This pass needs between %{min} and 8 inks."
+
+"Añadir al documento":
+  en: "Add to document"
+
+"Aplicar a la pasada":
+  en: "Apply to pass"
+
+"La densidad usa solo la primera tinta de la paleta.":
+  en: "Density uses only the first ink in the palette."
+
+"Hay una edición de paleta sin guardar.":
+  en: "There are unsaved palette edits."
+
+"Descartar edición y cerrar":
+  en: "Discard edits and close"
+
+"Seguir editando":
+  en: "Keep editing"
+
+"Nombre de la paleta":
+  en: "Palette name"
+
+"Subir":
+  en: "Move up"
+
+"Bajar":
+  en: "Move down"
+
+"Quitar tinta":
+  en: "Remove ink"
+
+"Guardar paleta":
+  en: "Save palette"
+
+"Paleta añadida. Los objetos conservan sus tintas.":
+  en: "Palette added. Objects keep their inks."
+
+"La pasada ya no existe. Vuelve a abrir Paletas.":
+  en: "The pass no longer exists. Open Palettes again."
+
+"La pasada ya no tiene un mapa de lectura.":
+  en: "The pass no longer has a reading map."
+
+"La paleta no tiene el número de tintas que necesita esta pasada.":
+  en: "The palette does not have the number of inks this pass requires."
+
+"Paletas…":
+  en: "Palettes…"
+
+"Arquitectura":
+  en: "Architecture"
+
+"Ciudades":
+  en: "Cities"
+
+"Puertos":
+  en: "Harbors"
+
+"Mundos":
+  en: "Worlds"
+
+"Elegir escena":
+  en: "Choose scene"
+
+"Contornos sugeridos":
+  en: "Suggestive contours"
+
+"Aristas aparentes":
+  en: "Apparent ridges"
+
+"Umbral de contornos":
+  en: "Contour threshold"
+
+"Ángulo mínimo (grados)":
+  en: "Minimum angle (degrees)"
+
+"Suavizado de normales":
+  en: "Normal smoothing"
+
+"Umbral de aristas":
+  en: "Ridge threshold"
+
+"Trazos de curvatura":
+  en: "Curvature strokes"
+
+"Dirección de curvatura":
+  en: "Curvature direction"
+
+"Máxima":
+  en: "Maximum"
+
+"Mínima":
+  en: "Minimum"
+
+"Longitud de trazos (mm)":
+  en: "Stroke length (mm)"

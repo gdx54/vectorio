@@ -546,6 +546,24 @@ impl VolumetricUi {
         self.undo.push(self.snapshot());
         self.redo.clear();
     }
+    pub(crate) fn apply_palette(&mut self, id: u64, palette: &crate::palettes::Palette, doc: &mut vectorio_core::Document) -> Result<(), &'static str> {
+        palette.validate()?;
+        let index = self.passes.iter().position(|p| p.id == id)
+            .ok_or(tm!("La pasada ya no existe. Vuelve a abrir Paletas."))?;
+        let pass = &self.passes[index].pass;
+        let map = pass.reading.as_ref().ok_or(tm!("La pasada ya no tiene un mapa de lectura."))?;
+        let (minimum, single) = reading_ui::palette_requirements(&pass.kind, map);
+        if !single && !(minimum..=8).contains(&palette.pens.len()) {
+            return Err(tm!("La paleta no tiene el número de tintas que necesita esta pasada."));
+        }
+        self.checkpoint();
+        let mut palette = palette.clone();
+        if single { palette.pens.truncate(1); }
+        let map = self.passes[index].pass.reading.as_mut().unwrap();
+        map.pens = palette.apply(doc);
+        map.bind_palette(&doc.pens);
+        Ok(())
+    }
     fn replace_passes(&mut self, passes: Vec<Pass>, name: String, undo: bool) {
         if undo {
             self.checkpoint();
@@ -865,7 +883,7 @@ mod continuity;
 
 #[cfg(test)]
 #[path = "volumetric_render_qa.rs"]
-mod render_qa;
+pub(crate) mod render_qa;
 
 pub(crate) fn reopen(app: &mut VectorioApp, group: u64) {
     continuity::reopen(app, group)

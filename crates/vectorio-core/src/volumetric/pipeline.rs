@@ -6,9 +6,6 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(super) struct Pipeline {
     source: Option<Arc<Mesh>>,
     mesh: Option<Arc<Mesh>>,
-    validated: Option<Arc<Mesh>>,
-    reduced: Option<Arc<Mesh>>,
-    detail: Option<MeshDetail>,
     display_mesh: Option<Arc<Mesh>>,
     model_key: Option<([f64; 3], [f64; 3], Option<usize>)>,
     shadows: super::shadow::Cache,
@@ -24,6 +21,7 @@ impl Pipeline {
         s: &Settings,
         paper: &crate::Paper,
         frame: Option<Camera>,
+        context_only: bool,
         cancel: &dyn Fn() -> bool,
     ) -> Result<Drawing, String> {
         let start = std::time::Instant::now();
@@ -48,27 +46,7 @@ impl Pipeline {
             .as_ref()
             .is_none_or(|m| !Arc::ptr_eq(m, &source));
         if changed {
-            self.validated = Some(Arc::new(
-                source.as_ref().clone().validated_cancellable(cancel)?.0,
-            ));
             self.source = Some(source);
-            self.detail = None;
-        }
-        let detail_changed = self.detail != Some(s.mesh_detail);
-        if detail_changed {
-            let original = self.validated.as_ref().unwrap();
-            let reduced = if original.triangles.len() <= s.mesh_detail.target() {
-                original.clone()
-            } else {
-                Arc::new(super::reduce::reduced(
-                    original,
-                    s.mesh_detail.target(),
-                    s.mesh_detail.error(),
-                    cancel,
-                )?)
-            };
-            self.reduced = Some(reduced);
-            self.detail = Some(s.mesh_detail);
             self.model_key = None;
         }
         let key = (
@@ -83,13 +61,7 @@ impl Pipeline {
             },
         );
         if self.model_key != Some(key) {
-            let source = self.reduced.as_ref().unwrap();
-            let faceted = if let Some(target) = key.2 {
-                Some(super::reduce::reduced(source, target, 0.04, cancel)?)
-            } else {
-                None
-            };
-            let source = faceted.as_ref().unwrap_or(source.as_ref());
+            let source = self.source.as_ref().unwrap();
             let transformed = Arc::new(source.transformed(s.model_scale, s.model_rotation));
             let display =
                 if s.recipe == RecipeKind::FlatShadow || transformed.triangles.len() <= 20_000 {
@@ -128,6 +100,24 @@ impl Pipeline {
         super::continuity::configure_camera(&mut camera, s, radius);
         if let Some(frame) = frame {
             camera = frame;
+        }
+        if context_only {
+            return Ok(Drawing {
+                parts: vec![DrawingPart {
+                    pen: 0,
+                    name: "Superficie".into(),
+                    lines: vec![],
+                    families: vec![],
+                    ramp: None,
+                }],
+                curves: Arc::new(vec![]),
+                mesh,
+                display_mesh: self.display_mesh.as_ref().unwrap().clone(),
+                camera,
+                seconds: start.elapsed().as_secs_f64(),
+                shadow: None,
+                art: None,
+            });
         }
         if s.recipe == RecipeKind::FlatShadow {
             let (parts, camera, shadow) = super::shadow::draw(

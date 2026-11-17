@@ -1,12 +1,12 @@
 //! Campos por vértice. Curvatura cotangente con masa baricéntrica y defecto angular.
 use super::*;
-use std::collections::BTreeMap;
+use std::{collections::HashMap, sync::OnceLock};
 pub(super) struct Geometry {
     pub normals: Vec<V3>,
     pub mean: Vec<f64>,
     pub gaussian: Vec<f64>,
     incident: Vec<Vec<usize>>,
-    pub bvh: rays::Bvh,
+    bvh: OnceLock<rays::Bvh>,
 }
 impl Geometry {
     fn new(mesh: &Mesh, cancel: &dyn Fn() -> bool) -> Result<Self, String> {
@@ -18,7 +18,7 @@ impl Geometry {
         let mut angles = vec![0.; n];
         let mut lap = vec![V3::default(); n];
         let mut incident = vec![vec![]; n];
-        let mut edges = BTreeMap::<(usize, usize), usize>::new();
+        let mut edges = HashMap::<(usize, usize), usize>::with_capacity(mesh.triangles.len() * 2);
         for (i, t) in mesh.triangles.iter().enumerate() {
             if i % 128 == 0 && cancel() {
                 return Err("Cálculo cancelado.".into());
@@ -75,14 +75,37 @@ impl Geometry {
                 }
             })
             .collect();
-        let bvh = rays::Bvh::new(mesh, cancel)?;
         Ok(Self {
             normals,
             mean,
             gaussian,
             incident,
-            bvh,
+            bvh: OnceLock::new(),
         })
+    }
+    fn rays(&self, mesh: &Mesh, cancel: &dyn Fn() -> bool) -> Result<&rays::Bvh, String> {
+        if self.bvh.get().is_none() {
+            // Una cancelación no deja un resultado fallido guardado para siempre.
+            let bvh = rays::Bvh::new(mesh, cancel)?;
+            let _ = self.bvh.set(bvh);
+        }
+        Ok(self.bvh.get().unwrap())
+    }
+}
+
+#[cfg(test)]
+mod lazy_ray_tests {
+    use super::*;
+    #[test]
+    fn geometry_defers_ray_index_and_retries_after_cancellation() {
+        let mesh = Primitive::Sphere.mesh();
+        let geometry = Geometry::new(&mesh, &|| false).unwrap();
+        assert!(geometry.bvh.get().is_none());
+        assert!(geometry.rays(&mesh, &|| true).is_err());
+        assert!(geometry.bvh.get().is_none());
+        let a = geometry.rays(&mesh, &|| false).unwrap() as *const rays::Bvh;
+        let b = geometry.rays(&mesh, &|| true).unwrap() as *const rays::Bvh;
+        assert_eq!(a, b);
     }
 }
 struct FieldEntry {
@@ -183,6 +206,7 @@ impl Cache {
                 .map(|n| n.x.atan2(n.y).to_degrees().rem_euclid(360.))
                 .collect(),
             Measure::AmbientOcclusion | Measure::Thickness => {
+                let bvh = geometry.rays(&mesh, cancel)?;
                 let extent = (mesh.bounds()[1] - mesh.bounds()[0]).length().max(1e-6);
                 let epsilon = extent * 1e-6;
                 let mut values = Vec::with_capacity(points.len());
@@ -193,15 +217,13 @@ impl Cache {
                     let n = geometry.normals[i];
                     if kind == Measure::Thickness {
                         values.push(
-                            geometry
-                                .bvh
-                                .nearest(
-                                    point - n * epsilon,
-                                    n * (-1.),
-                                    &geometry.incident[i],
-                                    extent * 2.,
-                                )
-                                .map_or(0., |v| v + epsilon),
+                            bvh.nearest(
+                                point - n * epsilon,
+                                n * (-1.),
+                                &geometry.incident[i],
+                                extent * 2.,
+                            )
+                            .map_or(0., |v| v + epsilon),
                         );
                         continue;
                     }
@@ -222,9 +244,7 @@ impl Cache {
                             + bitangent * (u.sqrt() * phi.sin())
                             + n * (1. - u).sqrt();
                         hits += usize::from(
-                            geometry
-                                .bvh
-                                .nearest(point + n * epsilon, d, &geometry.incident[i], extent * 2.)
+                            bvh.nearest(point + n * epsilon, d, &geometry.incident[i], extent * 2.)
                                 .is_some(),
                         );
                     }
