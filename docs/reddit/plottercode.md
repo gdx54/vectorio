@@ -1,4 +1,6 @@
-# r/PlotterCode draft
+# r/PlotterCode preparation draft
+
+Published with a revised introduction and 15 screenshots: [Reddit post](https://www.reddit.com/r/PlotterCode/comments/1xxxmto/i_made_vectorio_for_my_own_plotter_designs_and/).
 
 Title: I built Vectorio for my own plotter drawings, and thought I'd share it here
 
@@ -28,4 +30,4 @@ Source: [Vectorio on GitHub](https://github.com/gdx54/vectorio)
 
 ---
 
-Editor note: suggested image order and credits are in [README.md](README.md). This is a prepared draft; it has not been posted.
+Editor note: suggested image order and credits are in [README.md](README.md). This is the preparation draft; the published version is linked above.

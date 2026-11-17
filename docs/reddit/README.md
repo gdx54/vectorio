@@ -40,7 +40,7 @@ The image-conversion example uses [NASA Blue Marble](https://science.nasa.gov/re
 
 The spider is an imported STL supplied by the project owner. The original model was read from Downloads and is not bundled in this pack. Add its creator/source credit when available. The city, village, domes, and Design demonstration were generated for these screenshots.
 
-Public repository: [gdx54/vectorio](https://github.com/gdx54/vectorio). Neither Reddit draft has been posted.
+Public repository: [gdx54/vectorio](https://github.com/gdx54/vectorio). Published on [r/PlotterCode](https://www.reddit.com/r/PlotterCode/comments/1xxxmto/i_made_vectorio_for_my_own_plotter_designs_and/) with 15 screenshots on 16 November 2026. The r/PlotterArt version has not been posted.
 
 ## All screenshots
 
