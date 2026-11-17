@@ -314,6 +314,23 @@ impl VectorizeUi {
         self.choosing_seed = false;
     }
 
+    /// Intercambia un estilo con el de encima (`up`) o el de debajo. Cada uno conserva
+    /// sus resultados: solo cambia el orden en que se dibujan y se añaden al papel.
+    fn move_pass(&mut self, index: usize, up: bool) {
+        let n = self.others.len() + 1;
+        let other = if up { index + 1 } else { index.wrapping_sub(1) };
+        if index >= n || other >= n {
+            return;
+        }
+        let mut all = std::mem::take(&mut self.others);
+        all.insert(self.active, std::mem::take(&mut self.pass));
+        all.swap(index, other);
+        let active = if self.active == index { other } else if self.active == other { index } else { self.active };
+        self.pass = all.remove(active);
+        self.others = all;
+        self.active = active;
+    }
+
     /// Añade un estilo encima de todos y pasa a editarlo. Parte de los mismos ajustes
     /// de foto; si abajo hay manchas o tramas, lo natural encima es el dibujo a tinta.
     fn add_pass(&mut self) {
@@ -358,7 +375,8 @@ impl VectorizeUi {
     fn stack_list(&mut self, ui: &mut egui::Ui) {
         let pal = theme::current(ui.ctx());
         let rows: Vec<(String, bool)> = self.stack().iter().map(|pass| (Style::of(&pass.params, &pass.look).label(), pass.hidden)).collect();
-        let (mut select, mut remove, mut toggle) = (None, None, None);
+        let (mut select, mut remove, mut toggle, mut shift) = (None, None, None, None);
+        let top = rows.len() - 1;
         for (i, (label, hidden)) in rows.iter().enumerate().rev() {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -375,6 +393,12 @@ impl VectorizeUi {
                     if ui.small_button(ts!("Quitar")).clicked() {
                         remove = Some(i);
                     }
+                    if ui.add_enabled(i > 0, egui::Button::new(ts!("Bajar")).small()).on_hover_text(ts!("Dibujar este estilo antes, por debajo")).clicked() {
+                        shift = Some((i, false));
+                    }
+                    if ui.add_enabled(i < top, egui::Button::new(ts!("Subir")).small()).on_hover_text(ts!("Dibujar este estilo después, por encima")).clicked() {
+                        shift = Some((i, true));
+                    }
                 });
             });
         }
@@ -387,6 +411,9 @@ impl VectorizeUi {
         }
         if let Some(i) = remove {
             self.remove_pass(i);
+        }
+        if let Some((i, up)) = shift {
+            self.move_pass(i, up);
         }
         ui.add_space(4.0);
     }
@@ -1847,6 +1874,22 @@ mod tests {
         let mut again = VectorizeUi::default();
         again.reopen(&ctx, &photo).unwrap();
         assert_eq!(modes(&again), modes(&view));
+        // Subir y bajar cambian el orden y el estilo en edición sigue siendo el mismo.
+        view.move_pass(1, true);
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::CrossHatch, VecMode::Ink]);
+        assert_eq!((view.active, view.pass.params.mode), (2, VecMode::Ink));
+        view.move_pass(0, true);
+        assert_eq!(modes(&view), vec![VecMode::CrossHatch, VecMode::Colors, VecMode::Ink]);
+        assert_eq!(view.pass.params.mode, VecMode::Ink);
+        view.move_pass(2, true);
+        view.move_pass(0, false);
+        assert_eq!(modes(&view), vec![VecMode::CrossHatch, VecMode::Colors, VecMode::Ink]);
+        let photo = view.photo().unwrap();
+        assert_eq!(photo.params.mode, VecMode::CrossHatch);
+        view.move_pass(0, true);
+        view.move_pass(2, false);
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::Ink, VecMode::CrossHatch]);
+        view.select(1);
         // Quitar el que se edita pasa a editar el de encima; quitar otro mantiene el elegido.
         view.remove_pass(1);
         assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::CrossHatch]);

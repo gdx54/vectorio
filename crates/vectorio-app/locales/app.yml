@@ -2710,3 +2710,7 @@ _version: 2
   en: "All styles are hidden"
 "Quitar":
   en: "Remove"
+"Dibujar este estilo antes, por debajo":
+  en: "Draw this style earlier, underneath"
+"Dibujar este estilo después, por encima":
+  en: "Draw this style later, on top"
