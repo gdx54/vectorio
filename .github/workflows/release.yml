@@ -1,12 +1,21 @@
 name: macOS installer
 
+# Publicar no depende de nadie: cuando llega a main un Cargo.toml con una versión
+# que aún no tiene release, se crea la etiqueta vX.Y.Z, se compila el .dmg y se sube.
+# Una etiqueta v* empujada a mano sigue funcionando igual.
 on:
   push:
+    branches: [main]
+    paths: [Cargo.toml]
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   dmg:
@@ -17,21 +26,45 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Decide the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          elif [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_EVENT_NAME" == push ]]; then
+            version=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version'])")
+            tag="v$version"
+            # Otro cambio de Cargo.toml sin subir la versión no vuelve a publicar.
+            if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "La versión $tag ya está publicada."
+              tag=""
+            fi
+          else
+            tag=""
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Set up stable Rust
+        if: steps.release.outputs.tag != '' || github.event_name == 'workflow_dispatch'
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Build installer
+        if: steps.release.outputs.tag != '' || github.event_name == 'workflow_dispatch'
         run: python3 scripts/build-dmg.py
       - name: Upload to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "Vectorio $GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" target/dist/*.dmg -R "$GITHUB_REPOSITORY" --clobber
+          # Sin etiqueta previa, gh la crea sobre el commit que se acaba de compilar.
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Vectorio $TAG" --generate-notes
+          gh release upload "$TAG" target/dist/*.dmg -R "$GITHUB_REPOSITORY" --clobber
       - uses: actions/upload-artifact@v4
+        if: steps.release.outputs.tag != '' || github.event_name == 'workflow_dispatch'
         with:
           name: vectorio-dmg
           path: target/dist/*.dmg
