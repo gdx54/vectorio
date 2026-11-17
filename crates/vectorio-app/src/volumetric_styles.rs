@@ -471,7 +471,10 @@ impl Thumbnails {
                                     p.facets = p.facets.min(240);
                                     p.lines = p.lines.min(18);
                                 }
-                                PassKind::Mesh(p) => p.facets = p.facets.min(240),
+                                PassKind::Mesh(p) => {
+                                    p.facets = p.facets.min(240);
+                                    p.mesh_facets = p.mesh_facets.min(240);
+                                }
                                 PassKind::Outline(OutlineParams::Surface { facets }) => {
                                     *facets = (*facets).min(240)
                                 }

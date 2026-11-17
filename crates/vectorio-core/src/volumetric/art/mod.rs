@@ -19,10 +19,20 @@ pub enum MeshColor {
     Depth,
     Objects,
 }
+/// Red abierta y legible a plóter; la calidad de la forma no depende de ella.
+pub const DEFAULT_NET: usize = 2500;
+/// Valor de los archivos anteriores a la red independiente: dibujar todas las facetas.
+pub(crate) fn full_net() -> usize {
+    20_000
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ArtSettings {
     pub facets: usize,
+    /// Triángulos de la red dibujada en Malla e Híbrido. La forma, las ondas y la
+    /// ocultación siguen usando `facets`; los archivos antiguos dibujan la malla entera.
+    #[serde(default = "full_net")]
+    pub mesh_facets: usize,
     pub lines: usize,
     pub pattern: WavePattern,
     pub origin_azimuth: f64,
@@ -37,6 +47,7 @@ impl Default for ArtSettings {
     fn default() -> Self {
         Self {
             facets: 20_000,
+            mesh_facets: DEFAULT_NET,
             lines: 84,
             pattern: WavePattern::Waves,
             origin_azimuth: 165.,
@@ -52,6 +63,7 @@ impl Default for ArtSettings {
 impl ArtSettings {
     pub fn validate(&self) -> Result<(), String> {
         if !(64..=20_000).contains(&self.facets)
+            || !(64..=20_000).contains(&self.mesh_facets)
             || !(4..=160).contains(&self.lines)
             || !(1..=256).contains(&self.mesh_inks)
             || [
@@ -73,7 +85,8 @@ impl ArtSettings {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct MeshStroke {
-    pub points: [V3; 2],
+    /// Arista de la red; si es más abierta que la malla, sigue la superficie fina.
+    pub points: Vec<V3>,
     pub role: usize,
 }
 #[derive(Clone, Debug)]
@@ -81,7 +94,7 @@ pub struct ArtDrawing {
     pub edges: Arc<Vec<MeshStroke>>,
 }
 type FieldKey = (WavePattern, f64, f64, f64, f64, u64);
-type EdgeKey = (MeshColor, usize, bool, f64, f64, Option<f64>);
+type EdgeKey = (MeshColor, usize, usize, bool, f64, f64, Option<f64>);
 #[derive(Default)]
 pub(super) struct Cache {
     mesh: Option<Arc<Mesh>>,
@@ -95,6 +108,8 @@ pub(super) struct Cache {
     curves: Option<Arc<Vec<Contour>>>,
     edge_key: Option<EdgeKey>,
     edges: Option<Arc<Vec<MeshStroke>>>,
+    nets: Vec<(usize, Arc<Mesh>)>,
+    lift: Option<f64>,
 }
 impl Cache {
     pub fn draw(
@@ -170,7 +185,12 @@ impl Cache {
                     if let Some((_, edges)) = self.edge_groups.iter().find(|(k, _)| *k == key) {
                         edges.clone()
                     } else {
-                        let edges = Arc::new(edges::strokes(&mesh, art, &camera, hybrid, cancel)?);
+                        let net = self.net(&mesh, art.mesh_facets, cancel)?;
+                        let mut edges = edges::strokes(&net, art, &camera, hybrid, cancel)?;
+                        if !Arc::ptr_eq(&net, &mesh) {
+                            edges::drape(&mut edges, &mesh, cancel)?;
+                        }
+                        let edges = Arc::new(edges);
                         self.edge_groups.push((key, edges.clone()));
                         edges
                     },
@@ -237,12 +257,30 @@ impl Cache {
             );
             scene.line(&curve.points.iter().map(|q| rotate(*q)).collect::<Vec<_>>());
         }
+        // Las aristas apoyadas sobre la malla fina se hunden un poco entre muestras; se
+        // acercan a la cámara por su rayo de vista, así su trazo en el papel no cambia y
+        // su propia superficie no las oculta.
+        let lift = if strokes.iter().any(|s| s.points.len() > 2) {
+            *self.lift.get_or_insert_with(|| 0.25 * mean_edge(&mesh))
+        } else {
+            0.
+        };
+        let away = camera.axes().2;
+        let toward = |q: V3| match camera.perspective {
+            Some([d, _]) => (camera.world_center - away * d - q).normalized(),
+            None => away * -1.,
+        };
         for stroke in strokes.iter() {
             if cancel() {
                 return Err(CANCEL.into());
             }
             scene.set_part(parts[stroke.role]);
-            scene.line(&stroke.points.map(rotate));
+            let line: Vec<_> = if stroke.points.len() > 2 {
+                stroke.points.iter().map(|q| rotate(*q + toward(*q) * lift)).collect()
+            } else {
+                stroke.points.iter().map(|q| rotate(*q)).collect()
+            };
+            scene.line(&line);
         }
         if art.outline && has_waves {
             scene.set_part(parts[if hybrid { 0 } else { 2 }]);
@@ -272,6 +310,19 @@ impl Cache {
     }
 }
 
+fn mean_edge(mesh: &Mesh) -> f64 {
+    let pts = mesh.points();
+    let total: f64 = mesh
+        .triangles
+        .iter()
+        .map(|t| {
+            (pts[t[1]] - pts[t[0]]).length()
+                + (pts[t[2]] - pts[t[1]]).length()
+                + (pts[t[0]] - pts[t[2]]).length()
+        })
+        .sum();
+    total / (3 * mesh.triangles.len().max(1)) as f64
+}
 fn field_key(s: &Settings) -> FieldKey {
     let a = &s.art;
     (
@@ -288,6 +339,7 @@ fn edge_key(s: &Settings) -> EdgeKey {
     (
         s.art.coloring,
         s.art.mesh_inks,
+        s.art.mesh_facets,
         s.recipe == RecipeKind::Hybrid,
         if depth { s.yaw } else { 0. },
         if depth { s.elevation } else { 0. },
@@ -295,6 +347,26 @@ fn edge_key(s: &Settings) -> EdgeKey {
     )
 }
 impl Cache {
+    /// Red reducida desde la malla de calidad: sus vértices son vértices de la malla fina.
+    fn net(
+        &mut self,
+        mesh: &Arc<Mesh>,
+        target: usize,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Arc<Mesh>, String> {
+        if target >= mesh.triangles.len() {
+            return Ok(mesh.clone());
+        }
+        if let Some((_, net)) = self.nets.iter().find(|(n, _)| *n == target) {
+            return Ok(net.clone());
+        }
+        let net = Arc::new(super::reduce::reduced(mesh, target, 0.04, cancel)?);
+        if self.nets.len() >= 4 {
+            self.nets.remove(0);
+        }
+        self.nets.push((target, net.clone()));
+        Ok(net)
+    }
     pub(super) fn retain_programs(&mut self, programs: &[Settings]) {
         let limit = programs.len() + 16;
         if self.fields.len() > limit {

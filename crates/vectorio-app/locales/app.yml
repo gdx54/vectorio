@@ -2009,6 +2009,10 @@ _version: 2
   en: "Curve family"
 "Familia de esta pasada":
   en: "This pass's family"
+"Triángulos de la red":
+  en: "Mesh triangles"
+"Cuántos triángulos se dibujan. La forma y las partes ocultas siguen usando todas las facetas.":
+  en: "How many triangles are drawn. The shape and hidden parts still use every facet."
 "Familias de tinta":
   en: "Ink families"
 "Guardar estilo":

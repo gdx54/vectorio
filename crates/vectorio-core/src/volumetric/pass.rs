@@ -95,6 +95,9 @@ pub struct WaveParams {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MeshParams {
     pub facets: usize,
+    /// Triángulos de la red dibujada; `facets` queda para la forma y la ocultación.
+    #[serde(default = "super::art::full_net")]
+    pub mesh_facets: usize,
     pub coloring: MeshColor,
     pub inks: usize,
     pub group: usize,

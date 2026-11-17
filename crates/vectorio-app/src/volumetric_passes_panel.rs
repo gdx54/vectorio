@@ -717,8 +717,18 @@ fn parameters(ui: &mut egui::Ui, kind: &mut PassKind) {
             ui.label(tr!("Familia de esta pasada"));
             ui.add(egui::Slider::new(&mut group, 1..=p.inks));
             p.group = group - 1;
-            ui.label(tr!("Triángulos"));
-            ui.add(egui::Slider::new(&mut p.facets, 64..=20_000).logarithmic(true));
+            // La red es lo que se dibuja; las facetas solo afinan forma y ocultación.
+            ui.label(tr!("Triángulos de la red"));
+            ui.add(egui::Slider::new(&mut p.mesh_facets, 64..=20_000).logarithmic(true))
+                .on_hover_text(tr!(
+                    "Cuántos triángulos se dibujan. La forma y las partes ocultas siguen usando todas las facetas."
+                ));
+            egui::CollapsingHeader::new(tr!("Avanzado"))
+                .id_salt("mesh-advanced")
+                .show(ui, |ui| {
+                    ui.label(tr!("Facetas"));
+                    ui.add(egui::Slider::new(&mut p.facets, 64..=20_000).logarithmic(true));
+                });
         }
     }
 }
