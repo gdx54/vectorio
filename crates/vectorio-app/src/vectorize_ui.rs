@@ -791,6 +791,52 @@ impl VectorizeUi {
                     }).response
                 });
             }
+            VecMode::CrossHatch => {
+                let h = &mut prm.hatch;
+                field(ui, ts!("Separación"), |ui| ui.add(egui::Slider::new(&mut h.spacing, 2.0..=20.0).logarithmic(true)));
+                field(ui, ts!("Capas"), |ui| ui.add(egui::Slider::new(&mut h.layers, 1..=4))
+                    .on_hover_text(ts!("Cuántas direcciones de rayas se cruzan en las zonas más oscuras.")));
+                field(ui, ts!("Ángulo"), |ui| ui.add(egui::Slider::new(&mut h.angle, 0.0..=180.0).suffix("°")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut h.gamma, 0.5..=3.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Temblor"), |ui| ui.add(egui::Slider::new(&mut h.tremble, 0.0..=1.0))
+                    .on_hover_text(ts!("Ondula un poco las rayas, como trazadas a mano.")));
+            }
+            VecMode::Burin => {
+                let b = &mut prm.burin;
+                field(ui, ts!("Separación"), |ui| ui.add(egui::Slider::new(&mut b.spacing, 2.0..=20.0).logarithmic(true)));
+                field(ui, ts!("Ángulo"), |ui| ui.add(egui::Slider::new(&mut b.angle, 0.0..=180.0).suffix("°")));
+                field(ui, ts!("Relieve"), |ui| ui.add(egui::Slider::new(&mut b.relief, 0.0..=3.0))
+                    .on_hover_text(ts!("Cuánto se curvan las rayas siguiendo la luz de la foto.")));
+                field(ui, ts!("Ensanche"), |ui| ui.add(egui::Slider::new(&mut b.swell, 0.0..=1.0))
+                    .on_hover_text(ts!("Ancho máximo del surco en las sombras.")));
+                field(ui, ts!("Pasadas"), |ui| ui.add(egui::Slider::new(&mut b.strands, 2..=8))
+                    .on_hover_text(ts!("Idas y vueltas de la punta donde el surco es más ancho.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut b.gamma, 0.5..=3.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+            }
+            VecMode::Continuous => {
+                let c = &mut prm.continuous;
+                field(ui, ts!("Paradas"), |ui| ui.add(egui::Slider::new(&mut c.points, 500..=30_000).logarithmic(true))
+                    .on_hover_text(ts!("Puntos por los que pasa la línea: más paradas, más detalle y más tinta.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut c.gamma, 0.5..=4.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Bordes"), |ui| ui.add(egui::Slider::new(&mut c.edges, 0.0..=1.0))
+                    .on_hover_text(ts!("Junta más puntos en los bordes y el detalle de la foto.")));
+                field(ui, ts!("Curvas"), |ui| ui.add(egui::Slider::new(&mut c.curves, 0..=3))
+                    .on_hover_text(ts!("Redondea las esquinas de la línea.")));
+            }
+            VecMode::Loops => {
+                let l = &mut prm.loops;
+                field(ui, ts!("Paradas"), |ui| ui.add(egui::Slider::new(&mut l.points, 300..=20_000).logarithmic(true))
+                    .on_hover_text(ts!("Puntos por los que pasa la línea: más paradas, más detalle y más tinta.")));
+                field(ui, ts!("Tamaño"), |ui| ui.add(egui::Slider::new(&mut l.size, 0.2..=1.5))
+                    .on_hover_text(ts!("Tamaño de los bucles respecto a la distancia entre paradas.")));
+                field(ui, ts!("Luces"), |ui| ui.add(egui::Slider::new(&mut l.gamma, 0.5..=4.0))
+                    .on_hover_text(ts!("Valores altos reservan más papel blanco en las zonas claras.")));
+                field(ui, ts!("Variación"), |ui| ui.add(egui::Slider::new(&mut l.wander, 0.0..=1.0))
+                    .on_hover_text(ts!("Cuánto cambia el tamaño de los bucles por el camino.")));
+            }
             VecMode::Topography => {
                 field(ui, ts!("Curvas de nivel"), |ui| ui.add(egui::Slider::new(&mut prm.topo.lines, 10..=500)));
                 field(ui, ts!("Gamma"), |ui| ui.add(egui::Slider::new(&mut prm.topo.gamma, 0.2..=4.0))
@@ -895,7 +941,7 @@ impl VectorizeUi {
         field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
         if prm.mode == VecMode::Topography {
             field(ui, ts!("Simplificar"), |ui| ui.add(egui::Slider::new(&mut prm.topo.detail, 0.02..=1.0)));
-        } else if matches!(prm.mode, VecMode::Ink | VecMode::Stipple) {
+        } else if matches!(prm.mode, VecMode::Ink | VecMode::Stipple | VecMode::CrossHatch | VecMode::Burin | VecMode::Continuous | VecMode::Loops) {
             field(ui, ts!("Suavizar sin borrar bordes"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.smooth, 0.0..=1.0))
                 .on_hover_text(ts!("Alisa la piel, el cielo y las texturas finas sin difuminar los contornos.")));
             field(ui, ts!("Contraste local"), |ui| ui.add(egui::Slider::new(&mut prm.analysis.local_contrast, 0.0..=1.0))
@@ -1008,7 +1054,7 @@ const THUMB_MM: f64 = 90.0;
 
 /// Estilos del selector, agrupados por categoría y en el orden en que se muestran.
 /// Cada trama de la mezcla es un estilo más, al mismo nivel que los demás.
-const STYLES: [(Style, &str); 19] = [
+const STYLES: [(Style, &str); 23] = [
     (Style::Mode(VecMode::Colors), tm!("Tramas de color")),
     (Style::Mix(Screen::Hatch), tm!("Tramas de color")),
     (Style::Mix(Screen::Waves), tm!("Tramas de color")),
@@ -1023,11 +1069,15 @@ const STYLES: [(Style, &str); 19] = [
     (Style::Mix(Screen::Hilbert), tm!("Patrones de color")),
     (Style::Mode(VecMode::Portrait), tm!("Trazo")),
     (Style::Mode(VecMode::Stipple), tm!("Trazo")),
+    (Style::Mode(VecMode::CrossHatch), tm!("Trazo")),
+    (Style::Mode(VecMode::Burin), tm!("Trazo")),
     (Style::Mode(VecMode::Topography), tm!("Trazo")),
     (Style::Mode(VecMode::Engrave), tm!("Trazo")),
     (Style::Mode(VecMode::Ink), tm!("Dibujo a tinta")),
     (Style::Mode(VecMode::Lines), tm!("Dibujo a tinta")),
     (Style::Mode(VecMode::Silhouette), tm!("Dibujo a tinta")),
+    (Style::Mode(VecMode::Continuous), tm!("Un solo trazo")),
+    (Style::Mode(VecMode::Loops), tm!("Un solo trazo")),
 ];
 
 /// Una entrada del selector: un modo de separación o, en la mezcla de rotuladores,
@@ -1584,6 +1634,9 @@ mod tests {
 
     #[test]
     fn the_style_selector_sits_top_left_and_colour_changes_repaint() {
+        // Busca los textos en español: no depende del idioma que dejó otra prueba.
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
         let ctx = egui::Context::default();
         let doc = Document::default();
         let mut view = VectorizeUi::default();
@@ -1651,6 +1704,8 @@ mod tests {
             (980, 620, true, Some(Style::Mix(Screen::Waves)), "ondas"),
             (1440, 900, false, Some(Style::Mode(VecMode::Ink)), "tinta"),
             (1440, 900, true, Some(Style::Mode(VecMode::Stipple)), "punteado"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Burin)), "buril"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Loops)), "bucles"),
             (1440, 900, false, None, "vacio"),
         ];
         for (width, height, dark, style, name) in shots {

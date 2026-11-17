@@ -9,6 +9,8 @@
 //! - Topografía: curvas de tiempo de una onda Fast Marching guiada por la luz.
 //! - Tinta: contornos coherentes guiados por el flujo de la imagen ([`crate::ink`]).
 //! - Punteado: puntos relajados según tono y detalle ([`crate::stipple`]).
+//! - Sombreado cruzado y Buril: rayas a mano ([`crate::hatching`]).
+//! - Línea continua y Bucles: un solo trazo por toda la foto ([`crate::tour`]).
 //!
 //! Los resultados están en píxeles de la imagen de trabajo; la app los escala a mm.
 
@@ -34,10 +36,32 @@ pub enum VecMode {
     Ink,
     /// Puntos repartidos por tono y detalle.
     Stipple,
+    /// Capas de rayas que se cruzan en las sombras.
+    CrossHatch,
+    /// Rayas que se curvan con el relieve y se ensanchan en las sombras.
+    Burin,
+    /// Un único trazo que recorre toda la foto.
+    Continuous,
+    /// Un trazo de bucles enlazados.
+    Loops,
 }
 
 impl VecMode {
-    pub const ALL: [VecMode; 9] = [VecMode::Colors, VecMode::Mix, VecMode::Portrait, VecMode::Topography, VecMode::Stipple, VecMode::Ink, VecMode::Lines, VecMode::Silhouette, VecMode::Engrave];
+    pub const ALL: [VecMode; 13] = [
+        VecMode::Colors,
+        VecMode::Mix,
+        VecMode::Portrait,
+        VecMode::Topography,
+        VecMode::Stipple,
+        VecMode::CrossHatch,
+        VecMode::Burin,
+        VecMode::Continuous,
+        VecMode::Loops,
+        VecMode::Ink,
+        VecMode::Lines,
+        VecMode::Silhouette,
+        VecMode::Engrave,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             VecMode::Lines => "Líneas",
@@ -49,6 +73,10 @@ impl VecMode {
             VecMode::Topography => "Topografía",
             VecMode::Ink => "Tinta",
             VecMode::Stipple => "Punteado",
+            VecMode::CrossHatch => "Sombreado cruzado",
+            VecMode::Burin => "Buril",
+            VecMode::Continuous => "Línea continua",
+            VecMode::Loops => "Bucles",
         }
     }
     pub fn help(self) -> &'static str {
@@ -62,6 +90,10 @@ impl VecMode {
             VecMode::Topography => "Una onda recorre la foto y dibuja curvas de nivel: se juntan en las sombras y se separan en las luces.",
             VecMode::Ink => "Contornos limpios y continuos que siguen las formas de la foto, como un dibujo a plumilla.",
             VecMode::Stipple => "Miles de puntos bien repartidos: se juntan en las sombras y en los bordes importantes.",
+            VecMode::CrossHatch => "Capas de rayas en varias direcciones: cuanto más oscura la zona, más capas se cruzan.",
+            VecMode::Burin => "Rayas paralelas que se curvan con el relieve de la foto y se ensanchan en las sombras, como un grabado a buril.",
+            VecMode::Continuous => "Un único trazo, sin levantar la punta, que recorre la foto y se apretuja en las sombras.",
+            VecMode::Loops => "Un trazo de bucles enlazados que se amontonan en las sombras, como un garabato a mano.",
         }
     }
 }
@@ -100,13 +132,21 @@ pub struct VecParams {
     pub portrait: crate::portrait::PortraitParams,
     #[serde(default)]
     pub topo: crate::topo::TopoParams,
-    /// Análisis previo de Tinta y Punteado.
+    /// Análisis previo de los estilos de dibujo (Tinta, Punteado, rayas, un solo trazo).
     #[serde(default)]
     pub analysis: crate::analysis::AnalysisParams,
     #[serde(default)]
     pub ink: crate::ink::InkParams,
     #[serde(default)]
     pub stipple: crate::stipple::StippleParams,
+    #[serde(default)]
+    pub hatch: crate::hatching::HatchParams,
+    #[serde(default)]
+    pub burin: crate::hatching::BurinParams,
+    #[serde(default)]
+    pub continuous: crate::tour::ContinuousParams,
+    #[serde(default)]
+    pub loops: crate::tour::LoopParams,
 }
 
 fn default_palette() -> MixPalette {
@@ -136,6 +176,10 @@ impl Default for VecParams {
             analysis: Default::default(),
             ink: Default::default(),
             stipple: Default::default(),
+            hatch: Default::default(),
+            burin: Default::default(),
+            continuous: Default::default(),
+            loops: Default::default(),
         }
     }
 }
@@ -235,6 +279,10 @@ pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
         VecMode::Portrait => crate::portrait::render(&rgb, prm),
         VecMode::Ink => crate::ink::render(&rgb, prm),
         VecMode::Stipple => crate::stipple::render(&rgb, prm),
+        VecMode::CrossHatch => crate::hatching::cross_hatch(&rgb, prm),
+        VecMode::Burin => crate::hatching::burin(&rgb, prm),
+        VecMode::Continuous => crate::tour::continuous(&rgb, prm),
+        VecMode::Loops => crate::tour::loops(&rgb, prm),
         VecMode::Topography => unreachable!("Topografía conserva el canal alfa antes de convertir a RGB"),
     };
     VecResult { width: w as f64, height: h as f64, layers }

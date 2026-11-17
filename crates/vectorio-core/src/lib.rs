@@ -22,6 +22,8 @@ pub mod scene;
 pub mod shapes;
 pub mod shared;
 pub mod stipple;
+pub mod hatching;
+pub mod tour;
 pub mod svg_in;
 pub mod svg_out;
 pub mod svgfont;
