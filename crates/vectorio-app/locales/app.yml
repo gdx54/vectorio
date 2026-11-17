@@ -2614,3 +2614,45 @@ _version: 2
   en: "Color screens"
 "Patrones de color":
   en: "Color patterns"
+"Punteado":
+  en: "Stippling"
+"Contornos limpios y continuos que siguen las formas de la foto, como un dibujo a plumilla.":
+  en: "Clean, continuous outlines that follow the shapes in the photo, like a pen-and-ink drawing."
+"Miles de puntos bien repartidos: se juntan en las sombras y en los bordes importantes.":
+  en: "Thousands of evenly spread dots that gather in the shadows and along important edges."
+"Sensibilidad":
+  en: "Sensitivity"
+"Continuidad":
+  en: "Continuity"
+"Largo mín.":
+  en: "Min. length"
+"Sombras":
+  en: "Shadows"
+"Bordes":
+  en: "Edges"
+"Reparto":
+  en: "Spread"
+"Punto":
+  en: "Dot"
+"Contraste local":
+  en: "Local contrast"
+"Suavizar sin borrar bordes":
+  en: "Smooth, keep edges"
+"Valores altos ignoran el detalle fino y dejan solo las formas grandes.":
+  en: "Higher values ignore fine detail and keep only the large shapes."
+"Valores altos encuentran también los bordes suaves.":
+  en: "Higher values also find soft edges."
+"Sigue cada borde a lo largo de la forma: une los trazos y alisa su recorrido.":
+  en: "Follows each edge along its shape, joining strokes and smoothing their path."
+"Descarta los trazos más cortos.":
+  en: "Drops the shortest strokes."
+"Añade el contorno de las zonas de sombra, en tantos niveles de luz como indiques.":
+  en: "Adds the outline of shadow areas, at as many light levels as you choose."
+"Junta más puntos en los bordes y el detalle de la foto.":
+  en: "Gathers more dots along edges and detail in the photo."
+"Pasadas para repartir los puntos: más pasadas, reparto más regular.":
+  en: "Passes that spread the dots out: more passes give a more even spread."
+"Alisa la piel, el cielo y las texturas finas sin difuminar los contornos.":
+  en: "Smooths skin, sky and fine textures without blurring the outlines."
+"Separa los tonos parecidos dentro de cada zona de la foto.":
+  en: "Separates similar tones within each area of the photo."

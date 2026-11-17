@@ -7,6 +7,8 @@
 //! - Mezcla: coberturas de tintas para el motor de tramas.
 //! - Retrato: líneas de corriente que siguen el tensor estructural de la foto.
 //! - Topografía: curvas de tiempo de una onda Fast Marching guiada por la luz.
+//! - Tinta: contornos coherentes guiados por el flujo de la imagen ([`crate::ink`]).
+//! - Punteado: puntos relajados según tono y detalle ([`crate::stipple`]).
 //!
 //! Los resultados están en píxeles de la imagen de trabajo; la app los escala a mm.
 
@@ -28,10 +30,14 @@ pub enum VecMode {
     /// Líneas de corriente guiadas por el tensor estructural de la imagen.
     Portrait,
     Topography,
+    /// Contornos coherentes, como un dibujo a plumilla.
+    Ink,
+    /// Puntos repartidos por tono y detalle.
+    Stipple,
 }
 
 impl VecMode {
-    pub const ALL: [VecMode; 7] = [VecMode::Colors, VecMode::Mix, VecMode::Portrait, VecMode::Topography, VecMode::Lines, VecMode::Silhouette, VecMode::Engrave];
+    pub const ALL: [VecMode; 9] = [VecMode::Colors, VecMode::Mix, VecMode::Portrait, VecMode::Topography, VecMode::Stipple, VecMode::Ink, VecMode::Lines, VecMode::Silhouette, VecMode::Engrave];
     pub fn label(self) -> &'static str {
         match self {
             VecMode::Lines => "Líneas",
@@ -41,6 +47,8 @@ impl VecMode {
             VecMode::Mix => "Mezcla",
             VecMode::Portrait => "Retrato",
             VecMode::Topography => "Topografía",
+            VecMode::Ink => "Tinta",
+            VecMode::Stipple => "Punteado",
         }
     }
     pub fn help(self) -> &'static str {
@@ -52,6 +60,8 @@ impl VecMode {
             VecMode::Mix => "Superpone varios rotuladores con tramas cruzadas o puntos intercalados: los colores se mezclan en el papel, como en una cuatricromía.",
             VecMode::Portrait => "Líneas curvas que siguen las formas de la foto, con pasadas extra en las sombras. En negro o con varias tintas.",
             VecMode::Topography => "Una onda recorre la foto y dibuja curvas de nivel: se juntan en las sombras y se separan en las luces.",
+            VecMode::Ink => "Contornos limpios y continuos que siguen las formas de la foto, como un dibujo a plumilla.",
+            VecMode::Stipple => "Miles de puntos bien repartidos: se juntan en las sombras y en los bordes importantes.",
         }
     }
 }
@@ -90,6 +100,13 @@ pub struct VecParams {
     pub portrait: crate::portrait::PortraitParams,
     #[serde(default)]
     pub topo: crate::topo::TopoParams,
+    /// Análisis previo de Tinta y Punteado.
+    #[serde(default)]
+    pub analysis: crate::analysis::AnalysisParams,
+    #[serde(default)]
+    pub ink: crate::ink::InkParams,
+    #[serde(default)]
+    pub stipple: crate::stipple::StippleParams,
 }
 
 fn default_palette() -> MixPalette {
@@ -116,6 +133,9 @@ impl Default for VecParams {
             mix_pens: vec![],
             portrait: Default::default(),
             topo: Default::default(),
+            analysis: Default::default(),
+            ink: Default::default(),
+            stipple: Default::default(),
         }
     }
 }
@@ -133,7 +153,7 @@ pub struct VecLayer {
 }
 
 impl VecLayer {
-    fn lines(color: [u8; 3], closed: bool, lines: Vec<Polyline>) -> Self {
+    pub(crate) fn lines(color: [u8; 3], closed: bool, lines: Vec<Polyline>) -> Self {
         VecLayer { color, closed, lines, coverage: None, name: None }
     }
 }
@@ -213,6 +233,8 @@ pub fn vectorize(img: &DynamicImage, prm: &VecParams) -> VecResult {
         VecMode::Engrave => engrave_mode(&rgb, prm),
         VecMode::Mix => mix_mode(&rgb, prm),
         VecMode::Portrait => crate::portrait::render(&rgb, prm),
+        VecMode::Ink => crate::ink::render(&rgb, prm),
+        VecMode::Stipple => crate::stipple::render(&rgb, prm),
         VecMode::Topography => unreachable!("Topografía conserva el canal alfa antes de convertir a RGB"),
     };
     VecResult { width: w as f64, height: h as f64, layers }
@@ -231,7 +253,7 @@ fn ink_mask(rgb: &RgbImage, prm: &VecParams) -> Grid<bool> {
 }
 
 /// Elimina componentes conexas menores que `min` píxeles.
-fn remove_specks(m: &mut Grid<bool>, min: usize) {
+pub(crate) fn remove_specks(m: &mut Grid<bool>, min: usize) {
     if min == 0 {
         return;
     }
