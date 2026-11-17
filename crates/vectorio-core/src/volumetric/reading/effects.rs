@@ -194,19 +194,18 @@ pub(super) fn ridges(
         n.sort_unstable();
         n.dedup();
     }
-    let max = geometry
-        .mean
-        .iter()
-        .map(|v| v.abs())
-        .fold(0., f64::max)
-        .max(1e-9);
+    // Curvatura suavizada y umbral sobre el percentil 98: el ruido de una malla esculpida
+    // ni dibuja garabatos ni deja vacío el resto del modelo con un único pico.
+    let curvature = fields::smoothed(&d.mesh, &geometry.mean);
+    let magnitudes: Vec<f64> = curvature.iter().map(|v| v.abs()).collect();
+    let max = fields::robust_range(&magnitudes)[1].max(1e-9);
     let mut score = vec![0.; neighbors.len()];
     for (i, n) in neighbors.iter().enumerate() {
         if n.is_empty() {
             continue;
         }
-        let mean = n.iter().map(|j| geometry.mean[*j].abs()).sum::<f64>() / n.len() as f64;
-        score[i] = geometry.mean[i].abs() - mean;
+        let mean = n.iter().map(|j| magnitudes[*j]).sum::<f64>() / n.len() as f64;
+        score[i] = magnitudes[i] - mean;
     }
     let camera = d.camera;
     let mut render_camera = camera;
@@ -228,7 +227,7 @@ pub(super) fn ridges(
             if b <= a {
                 continue;
             }
-            let value = (geometry.mean[a] + geometry.mean[b]) * 0.5;
+            let value = (curvature[a] + curvature[b]) * 0.5;
             if value.abs() < threshold * max || score[a].max(score[b]) <= 0. {
                 continue;
             }

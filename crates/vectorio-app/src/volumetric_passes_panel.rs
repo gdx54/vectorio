@@ -257,13 +257,25 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
         });
         state.menu_open |= egui::menu::BarState::load(ui.ctx(), ui.id()).is_some();
     });
+    let planar = planar_share(ui.ctx(), &state.mesh);
     let pass = &mut state.passes[index].pass;
     ui.add(
         egui::TextEdit::singleline(&mut pass.name)
             .desired_width(ui.available_width())
             .hint_text(tr!("Nombre de la pasada")),
     );
-    ui.add_space(6.);
+    // Tres bloques fijos: qué se lee del modelo, cómo se ve en el papel y el resto plegado.
+    block(ui, &tr!("Qué dibuja"));
+    ui.push_id(("reading-what", id), |ui| reading_ui::what(ui, pass));
+    // Dónde dibuja según la luz, antes de los parámetros propios del tipo.
+    if !reading_ui::transformed(&pass.kind) {
+        mask_controls(ui, &mut pass.mask);
+    }
+    ui.push_id(id, |ui| parameters(ui, &mut pass.kind));
+    if let Some(warning) = suitability(&pass.kind, planar) {
+        ui.colored_label(theme::current(ui.ctx()).secondary, warning);
+    }
+    block(ui, &tr!("Cómo se ve"));
     if pass.reading.is_none() {
         ui.label(tr!("Tinta"));
         egui::ComboBox::from_id_salt(("vol-pass-pen", id))
@@ -281,7 +293,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
             });
     }
     state.menu_open |= ui
-        .push_id(("reading", id), |ui| reading_ui::controls(ui, pass, app, id))
+        .push_id(("reading", id), |ui| reading_ui::look(ui, pass, app, id))
         .inner;
     if !matches!(pass.kind, PassKind::ToneHatch(_) | PassKind::Reading(_)) {
         ui.label(tr!("Visibilidad"));
@@ -322,12 +334,15 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
     if !pass.supports_halo() {
         pass.finish.halo_mm = 0.;
     }
-    if !reading_ui::transformed(&pass.kind) {
-        mask_controls(ui, &mut pass.mask);
-    }
-    ui.add_space(8.);
     ui.push_id(("finish", id), |ui| finishing_ui::controls(ui, pass, app));
-    ui.push_id(id, |ui| parameters(ui, &mut pass.kind));
+    if pass.reading.is_some() {
+        ui.add_space(6.);
+        egui::CollapsingHeader::new(tr!("Avanzado"))
+            .id_salt(("vol-pass-advanced", id))
+            .show(ui, |ui| {
+                ui.push_id(("reading-advanced", id), |ui| reading_ui::advanced(ui, pass));
+            });
+    }
     if *pass != before {
         if state.undo.len() >= 64 {
             state.undo.remove(0);
@@ -349,6 +364,36 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vector
         state.selected = None;
     } else if let Some((id, index)) = reorder {
         state.move_pass(id, index);
+    }
+}
+fn block(ui: &mut egui::Ui, title: &str) {
+    ui.add_space(10.);
+    ui.label(egui::RichText::new(title).strong());
+    ui.add_space(2.);
+}
+/// Fracción plana de la malla, calculada una vez por modelo.
+fn planar_share(ctx: &egui::Context, mesh: &Arc<Mesh>) -> f64 {
+    let key = egui::Id::new(("vol-planar-share", Arc::as_ptr(mesh) as usize, mesh.triangles.len()));
+    if let Some(v) = ctx.data(|d| d.get_temp::<f64>(key)) {
+        return v;
+    }
+    let v = mesh.planar_share();
+    ctx.data_mut(|d| d.insert_temp(key, v));
+    v
+}
+/// Desarrollo y Sección técnica piden caras planas; en una forma orgánica se avisa.
+pub(super) fn suitability(kind: &PassKind, planar: f64) -> Option<String> {
+    if planar >= 0.6 {
+        return None;
+    }
+    match kind {
+        PassKind::Reading(ReadingParams { effect: ReadingEffect::Unfold { .. }, .. }) => Some(tr!(
+            "Este modelo es curvo u orgánico: el desarrollo saldrá en muchas piezas pequeñas. Funciona mejor con piezas de caras planas."
+        )),
+        PassKind::Reading(ReadingParams { effect: ReadingEffect::Section { .. }, .. }) => Some(tr!(
+            "Este modelo es curvo u orgánico: la sección técnica se lee mejor en piezas de caras planas."
+        )),
+        _ => None,
     }
 }
 pub(super) fn type_name(kind: &PassKind) -> String {

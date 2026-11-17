@@ -183,26 +183,39 @@ pub(super) fn upsert(styles: &mut Vec<SavedStyle>, style: SavedStyle) {
         styles.push(style);
     }
 }
-fn category(index: usize) -> String {
-    let tonal = KINDS.len() + TonalStyle::ALL.len();
-    let reading = tonal + ReadingStyle::ALL.len();
-    let artistic = reading + ArtisticStyle::ALL.len();
-    crate::i18n::tr_key(if index < KINDS.len() {
-        tm!("Líneas y superficies")
-    } else if index < tonal {
-        tm!("Tono y textura")
-    } else if index < reading {
-        tm!("Mapas de lectura")
-    } else if index < artistic {
-        tm!("Acabado artístico")
-    } else {
-        tm!("Mis estilos")
-    })
+/// Grupos de la galería por intención artística, no por el tipo interno del estilo.
+const GROUPS: [&str; 6] = [
+    tm!("Línea y contorno"),
+    tm!("Sombra y grabado"),
+    tm!("Ondas y malla"),
+    tm!("Mapas de color"),
+    tm!("Técnico"),
+    tm!("Mis estilos"),
+];
+fn group(name: &str) -> usize {
+    match name {
+        "Sombra plana" | "Grabado" | "Aguafuerte cruzado" | "Topografía en sombra"
+        | "Hachuras de relieve" | "Luz ambiente" | "Mapa de luz" | "Isolíneas de luz" => 1,
+        "Ondas" | "Malla de color" | "Ondas y malla" | "Ondas con halo" | "Ondas con gradiente" => 2,
+        "Mapa de curvatura" | "Mapa gaussiano" | "Mapa de pendientes" | "Mapa térmico"
+        | "Mapa de agujas" | "Isolíneas de curvatura" | "Mezcla óptica térmica" => 3,
+        "Plano técnico" | "Desarrollo" | "Sección técnica" => 4,
+        _ => 0,
+    }
+}
+/// Estilos de serie ordenados por grupo, seguidos de los guardados por el usuario.
+fn catalog(state: &VolumetricUi, app: &VectorioApp) -> Vec<(usize, SavedStyle)> {
+    let mut choices: Vec<_> = builtins(state, app)
+        .into_iter()
+        .map(|s| (group(&s.name), s))
+        .collect();
+    choices.sort_by_key(|(g, _)| *g);
+    choices.extend(state.saved_styles.iter().cloned().map(|s| (GROUPS.len() - 1, s)));
+    choices
 }
 pub(super) fn gallery(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut VectorioApp) {
     let pal = theme::current(ui.ctx());
-    let mut choices = builtins(state, app);
-    choices.extend(state.saved_styles.clone());
+    let (groups, choices): (Vec<usize>, Vec<SavedStyle>) = catalog(state, app).into_iter().unzip();
     state.thumbnails.poll();
     state.thumbnails.request(
         ui.ctx(),
@@ -226,7 +239,7 @@ pub(super) fn gallery(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &mut Vec
                     .enumerate()
                     .map(|(i, style)| crate::catalog::Entry {
                         label: crate::i18n::tr_key(&style.name),
-                        category: category(i).into(),
+                        category: crate::i18n::tr_key(GROUPS[groups[i]]),
                     })
                     .collect::<Vec<_>>();
                 let active = choices.iter().position(|s| s.name == state.style_name);

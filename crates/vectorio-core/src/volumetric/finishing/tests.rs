@@ -118,6 +118,25 @@ fn echo_joins_unordered_segments_and_supports_a_point_two_mm_double_outline() {
     assert!((bounds.max.x - 20.2).abs() < 1e-8);
 }
 #[test]
+fn echo_bridges_silhouette_steps_and_trims_open_ends_instead_of_fanning() {
+    // Dos tramos de un mismo arco que se solapan 0,8 mm con un escalón lateral de 0,16 mm,
+    // como los que deja la silueta de una malla facetada.
+    let left = vec![p(0., 0.), p(10., 0.), p(20.8, 0.)];
+    let right = vec![p(20., 0.16), p(30., 0.16), p(40., 0.16)];
+    let copies = echo::copies(&[left.clone(), right.clone()], 3, 0.8, &|| false).unwrap();
+    assert_eq!(copies.len(), 3, "un solo arco: tres ecos continuos");
+    for (k, copy) in copies.iter().enumerate() {
+        let cut = 0.8 * (k + 1) as f64;
+        // Cada eco se acorta en los extremos libres en lugar de abrirse en abanico.
+        assert!((copy[0].x - cut).abs() < 0.05, "{k}: {:?}", copy[0]);
+        assert!((copy.last().unwrap().x - (40. - cut)).abs() < 0.05);
+        assert!(copy.windows(2).all(|w| w[1].x >= w[0].x - 1e-9), "sin retrocesos");
+    }
+    // Dos líneas de sombreado vecinas no se unen: el salto entre ellas es transversal.
+    let hatch = vec![vec![p(0., 0.), p(10., 0.)], vec![p(0., 0.6), p(10., 0.6)]];
+    assert_eq!(echo::copies(&hatch, 1, 0.8, &|| false).unwrap().len(), 2);
+}
+#[test]
 fn smooth_jitter_is_seeded_bounded_and_preserves_closed_seams() {
     let line = square(20., 80.);
     let settings = FinishSettings {

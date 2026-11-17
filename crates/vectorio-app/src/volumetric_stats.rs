@@ -14,6 +14,8 @@ pub(super) struct Estimate {
     cancel: Arc<std::sync::atomic::AtomicBool>,
     key: Option<Key>,
     seconds: Option<f64>,
+    /// La última petición ya respondió (con o sin tiempo).
+    done: bool,
     version: u64,
     worker: Option<(
         mpsc::Sender<(u64, Key, Drawing, Arc<std::sync::atomic::AtomicBool>)>,
@@ -71,6 +73,7 @@ impl Estimate {
         self.cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.version = self.version.wrapping_add(1);
         self.seconds = None;
+        self.done = false;
         let (tx, _, latest) = self.worker.as_ref().unwrap();
         latest.store(self.version, Ordering::Relaxed);
         if tx
@@ -85,6 +88,7 @@ impl Estimate {
             for (v, seconds) in rx.try_iter() {
                 if v == self.version {
                     self.seconds = seconds;
+                    self.done = true;
                 }
             }
         }
@@ -163,21 +167,28 @@ pub(super) fn footer(
         theme::Material::Panel,
         |ui| {
             ui.horizontal(|ui| {
-                let minutes = state
-                    .estimate
-                    .seconds
-                    .map_or_else(|| "—".to_owned(), |s| (s / 60.).ceil().max(1.).to_string());
                 let milliseconds = state
                     .drawing
                     .as_ref()
                     .map_or(0., |d| (d.seconds * 1000.).round());
-                ui.weak(tr!(
-                    "%{strokes} trazos · %{inks} tintas · ~%{minutes} min · %{ms} ms",
+                // Sin tiempo fiable no se muestra un «~— min»: se dice que se calcula o se omite.
+                let time = match state.estimate.seconds {
+                    Some(s) => Some(format!("≈ {}", crate::fmt::duration(s))),
+                    None if current && n > 0 && !state.estimate.done => {
+                        Some(tr!("calculando tiempo…"))
+                    }
+                    None => None,
+                };
+                let mut summary = tr!(
+                    "%{strokes} trazos · %{inks} tintas",
                     strokes = n,
-                    inks = inks.len(),
-                    minutes = minutes,
-                    ms = milliseconds
-                ))
+                    inks = inks.len()
+                );
+                for part in time.into_iter().chain([format!("{milliseconds} ms")]) {
+                    summary.push_str(" · ");
+                    summary.push_str(&part);
+                }
+                ui.weak(summary)
                 .on_hover_text(tr!("Estimación con los ajustes de Salida."));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(current && n > 0 && !app.doc.pens.is_empty(), |ui| {

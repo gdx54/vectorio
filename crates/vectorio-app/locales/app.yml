@@ -1971,8 +1971,10 @@ _version: 2
 
 "%{n} triángulos":
   en: "%{n} triangles"
-"%{strokes} trazos · %{inks} tintas · ~%{minutes} min · %{ms} ms":
-  en: "%{strokes} strokes · %{inks} inks · ~%{minutes} min · %{ms} ms"
+"%{strokes} trazos · %{inks} tintas":
+  en: "%{strokes} strokes · %{inks} inks"
+"calculando tiempo…":
+  en: "estimating time…"
 "Aristas":
   en: "Edges"
 "Avanzado":
@@ -2189,10 +2191,10 @@ _version: 2
   en: "Measure"
 "Codificación":
   en: "Encoding"
-"Fronteras exactas":
-  en: "Exact boundaries"
-"Transición difuminada":
-  en: "Dithered transition"
+"Bandas":
+  en: "Bands"
+"Degradado":
+  en: "Gradient"
 "Densidad de trazos":
   en: "Line density"
 "Rampa":
@@ -2344,14 +2346,8 @@ _version: 2
 "Familia %{n}":
   en: "Family %{n}"
 
-"Líneas y superficies":
-  en: "Lines and surfaces"
 
-"Tono y textura":
-  en: "Tone and texture"
 
-"Mapas de lectura":
-  en: "Reading maps"
 
 "Mis estilos":
   en: "My styles"
@@ -2377,8 +2373,8 @@ _version: 2
 "Mezcla óptica":
   en: "Optical mixing"
 
-"Isolíneas del campo":
-  en: "Field isolines"
+"Isolíneas":
+  en: "Isolines"
 
 "Mapa de color":
   en: "Color map"
@@ -2590,3 +2586,19 @@ _version: 2
 
 "Longitud de trazos (mm)":
   en: "Stroke length (mm)"
+"Qué dibuja":
+  en: "What it draws"
+"Cómo se ve":
+  en: "How it looks"
+"Este modelo es curvo u orgánico: el desarrollo saldrá en muchas piezas pequeñas. Funciona mejor con piezas de caras planas.":
+  en: "This model is curved or organic: the unfold will come out in many small pieces. It works best with flat-faced parts."
+"Este modelo es curvo u orgánico: la sección técnica se lee mejor en piezas de caras planas.":
+  en: "This model is curved or organic: the technical section reads best on flat-faced parts."
+"Línea y contorno":
+  en: "Line and contour"
+"Sombra y grabado":
+  en: "Shadow and engraving"
+"Mapas de color":
+  en: "Colour maps"
+"Técnico":
+  en: "Technical"

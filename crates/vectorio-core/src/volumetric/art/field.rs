@@ -1,4 +1,5 @@
-//! Distancias sobre el grafo de aristas: aproximación geodésica, por componente.
+//! Distancias geodésicas por componente: Dijkstra sobre aristas, refinado dentro de cada
+//! triángulo con el desplegado plano (como Fast Marching) para que los frentes no zigzagueen.
 use super::*;
 use std::{cmp::Ordering, collections::BinaryHeap};
 #[derive(Clone, Copy)]
@@ -22,6 +23,8 @@ impl Ord for Node {
 pub(crate) struct Graph {
     points: Vec<V3>,
     adjacency: Vec<Vec<(usize, f64)>>,
+    faces: Vec<[usize; 3]>,
+    incident: Vec<Vec<usize>>,
     pub(super) components: Vec<Vec<usize>>,
 }
 impl Graph {
@@ -35,6 +38,18 @@ impl Graph {
             for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
                 edges.insert((a.min(b), a.max(b)));
             }
+        }
+        let mut faces = Vec::with_capacity(mesh.triangles.len());
+        let mut incident = vec![vec![]; points.len()];
+        for t in &mesh.triangles {
+            let [a, b, c] = t.map(|i| points[i]);
+            if t[0] == t[1] || t[1] == t[2] || t[0] == t[2] || (b - a).cross(c - a).length() < 1e-14 {
+                continue;
+            }
+            for v in *t {
+                incident[v].push(faces.len());
+            }
+            faces.push(*t);
         }
         let mut adjacency = vec![vec![]; points.len()];
         for (a, b) in edges {
@@ -69,6 +84,8 @@ impl Graph {
         Ok(Self {
             points,
             adjacency,
+            faces,
+            incident,
             components,
         })
     }
@@ -92,24 +109,78 @@ impl Graph {
             values[seed] = 0.;
             heap.push(Node(0., seed));
         }
+        let mut done = vec![false; self.points.len()];
         let mut visits = 0;
         while let Some(Node(d, a)) = heap.pop() {
             visits += 1;
             if visits % 256 == 0 && cancel() {
                 return Err(CANCEL.into());
             }
-            if d > values[a] {
+            if d > values[a] || done[a] {
                 continue;
             }
-            for &(b, w) in &self.adjacency[a] {
-                let next = d + w;
+            done[a] = true;
+            fn relax(values: &mut [f64], heap: &mut BinaryHeap<Node>, b: usize, next: f64) {
                 if next < values[b] {
                     values[b] = next;
                     heap.push(Node(next, b));
                 }
             }
+            for &(b, w) in &self.adjacency[a] {
+                if !done[b] {
+                    relax(&mut values, &mut heap, b, d + w);
+                }
+            }
+            // Con dos vértices ya fijados, el tercero se alcanza en línea recta a través
+            // del triángulo desplegado, no por el camino quebrado de sus aristas.
+            for &f in &self.incident[a] {
+                let t = self.faces[f];
+                for &c in &t {
+                    if c == a || !done[c] {
+                        continue;
+                    }
+                    let Some(&b) = t.iter().find(|v| **v != a && **v != c) else {
+                        continue;
+                    };
+                    if done[b] {
+                        continue;
+                    }
+                    let (p, q) = (a.min(c), a.max(c));
+                    if let Some(next) = self.unfold(p, values[p], q, values[q], b) {
+                        relax(&mut values, &mut heap, b, next);
+                    }
+                }
+            }
         }
         Ok(values)
+    }
+    /// Fuente virtual a distancia `dp` de `p` y `dq` de `q`, al otro lado de la arista;
+    /// solo vale si el rayo hasta `b` cruza la arista dentro del triángulo.
+    fn unfold(&self, p: usize, dp: f64, q: usize, dq: f64, b: usize) -> Option<f64> {
+        let (pp, pq, pb) = (self.points[p], self.points[q], self.points[b]);
+        let axis = pq - pp;
+        let length = axis.length();
+        if length < 1e-14 {
+            return None;
+        }
+        let x_axis = axis * (1. / length);
+        let bx = (pb - pp).dot(x_axis);
+        let by = ((pb - pp) - x_axis * bx).length();
+        if by < 1e-14 {
+            return None;
+        }
+        let sx = (dp * dp - dq * dq + length * length) / (2. * length);
+        let sy2 = dp * dp - sx * sx;
+        if sy2 <= 0. {
+            return None;
+        }
+        let sy = -sy2.sqrt();
+        let t = -sy / (by - sy);
+        let cross = sx + t * (bx - sx);
+        if !(0. ..=length).contains(&cross) {
+            return None;
+        }
+        Some(((bx - sx).powi(2) + (by - sy).powi(2)).sqrt())
     }
     pub fn values(
         &self,

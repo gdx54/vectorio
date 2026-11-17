@@ -391,8 +391,17 @@ impl ReadingStyle {
                 map.pens = vec![2, 1, 4, 0];
                 params.facets = 800;
             }
-            Self::Curvature => {}
-            Self::Gaussian => map.measure = Measure::GaussianCurvature,
+            // Con la rampa divergente, cada signo se reparte por separado: una forma
+            // convexa sigue mostrando todo su relieve en lugar de un solo color.
+            Self::Curvature => {
+                map.equalize = true;
+                map.pens = vec![2, 3, 1, 4];
+            }
+            Self::Gaussian => {
+                map.measure = Measure::GaussianCurvature;
+                map.equalize = true;
+                map.pens = vec![2, 3, 1, 4];
+            }
             Self::Light => {
                 map.measure = Measure::Light;
                 map.ramp = Ramp::Sequential;

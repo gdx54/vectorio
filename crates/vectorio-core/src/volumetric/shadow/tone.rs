@@ -7,6 +7,53 @@ use crate::volumetric::{DashPattern, HatchMode, TonalMask, ToneHatchParams};
 struct Region {
     value: f64,
     polygon: Polyline,
+    /// Valor en cada vértice cuando el tono varía dentro de la región; vacío si es constante.
+    values: Vec<f64>,
+}
+/// Corta las regiones con gradiente en los niveles pedidos. Cada pieza devuelta es
+/// constante respecto a esos niveles, así que su valor medio la clasifica bien.
+fn bands(regions: &[Region], levels: &[f64]) -> Vec<Region> {
+    let mut levels = levels.to_vec();
+    levels.sort_by(f64::total_cmp);
+    levels.dedup();
+    let mut out = Vec::with_capacity(regions.len());
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    for r in regions {
+        if r.values.is_empty() {
+            out.push(r.clone());
+            continue;
+        }
+        let lo = r.values.iter().copied().fold(f64::INFINITY, f64::min);
+        let hi = r.values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let cuts: Vec<f64> = levels
+            .iter()
+            .copied()
+            .filter(|l| *l > lo && *l < hi)
+            .collect();
+        if cuts.is_empty() {
+            out.push(Region {
+                value: r.value,
+                polygon: r.polygon.clone(),
+                values: Vec::new(),
+            });
+            continue;
+        }
+        let bounds: Vec<f64> = std::iter::once(f64::NEG_INFINITY)
+            .chain(cuts)
+            .chain(std::iter::once(f64::INFINITY))
+            .collect();
+        for w in bounds.windows(2) {
+            let (polygon, values) = slab(&r.polygon, &r.values, w[0], w[1]);
+            if !polygon.is_empty() {
+                out.push(Region {
+                    value: mean(&values),
+                    polygon,
+                    values: Vec::new(),
+                });
+            }
+        }
+    }
+    out
 }
 struct Entry {
     mesh: Arc<Mesh>,
@@ -58,13 +105,15 @@ impl ToneCache {
         };
         let projection =
             project::Projection::camera(&drawing.mesh, &camera, settings.paper_rotation);
+        let points = drawing.mesh.points();
         let mut regions = Vec::new();
         for (i, face) in faces.iter().enumerate() {
             if cancel() {
                 return Err(CANCEL.into());
             }
             let mut visible = projection.visible(i, cancel)?;
-            let value = face.cosine.clamp(0., 1.);
+            let tri = drawing.mesh.triangles[i].map(|v| points[v]);
+            let corners = face.corners.map(|c| c.clamp(0., 1.));
             for patch in &face.cast {
                 let region = project_polygon(patch, &project);
                 let planes = project::boundary(&region);
@@ -75,6 +124,7 @@ impl ToneCache {
                         regions.push(Region {
                             value: 0.,
                             polygon: dark.iter().map(|v| v.point).collect(),
+                            values: Vec::new(),
                         });
                     }
                     lit.extend(project::subtract(polygon, &planes));
@@ -84,9 +134,13 @@ impl ToneCache {
                     return Err("Demasiadas regiones tonales; reduce el detalle del modelo.".into());
                 }
             }
-            regions.extend(visible.into_iter().map(|poly| Region {
-                value,
-                polygon: poly.iter().map(|v| v.point).collect(),
+            regions.extend(visible.into_iter().map(|poly| {
+                let values: Vec<f64> = poly.iter().map(|v| shade(tri, corners, v.world)).collect();
+                Region {
+                    value: values.iter().sum::<f64>() / values.len() as f64,
+                    polygon: poly.iter().map(|v| v.point).collect(),
+                    values,
+                }
             }));
             if regions.len() > PIECE_LIMIT {
                 return Err("Demasiadas regiones tonales; reduce el detalle del modelo.".into());
@@ -121,6 +175,11 @@ impl ToneCache {
             return Ok(lines.to_vec());
         }
         let regions = self.regions(drawing, settings, cancel)?;
+        let levels = match mask {
+            TonalMask::Band { min, max } => vec![min, max],
+            _ => vec![settings.shadow.threshold],
+        };
+        let regions = bands(&regions, &levels);
         Mask::new(&regions, |value| {
             accepts(mask, value, settings.shadow.threshold)
         })
@@ -135,6 +194,10 @@ impl ToneCache {
         cancel: &dyn Fn() -> bool,
     ) -> Result<Vec<Polyline>, String> {
         let regions = self.regions(drawing, settings, cancel)?;
+        let levels: Vec<f64> = (0..params.levels)
+            .map(|level| (params.levels - level) as f64 / (params.levels + 1) as f64)
+            .collect();
+        let regions = bands(&regions, &levels);
         let area = BBox {
             min: p(paper.margin_mm, paper.margin_mm),
             max: p(
@@ -517,7 +580,24 @@ mod tests {
         Region {
             value,
             polygon: vec![p(lo, 0.), p(hi, 0.), p(hi, 10.), p(lo, 10.)],
+            values: Vec::new(),
         }
+    }
+    #[test]
+    fn a_gradient_region_is_cut_exactly_at_each_level() {
+        let ramp = Region {
+            value: 0.5,
+            polygon: vec![p(0., 0.), p(10., 0.), p(10., 10.), p(0., 10.)],
+            values: vec![0., 1., 1., 0.],
+        };
+        let pieces = bands(&[ramp], &[0.25, 0.75]);
+        assert_eq!(pieces.len(), 3);
+        let shadow = Mask::new(&pieces, |v| v <= 0.25)
+            .clip(&[vec![p(-1., 5.), p(11., 5.)]], &|| false)
+            .unwrap();
+        assert_eq!(shadow.len(), 1);
+        assert!(shadow[0][0].dist(p(0., 5.)) < 1e-9);
+        assert!(shadow[0].last().unwrap().dist(p(2.5, 5.)) < 1e-9);
     }
     #[test]
     fn tonal_intervals_split_at_exact_boundaries_without_losing_or_overprinting_light() {
@@ -607,14 +687,16 @@ mod tests {
         let regions = cache.regions(&drawing, &settings, &|| false).unwrap();
         assert!(regions.iter().any(|r| r.value == 0.));
         assert!(regions.iter().any(|r| r.value > 0.6));
-        // Toda región positiva conserva el N·L de alguna cara; las ocluidas por luz valen cero.
-        let normals = normals(&drawing.mesh, &|| false).unwrap();
+        // El toro es liso: el tono varía dentro de las caras y nunca sale de [0, 1].
+        assert!(regions.iter().any(|r| {
+            let lo = r.values.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = r.values.iter().copied().fold(0., f64::max);
+            hi - lo > 1e-3
+        }));
         assert!(regions
             .iter()
-            .filter(|r| r.value > 0.)
-            .all(|r| normals
-                .iter()
-                .any(|n| (n.dot(settings.shadow.light()) - r.value).abs() < 1e-10)));
+            .flat_map(|r| r.values.iter().chain([&r.value]))
+            .all(|v| (0. ..=1.).contains(v)));
         for region in regions.iter().step_by(19) {
             let center = region.polygon.iter().fold(p(0., 0.), |sum, q| sum + *q)
                 * (1. / region.polygon.len() as f64);
