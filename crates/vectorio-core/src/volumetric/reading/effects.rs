@@ -177,36 +177,10 @@ pub(super) fn ridges(
     d: &Drawing,
     s: &Settings,
     map: &ReadingMap,
-    geometry: &fields::Geometry,
-    threshold: f64,
+    lines: [Vec<Vec<V3>>; 2],
     paper: &crate::Paper,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<Vec<Polyline>>, String> {
-    let mut neighbors = vec![Vec::new(); d.mesh.vertices.len()];
-    for t in &d.mesh.triangles {
-        for j in 0..3 {
-            let (a, b) = (t[j], t[(j + 1) % 3]);
-            neighbors[a].push(b);
-            neighbors[b].push(a);
-        }
-    }
-    for n in &mut neighbors {
-        n.sort_unstable();
-        n.dedup();
-    }
-    // Curvatura suavizada y umbral sobre el percentil 98: el ruido de una malla esculpida
-    // ni dibuja garabatos ni deja vacío el resto del modelo con un único pico.
-    let curvature = fields::smoothed(&d.mesh, &geometry.mean);
-    let magnitudes: Vec<f64> = curvature.iter().map(|v| v.abs()).collect();
-    let max = fields::robust_range(&magnitudes)[1].max(1e-9);
-    let mut score = vec![0.; neighbors.len()];
-    for (i, n) in neighbors.iter().enumerate() {
-        if n.is_empty() {
-            continue;
-        }
-        let mean = n.iter().map(|j| magnitudes[*j]).sum::<f64>() / n.len() as f64;
-        score[i] = magnitudes[i] - mean;
-    }
     let camera = d.camera;
     let mut render_camera = camera;
     render_camera.scale /= 1000.;
@@ -219,20 +193,13 @@ pub(super) fn ridges(
     for t in &d.mesh.triangles {
         scene.occluder(&t.map(|i| project(points[i])));
     }
-    for (a, n) in neighbors.iter().enumerate() {
+    for (part, list) in parts.into_iter().zip(lines) {
         if cancel() {
             return Err("Cálculo cancelado.".into());
         }
-        for &b in n {
-            if b <= a {
-                continue;
-            }
-            let value = (curvature[a] + curvature[b]) * 0.5;
-            if value.abs() < threshold * max || score[a].max(score[b]) <= 0. {
-                continue;
-            }
-            scene.set_part(parts[usize::from(value < 0.)]);
-            scene.line(&[project(points[a]), project(points[b])]);
+        scene.set_part(part);
+        for line in list {
+            scene.line(&line.into_iter().map(project).collect::<Vec<_>>());
         }
     }
     let mut out: Vec<Vec<Polyline>> = vec![vec![]; map.pens.len()];

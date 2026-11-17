@@ -36,7 +36,7 @@ pub struct ArtSettings {
 impl Default for ArtSettings {
     fn default() -> Self {
         Self {
-            facets: 2700,
+            facets: 20_000,
             lines: 84,
             pattern: WavePattern::Waves,
             origin_azimuth: 165.,

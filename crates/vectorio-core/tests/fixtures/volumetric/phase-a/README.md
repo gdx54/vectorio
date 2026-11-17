@@ -20,3 +20,12 @@ Phase 1 of the 3D artistic review deliberately changed two algorithms, so only t
 - `sombra-plana.svg`, `sombra-lateral.svg`, `sombra-dos-tonos.svg`: N·L is interpolated from smoothed corner normals (sharp edges above ~50° are kept), so the shadow boundary crosses triangles instead of following whole facets.
 
 `atlas.svg`, `strata.svg`, `x-ray.svg`, `malla.svg` and `malla-una-tinta.svg` remained byte-identical.
+
+## Facets at maximum by default (November 17, 2026)
+
+The default decimation target was raised to the maximum of each range so that every 3D style starts at full quality (users can still lower it): surface waves and mesh go from 2700 to 20000 facets, and the flat shadow from 1200 to 8000. With the old defaults the outputs were verified to remain byte-identical, so only the change of defaults explains the difference. These references were regenerated with the same commands:
+
+- `ondas.svg`, `combinado.svg`, `interferencias.svg`, `malla.svg`, `malla-una-tinta.svg`
+- `sombra-plana.svg`, `sombra-lateral.svg`, `sombra-dos-tonos.svg`
+
+`atlas.svg`, `strata.svg` and `x-ray.svg` remained byte-identical.

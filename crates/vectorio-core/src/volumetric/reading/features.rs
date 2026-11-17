@@ -5,6 +5,8 @@ use super::*;
 use std::collections::BTreeMap;
 #[path = "flow.rs"]
 mod flow;
+#[path = "ridge.rs"]
+mod ridge;
 
 struct Shape {
     points: Vec<V3>,
@@ -215,6 +217,20 @@ impl Cache {
         }
         Ok(shape)
     }
+    /// Crestas (0) y valles (1) en 3D, independientes de la vista.
+    pub fn ridges(
+        &mut self,
+        d: &Drawing,
+        normals: &[V3],
+        threshold: f64,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<[Vec<Vec<V3>>; 2], String> {
+        // El suavizado de normales sigue a la resolución: con más facetas, el ruido
+        // de una escultura es más fino y hacen falta más pasadas para la misma escala.
+        let smoothing = (2. * (d.mesh.triangles.len() as f64 / 1200.).sqrt()).round() as usize;
+        let shape = self.shape(d.mesh.clone(), normals, smoothing.clamp(2, 8), cancel)?;
+        ridge::draw(&shape, &d.mesh, threshold, cancel)
+    }
     pub fn draw(
         &mut self,
         d: &Drawing,
@@ -267,9 +283,13 @@ impl Cache {
             return visible(&segments, d, s, paper, cancel);
         }
         let segments = extract(&shape, &d.mesh, d.camera, effect, cancel)?;
-        visible(&segments, d, s, paper, cancel)
+        let mut lines = visible(&segments, d, s, paper, cancel)?;
+        // Los fragmentos de menos de 1,5 mm son ruido de la malla, no rasgos.
+        lines.retain(|l| crate::geom::length(l) >= MIN_FEATURE_MM);
+        Ok(lines)
     }
 }
+const MIN_FEATURE_MM: f64 = 1.5;
 // q1 and t1 of Q = Dn P^-1, where P maps the tangent plane to a
 // local viewing plane. t1 is lifted back to the surface before differentiation.
 fn apparent([a, b, c]: [f64; 3], [tx, ty]: [V3; 2], view: V3, right: V3) -> (f64, V3, bool) {

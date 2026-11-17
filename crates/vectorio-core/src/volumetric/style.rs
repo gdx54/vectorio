@@ -348,7 +348,7 @@ impl ReadingStyle {
             Self::PrincipalFlow => {
                 map.ramp = Ramp::Sequential;
                 map.pens = vec![0];
-                params.facets = 6000;
+                params.facets = 8000;
                 params.effect = ReadingEffect::PrincipalFlow {
                     minimum: false,
                     spacing_mm: 2.4,
@@ -359,7 +359,7 @@ impl ReadingStyle {
             Self::Suggestive | Self::ApparentRidges => {
                 map.ramp = Ramp::Sequential;
                 map.pens = vec![0];
-                params.facets = 6000;
+                params.facets = 8000;
                 params.effect = if self == Self::Suggestive {
                     ReadingEffect::Suggestive {
                         threshold: 0.1,
@@ -368,8 +368,8 @@ impl ReadingStyle {
                     }
                 } else {
                     ReadingEffect::ApparentRidges {
-                        threshold: 2.,
-                        smoothing: 1,
+                        threshold: 8.,
+                        smoothing: 3,
                     }
                 };
             }
@@ -389,7 +389,7 @@ impl ReadingStyle {
                 map.measure = Measure::Height;
                 map.ramp = Ramp::Sequential;
                 map.pens = vec![2, 1, 4, 0];
-                params.facets = 800;
+                params.facets = 8000;
             }
             // Con la rampa divergente, cada signo se reparte por separado: una forma
             // convexa sigue mostrando todo su relieve en lugar de un solo color.
@@ -418,7 +418,7 @@ impl ReadingStyle {
                 map.encoding = Encoding::Density;
                 map.pens = vec![0];
                 map.spacing_mm = 0.5;
-                params.facets = 800;
+                params.facets = 8000;
             }
             Self::Thermal => {
                 map.measure = Measure::Height;
@@ -447,7 +447,7 @@ impl ReadingStyle {
                 };
             }
             Self::Ridges => {
-                params.effect = ReadingEffect::Ridges { threshold: 0.25 };
+                params.effect = ReadingEffect::Ridges { threshold: 0.05 };
             }
             Self::Anaglyph => {
                 map.ramp = Ramp::Diverging;
@@ -459,7 +459,7 @@ impl ReadingStyle {
             }
             Self::Unfold => {
                 map.pens = vec![0, 1, 2];
-                params.facets = 128;
+                params.facets = 512;
                 params.effect = ReadingEffect::Unfold { tabs_mm: 2. };
             }
             Self::Spin => {
