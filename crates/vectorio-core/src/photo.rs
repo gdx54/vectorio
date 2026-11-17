@@ -17,6 +17,9 @@ pub struct Photo {
     pub name: String,
     pub image: Shared<EncodedImage>,
     pub params: VecParams,
+    /// Estilos apilados encima del primero, de abajo arriba.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<VecParams>,
     /// Tamaño elegido al importar, % del área útil del papel.
     pub size_pct: f64,
 }

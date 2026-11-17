@@ -102,6 +102,24 @@ impl PreviewView {
     }
 }
 
+/// Un estilo de la pila: sus ajustes, su separación y su vista previa, cada uno
+/// calculado en segundo plano por su cuenta.
+#[derive(Default)]
+struct Pass {
+    params: VecParams,
+    look: Look,
+    computed: Option<VecParams>,
+    result: Option<Arc<VecResult>>,
+    result_revision: u64,
+    job: Option<(VecParams, mpsc::Receiver<VecResult>)>,
+    plot: Option<(PlotKey, Arc<PlotPreview>)>,
+    plot_job: Option<(PlotKey, mpsc::Receiver<PlotPreview>)>,
+    /// Lo que la vista previa debería mostrar ahora (se calcula cuando quede libre).
+    pending_key: Option<PlotKey>,
+    /// Oculto: no se ve ni se añade al papel, pero conserva sus ajustes.
+    hidden: bool,
+}
+
 pub struct VectorizeUi {
     load_error: Option<String>,
     name: String,
@@ -115,17 +133,13 @@ pub struct VectorizeUi {
     /// Ajustes con que está pintada la textura ahora, e histograma de luz de ese resultado.
     shown_adjust: ColorAdjust,
     histogram: [f32; 64],
-    params: VecParams,
-    computed: Option<VecParams>,
-    result: Option<Arc<VecResult>>,
-    result_revision: u64,
-    job: Option<(VecParams, mpsc::Receiver<VecResult>)>,
-    plot: Option<(PlotKey, Arc<PlotPreview>)>,
-    plot_job: Option<(PlotKey, mpsc::Receiver<PlotPreview>)>,
-    /// Lo que la vista previa debería mostrar ahora (se calcula cuando quede libre).
-    pending_key: Option<PlotKey>,
+    /// Estilo que se edita ahora en el panel.
+    pass: Pass,
+    /// Los demás estilos de la pila, de abajo arriba; el que se edita va en `active`.
+    others: Vec<Pass>,
+    /// Posición del estilo que se edita dentro de la pila.
+    active: usize,
     preview: Preview,
-    look: Look,
     size_pct: f64,
     view: PreviewView,
     /// Grupo de foto que se sustituye al aceptar («Volver a separar»).
@@ -163,16 +177,10 @@ impl Default for VectorizeUi {
             source: None,
             shown_adjust: ColorAdjust::default(),
             histogram: [0.0; 64],
-            params: VecParams::default(),
-            computed: None,
-            result: None,
-            result_revision: 0,
-            job: None,
-            plot: None,
-            plot_job: None,
-            pending_key: None,
+            pass: Pass::default(),
+            others: Vec::new(),
+            active: 0,
             preview: Preview::Result,
-            look: Look::default(),
             size_pct: 100.0,
             view: PreviewView::default(),
             replacing: None,
@@ -230,7 +238,10 @@ impl VectorizeUi {
     pub fn reopen(&mut self, ctx: &egui::Context, photo: &Photo) -> Result<(), String> {
         let img = photo.image.decode()?;
         self.set_image(ctx, img, photo.name.clone());
-        self.params = photo.params.clone();
+        // La pila vuelve tal como se añadió: el primer estilo abajo y los demás encima.
+        self.pass = Pass { params: photo.params.clone(), ..Default::default() };
+        self.others = photo.layers.iter().map(|params| Pass { params: params.clone(), ..Default::default() }).collect();
+        self.active = 0;
         self.size_pct = photo.size_pct;
         self.replacing = Some(photo.id);
         Ok(())
@@ -244,14 +255,8 @@ impl VectorizeUi {
         self.thumbs = Thumbnails::default();
         self.image = Some(Arc::new(img));
         self.name = name;
-        self.computed = None;
-        self.result = None;
-        self.result_revision = self.result_revision.wrapping_add(1);
-        // Una foto nueva invalida también los trabajos y la trama de la anterior.
-        self.job = None;
-        self.plot = None;
-        self.plot_job = None;
-        self.pending_key = None;
+        // Una foto nueva invalida los resultados, los trabajos y la trama de la anterior.
+        self.passes_mut().for_each(Pass::reset);
         self.view = PreviewView::default();
         self.choosing_seed = false;
     }
@@ -259,7 +264,7 @@ impl VectorizeUi {
     /// Pinta la vista «Original» con los ajustes de color actuales.
     fn refresh_texture(&mut self, ctx: &egui::Context) {
         let Some(src) = &self.source else { return };
-        let adjust = self.params.adjust.clone();
+        let adjust = self.pass.params.adjust.clone();
         if self.texture.is_some() && adjust == self.shown_adjust {
             return;
         }
@@ -280,34 +285,143 @@ impl VectorizeUi {
         self.shown_adjust = adjust;
     }
 
-    fn poll(&mut self, ctx: &egui::Context) {
-        if let Some((prm, rx)) = &self.job {
-            match rx.try_recv() {
-                Ok(r) => {
-                    self.computed = Some(prm.clone());
-                    self.result = Some(Arc::new(r));
-                    self.result_revision = self.result_revision.wrapping_add(1);
-                    self.job = None;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => self.job = None,
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
+    /// Todos los estilos de la pila, sin orden.
+    fn passes_mut(&mut self) -> impl Iterator<Item = &mut Pass> {
+        std::iter::once(&mut self.pass).chain(self.others.iter_mut())
+    }
+
+    /// Los estilos de la pila de abajo arriba, con su posición.
+    fn stack(&self) -> Vec<&Pass> {
+        let mut all: Vec<&Pass> = self.others.iter().collect();
+        all.insert(self.active.min(all.len()), &self.pass);
+        all
+    }
+
+    /// Los estilos que se ven y se añaden al papel, de abajo arriba.
+    fn visible(&self) -> Vec<&Pass> {
+        self.stack().into_iter().filter(|pass| !pass.hidden).collect()
+    }
+
+    /// Pasa a editar otro estilo de la pila; el actual se queda con sus resultados.
+    fn select(&mut self, index: usize) {
+        if index == self.active || index > self.others.len() {
+            return;
         }
-        let stale = self.computed.as_ref() != Some(&self.params);
-        let running_same = self.job.as_ref().is_some_and(|(p, _)| *p == self.params);
-        if stale && self.job.is_none() && !running_same {
-            if let Some(img) = self.image.clone() {
-                let prm = self.params.clone();
-                let (tx, rx) = mpsc::channel();
-                let ctx = ctx.clone();
-                let job_prm = prm.clone();
-                std::thread::spawn(move || {
-                    let r = vectorize::vectorize(&img, &job_prm);
-                    let _ = tx.send(r);
-                    ctx.request_repaint();
+        let current = std::mem::take(&mut self.pass);
+        self.others.insert(self.active, current);
+        self.pass = self.others.remove(index);
+        self.active = index;
+        self.choosing_seed = false;
+    }
+
+    /// Intercambia un estilo con el de encima (`up`) o el de debajo. Cada uno conserva
+    /// sus resultados: solo cambia el orden en que se dibujan y se añaden al papel.
+    fn move_pass(&mut self, index: usize, up: bool) {
+        let n = self.others.len() + 1;
+        let other = if up { index + 1 } else { index.wrapping_sub(1) };
+        if index >= n || other >= n {
+            return;
+        }
+        let mut all = std::mem::take(&mut self.others);
+        all.insert(self.active, std::mem::take(&mut self.pass));
+        all.swap(index, other);
+        let active = if self.active == index { other } else if self.active == other { index } else { self.active };
+        self.pass = all.remove(active);
+        self.others = all;
+        self.active = active;
+    }
+
+    /// Añade un estilo encima de todos y pasa a editarlo. Parte de los mismos ajustes
+    /// de foto; si abajo hay manchas o tramas, lo natural encima es el dibujo a tinta.
+    fn add_pass(&mut self) {
+        let mut params = self.pass.params.clone();
+        let mut look = self.pass.look.clone();
+        let style = if self.pass.params.mode == VecMode::Ink { Style::Mode(VecMode::CrossHatch) } else { Style::Mode(VecMode::Ink) };
+        style.apply(&mut params, &mut look);
+        let current = std::mem::replace(&mut self.pass, Pass { params, look, ..Default::default() });
+        self.others.insert(self.active, current);
+        self.active = self.others.len();
+        self.choosing_seed = false;
+    }
+
+    /// Quita un estilo de la pila (siempre queda al menos uno).
+    fn remove_pass(&mut self, index: usize) {
+        if self.others.is_empty() || index > self.others.len() {
+            return;
+        }
+        if index == self.active {
+            let next = if index < self.others.len() { index } else { index - 1 };
+            self.pass = self.others.remove(next);
+            self.active = next;
+        } else if index < self.active {
+            self.others.remove(index);
+            self.active -= 1;
+        } else {
+            self.others.remove(index - 1);
+        }
+        self.choosing_seed = false;
+    }
+
+    fn pass_at_mut(&mut self, index: usize) -> &mut Pass {
+        match index.cmp(&self.active) {
+            std::cmp::Ordering::Equal => &mut self.pass,
+            std::cmp::Ordering::Less => &mut self.others[index],
+            std::cmp::Ordering::Greater => &mut self.others[index - 1],
+        }
+    }
+
+    /// Lista de la pila, de arriba abajo como en el papel: cuál se edita, cuáles se ven
+    /// y cuáles se quitan.
+    fn stack_list(&mut self, ui: &mut egui::Ui) {
+        let pal = theme::current(ui.ctx());
+        let rows: Vec<(String, bool)> = self.stack().iter().map(|pass| (Style::of(&pass.params, &pass.look).label(), pass.hidden)).collect();
+        let (mut select, mut remove, mut toggle, mut shift) = (None, None, None, None);
+        let top = rows.len() - 1;
+        for (i, (label, hidden)) in rows.iter().enumerate().rev() {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let mut shown = !hidden;
+                if ui.checkbox(&mut shown, "").on_hover_text(ts!("Ver y añadir al papel este estilo")).changed() {
+                    toggle = Some(i);
+                }
+                let text = RichText::new(format!("{} · {label}", i + 1));
+                let text = if *hidden { text.color(pal.tertiary) } else { text };
+                if ui.selectable_label(i == self.active, text).on_hover_text(ts!("Editar este estilo")).clicked() {
+                    select = Some(i);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(ts!("Quitar")).clicked() {
+                        remove = Some(i);
+                    }
+                    if ui.add_enabled(i > 0, egui::Button::new(ts!("Bajar")).small()).on_hover_text(ts!("Dibujar este estilo antes, por debajo")).clicked() {
+                        shift = Some((i, false));
+                    }
+                    if ui.add_enabled(i < top, egui::Button::new(ts!("Subir")).small()).on_hover_text(ts!("Dibujar este estilo después, por encima")).clicked() {
+                        shift = Some((i, true));
+                    }
                 });
-                self.job = Some((prm, rx));
-            }
+            });
+        }
+        if let Some(i) = toggle {
+            let pass = self.pass_at_mut(i);
+            pass.hidden = !pass.hidden;
+        }
+        if let Some(i) = select {
+            self.select(i);
+        }
+        if let Some(i) = remove {
+            self.remove_pass(i);
+        }
+        if let Some((i, up)) = shift {
+            self.move_pass(i, up);
+        }
+        ui.add_space(4.0);
+    }
+
+    fn poll(&mut self, ctx: &egui::Context) {
+        let image = self.image.clone();
+        for pass in self.passes_mut() {
+            pass.poll(ctx, image.as_ref());
         }
     }
 
@@ -316,13 +430,19 @@ impl VectorizeUi {
     pub fn show(&mut self, ctx: &egui::Context, doc: &Document, paper: Color32, enabled: bool) -> Option<Outcome> {
         self.refresh_texture(ctx);
         self.poll(ctx);
-        if let Some(res) = self.result.clone() {
-            self.pending_key = Some(self.key(doc, &res));
+        let size_pct = self.size_pct;
+        for pass in self.passes_mut() {
+            if let Some(res) = pass.result.clone() {
+                pass.pending_key = Some(pass.key(doc, &res, size_pct));
+            }
+            pass.poll_plot(ctx);
         }
-        self.poll_plot(ctx);
         self.thumbs.poll();
         let pal = theme::current(ctx);
-        let ready = self.result.is_some() && self.computed.as_ref() == Some(&self.params);
+        let ready = {
+            let visible = self.visible();
+            !visible.is_empty() && visible.iter().all(|pass| pass.ready())
+        };
         let mut accept = enabled && !ctx.wants_keyboard_input() && ready && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
         let mut cancel = false;
 
@@ -343,16 +463,16 @@ impl VectorizeUi {
                 egui::TopBottomPanel::bottom("photo-actions").frame(egui::Frame::none()).show_inside(ui, |ui| {
                     ui.separator();
                     if self.image.is_some() {
-                        let summary = match &self.result {
-                            Some(res) => {
+                        let visible = self.visible();
+                        let summary = match visible.iter().find_map(|pass| pass.result.as_ref()) {
+                            Some(res) if visible.iter().all(|pass| pass.result.is_some()) => {
                                 let (w, h) = self.target_size(doc, res);
-                                let n: usize = match &self.plot {
-                                    Some((k, plot)) if k.result == self.result_revision => plot.layers.iter().map(|l| l.len()).sum(),
-                                    _ => res.layers.iter().map(|l| l.lines.len()).sum(),
-                                };
-                                tr!("%{w} × %{h} mm · %{n} trazos · %{layers} capas", w = format!("{w:.0}"), h = format!("{h:.0}"), n = n, layers = res.layers.len())
+                                let n: usize = visible.iter().map(|pass| pass.strokes()).sum();
+                                let layers: usize = visible.iter().filter_map(|pass| pass.result.as_ref()).map(|res| res.layers.len()).sum();
+                                tr!("%{w} × %{h} mm · %{n} trazos · %{layers} capas", w = format!("{w:.0}"), h = format!("{h:.0}"), n = n, layers = layers)
                             }
-                            None => ts!("Calculando…").into(),
+                            _ if visible.is_empty() => ts!("Todos los estilos están ocultos").into(),
+                            _ => ts!("Calculando…").into(),
                         };
                         ui.label(RichText::new(summary).strong());
                         ui.add_enabled_ui(ready, |ui| {
@@ -391,7 +511,8 @@ impl VectorizeUi {
 
     /// Dónde cae la foto en el papel, en mm: centrada en el área útil, como al añadirla.
     fn placement(&self, doc: &Document) -> Option<(f64, f64, f64)> {
-        let (w, h) = match (&self.result, &self.texture) {
+        let result = self.stack().into_iter().find_map(|pass| pass.result.clone());
+        let (w, h) = match (&result, &self.texture) {
             (Some(res), _) => (res.width, res.height),
             (None, Some(tex)) => (tex.size()[0] as f64, tex.size()[1] as f64),
             _ => return None,
@@ -456,12 +577,12 @@ impl VectorizeUi {
         };
         let center = sheet.min + Vec2::new(doc.paper.width_mm as f32, doc.paper.height_mm as f32) * 0.5 * mm;
         let img_rect = Rect::from_center_size(center, Vec2::new((w * s) as f32, (h * s) as f32) * mm);
-        if self.params.mode == VecMode::Topography && self.choosing_seed {
+        if self.pass.params.mode == VecMode::Topography && self.choosing_seed {
             if let Some(pos) = response.hover_pos().filter(|pos| img_rect.contains(*pos)) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if response.clicked() {
                     let uv = (pos - img_rect.min) / img_rect.size();
-                    self.params.topo.seed = [uv.x as f64, uv.y as f64];
+                    self.pass.params.topo.seed = [uv.x as f64, uv.y as f64];
                     self.choosing_seed = false;
                 }
             }
@@ -473,124 +594,24 @@ impl VectorizeUi {
             Preview::Result => {}
         }
         if self.preview != Preview::Original {
-            if let Some(res) = self.result.clone() {
-                let choices = self.assign(doc, &res);
-                let colors: Vec<[u8; 3]> = choices.iter().map(|c| choice_color(doc, c)).collect();
-                let widths = self.widths(doc, &choices);
-                let fresh = self.plot.as_ref().filter(|(k, _)| k.result == self.result_revision);
-                let mut shapes = Vec::new();
-                match fresh {
-                    // Simulación: trazos finales con el grosor real de cada rotulador.
-                    Some((key, plot)) => {
-                        let mm = img_rect.width() / (res.width * key.scale) as f32;
-                        for ((lines, c), w) in plot.layers.iter().zip(&colors).zip(&widths) {
-                            let st = Stroke::new((*w as f32 * mm).max(0.6), theme::pen_color(*c).gamma_multiply(0.9));
-                            for l in lines {
-                                let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * mm).collect();
-                                if pts.len() >= 2 {
-                                    shapes.push(pen_mark(pts, st));
-                                }
-                            }
-                        }
-                    }
-                    // Mientras se calcula la primera vez: contornos finos.
-                    None => {
-                        let k = img_rect.width() / res.width as f32;
-                        for (layer, c) in res.layers.iter().zip(&colors) {
-                            let st = Stroke::new(1.0f32, theme::pen_color(*c));
-                            for l in &layer.lines {
-                                let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * k).collect();
-                                if pts.len() >= 2 {
-                                    shapes.push(egui::Shape::line(pts, st));
-                                }
-                            }
-                        }
-                    }
-                }
-                painter.extend(shapes);
-            }
+            // Cada estilo se pinta sobre los de debajo, como saldrá del plóter.
+            let shapes: Vec<egui::Shape> = self.visible().into_iter().flat_map(|pass| pass.shapes(doc, img_rect)).collect();
+            painter.extend(shapes);
         }
-        if self.params.mode == VecMode::Topography {
-            let seed = self.params.topo.seed;
+        if self.pass.params.mode == VecMode::Topography {
+            let seed = self.pass.params.topo.seed;
             let c = img_rect.min + Vec2::new(seed[0] as f32, seed[1] as f32) * img_rect.size();
             painter.circle_filled(c, 5.0, Color32::WHITE);
             painter.circle_stroke(c, 5.0, Stroke::new(1.5_f32, pal.accent));
             painter.line_segment([c - Vec2::new(8.0, 0.0), c + Vec2::new(8.0, 0.0)], Stroke::new(1.0_f32, pal.accent));
             painter.line_segment([c - Vec2::new(0.0, 8.0), c + Vec2::new(0.0, 8.0)], Stroke::new(1.0_f32, pal.accent));
         }
-        if self.job.is_some() || self.plot_job.is_some() {
+        if self.stack().iter().any(|pass| pass.job.is_some() || pass.plot_job.is_some()) {
             let c = space.right_top() + Vec2::new(-24.0, 24.0);
             ui.painter().add(theme::glass(Rect::from_center_size(c, Vec2::splat(28.0)), 14.0, theme::Material::Capsule, &pal));
             let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c, Vec2::splat(18.0))));
             overlay.add(egui::Spinner::new());
         }
-    }
-
-    /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
-    /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
-    fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
-        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography);
-        let width = match self.params.mode {
-            VecMode::Mix => self.look.screen.pen_width_mm,
-            VecMode::Portrait => self.params.portrait.pen_width_mm,
-            VecMode::Topography => self.params.topo.pen_width_mm,
-            _ => 0.8,
-        };
-        res.layers
-            .iter()
-            .map(|l| {
-                if !new_pens {
-                    return PenChoice::Existing(doc.nearest_pen(l.color));
-                }
-                match doc.pens.iter().position(|p| color_distance(p.color, l.color) <= SAME_INK) {
-                    Some(i) => PenChoice::Existing(i),
-                    None => {
-                        let name = l.name.map(str::to_string).unwrap_or_else(|| Pen::automatic(l.color, width).name);
-                        PenChoice::New(l.color, name, width)
-                    }
-                }
-            })
-            .collect()
-    }
-
-    fn widths(&self, doc: &Document, choices: &[PenChoice]) -> Vec<f64> {
-        choices
-            .iter()
-            .map(|c| match c {
-                PenChoice::Existing(i) => doc.pens.get(*i).map(|p| p.width_mm).unwrap_or(0.8),
-                PenChoice::New(_, _, w) => *w,
-            })
-            .collect()
-    }
-
-    /// Recalcula en segundo plano los trazos finales cuando cambia algo que les afecta.
-    fn poll_plot(&mut self, ctx: &egui::Context) {
-        if let Some((key, rx)) = &self.plot_job {
-            match rx.try_recv() {
-                Ok(r) => {
-                    self.plot = Some((key.clone(), Arc::new(r)));
-                    self.plot_job = None;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => self.plot_job = None,
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        if self.plot_job.is_some() {
-            return;
-        }
-        let Some(res) = self.result.clone() else { return };
-        let Some(key) = self.pending_key.take() else { return };
-        if self.plot.as_ref().is_some_and(|(k, _)| *k == key) {
-            return;
-        }
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
-        let k = key.clone();
-        std::thread::spawn(move || {
-            let _ = tx.send(plot_lines(&res, &k));
-            ctx.request_repaint();
-        });
-        self.plot_job = Some((key, rx));
     }
 
     /// Cómo se leen la luz y los colores de la foto antes de separarla.
@@ -608,7 +629,7 @@ impl VectorizeUi {
             let shade = (i * 4) as u8;
             painter.rect_filled(Rect::from_min_max(Pos2::new(x, top), Pos2::new(x + bw + 0.5, r.bottom() - 4.0)), 0.0, pal.secondary.gamma_multiply(0.35 + 0.65 * (1.0 - shade as f32 / 255.0)));
         }
-        let a = &mut self.params.adjust;
+        let a = &mut self.pass.params.adjust;
         ui.checkbox(&mut a.auto_levels, ts!("Niveles automáticos")).on_hover_text(ts!("Estira la luz para que lo más oscuro sea negro y lo más claro blanco"));
         theme::section(ui, ts!("LUZ"));
         adjust_slider(ui, ts!("Brillo"), &mut a.brightness, -1.0..=1.0, 0.0, |v| format!("{:+.0}", v * 100.0));
@@ -650,14 +671,17 @@ impl VectorizeUi {
                 ui.add(egui::Label::new(RichText::new(&self.name).color(pal.secondary)).truncate());
             });
         });
+        if !self.others.is_empty() {
+            self.stack_list(ui);
+        }
         let entries: Vec<crate::catalog::Entry> = STYLES.iter().map(|(style, category)| crate::catalog::Entry {
             label: style.label(),
             category: crate::i18n::tr_key(category),
         }).collect();
-        let current = Style::of(&self.params, &self.look);
+        let current = Style::of(&self.pass.params, &self.pass.look);
         let active = STYLES.iter().position(|(style, _)| *style == current);
-        let (Some(thumb_image), look) = (self.thumb_image.clone(), self.look.clone()) else { return };
-        let params = self.params.clone();
+        let (Some(thumb_image), look) = (self.thumb_image.clone(), self.pass.look.clone()) else { return };
+        let params = self.pass.params.clone();
         let thumbs = &mut self.thumbs;
         let chosen = crate::catalog::selector(ui, egui::Id::new("photo-style"), &current.label(), active, &entries, ui.available_width(), |i, ui| {
             let style = STYLES[i].0;
@@ -669,17 +693,17 @@ impl VectorizeUi {
             ui.label(RichText::new(style.help()).small());
         });
         if let Some(i) = chosen {
-            STYLES[i].0.apply(&mut self.params, &mut self.look);
+            STYLES[i].0.apply(&mut self.pass.params, &mut self.pass.look);
         }
-        let current = Style::of(&self.params, &self.look);
+        let current = Style::of(&self.pass.params, &self.pass.look);
         ui.label(RichText::new(current.help()).small().color(pal.tertiary));
-        if current != Style::Mode(self.params.mode) {
+        if current != Style::Mode(self.pass.params.mode) {
             // La trama es solo cómo se rellena: lo que la hace mezcla es superponer tintas.
             ui.label(RichText::new(crate::i18n::ts(VecMode::Mix.help())).small().color(pal.tertiary));
         }
         ui.add_space(4.0);
-        if self.params.mode != VecMode::Topography { self.choosing_seed = false; }
-        let prm = &mut self.params;
+        if self.pass.params.mode != VecMode::Topography { self.choosing_seed = false; }
+        let prm = &mut self.pass.params;
         match prm.mode {
             VecMode::Colors => {
                 field(ui, ts!("Colores"), |ui| ui.add(egui::Slider::new(&mut prm.colors, 2..=12)));
@@ -853,8 +877,8 @@ impl VectorizeUi {
             }
         }
 
-        let look = &mut self.look;
-        match self.params.mode {
+        let look = &mut self.pass.look;
+        match self.pass.params.mode {
             VecMode::Colors | VecMode::Silhouette => {
                 theme::section(ui, ts!("RELLENO DE LAS FORMAS"));
                 field(ui, ts!("Relleno"), |ui| {
@@ -897,15 +921,19 @@ impl VectorizeUi {
             }
             _ => {}
         }
+        ui.add_space(2.0);
+        if ui.button(ts!("Añadir otro estilo encima")).on_hover_text(ts!("Dibuja otro estilo sobre este con la misma foto: por ejemplo, tinta sobre manchas de color.")).clicked() {
+            self.add_pass();
+        }
 
         theme::section(ui, ts!("ROTULADORES"));
-        if let Some(res) = self.result.clone() {
-            let choices = self.assign(doc, &res);
+        if let Some(res) = self.pass.result.clone() {
+            let choices = self.pass.assign(doc, &res);
             let mut colors: Vec<[u8; 3]> = choices.iter().filter_map(|c| if let PenChoice::New(c, ..) = c { Some(*c) } else { None }).collect();
             colors.sort_unstable();
             colors.dedup();
             let new = colors.len();
-            let help = match (self.params.mode, new) {
+            let help = match (self.pass.params.mode, new) {
                 (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, 0) => ts!("Usa rotuladores que ya tienes.").to_string(),
                 (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, 1) => ts!("Se añadirá 1 tinta nueva al panel de tintas.").to_string(),
                 (VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography, n) => tr!("Se añadirán %{n} tintas nuevas al panel de tintas.", n = n),
@@ -928,7 +956,7 @@ impl VectorizeUi {
         field(ui, ts!("Área útil"), |ui| ui.add(egui::Slider::new(&mut self.size_pct, 10.0..=100.0).suffix(" %")));
 
         ui.add_space(4.0);
-        let tuned = if self.params.adjust.is_identity() { "" } else { " ●" };
+        let tuned = if self.pass.params.adjust.is_identity() { "" } else { " ●" };
         egui::CollapsingHeader::new(format!("{}{tuned}", ts!("Color de la foto"))).id_salt("photo-colour").default_open(false).show(ui, |ui| {
             self.color_panel(ui);
         });
@@ -936,7 +964,7 @@ impl VectorizeUi {
     }
 
     fn detail(&mut self, ui: &mut egui::Ui) {
-        let prm = &mut self.params;
+        let prm = &mut self.pass.params;
         let blur_max = if prm.mode == VecMode::Topography { 20.0 } else { 4.0 };
         field(ui, ts!("Suavizar foto"), |ui| ui.add(egui::Slider::new(&mut prm.blur, 0.0..=blur_max)));
         if prm.mode == VecMode::Topography {
@@ -964,9 +992,7 @@ impl VectorizeUi {
     }
 
     fn scale(&self, doc: &Document, res: &VecResult) -> f64 {
-        let paper = &doc.paper;
-        let (pw, ph) = (paper.width_mm - 2.0 * paper.margin_mm, paper.height_mm - 2.0 * paper.margin_mm);
-        (pw / res.width).min(ph / res.height) * self.size_pct / 100.0
+        scale_on(doc, res, self.size_pct)
     }
 
     fn target_size(&self, doc: &Document, res: &VecResult) -> (f64, f64) {
@@ -974,24 +1000,208 @@ impl VectorizeUi {
         (res.width * s, res.height * s)
     }
 
-    fn key(&self, doc: &Document, res: &Arc<VecResult>) -> PlotKey {
-        let choices = self.assign(doc, res);
-        PlotKey { result: self.result_revision, look: self.look.clone(), scale: self.scale(doc, res), widths: self.widths(doc, &choices) }
+    /// Objetos y tintas nuevas de todos los estilos visibles, de abajo arriba. Las
+    /// tintas nuevas del mismo color se comparten entre estilos.
+    fn build(&self, doc: &Document) -> Option<(Vec<Item>, Vec<Pen>)> {
+        let visible = self.visible();
+        let stacked = visible.len() > 1;
+        let mut items = Vec::new();
+        let mut pens = Vec::new();
+        for pass in visible {
+            let label = if stacked { format!("{} · {}", self.name, Style::of(&pass.params, &pass.look).label()) } else { self.name.clone() };
+            pass.build_into(doc, self.size_pct, &label, &mut items, &mut pens)?;
+        }
+        Some((items, pens))
     }
 
-    fn build(&self, doc: &Document) -> Option<(Vec<Item>, Vec<Pen>)> {
+    /// Foto viva del grupo: la imagen (reducida) y los ajustes de esta separación.
+    fn photo(&self) -> Option<Photo> {
+        let image = EncodedImage::from_image(self.image.as_ref()?).ok()?;
+        let visible = self.visible();
+        let (first, rest) = visible.split_first()?;
+        let layers = rest.iter().map(|pass| pass.params.clone()).collect();
+        Some(Photo { id: 0, name: self.name.clone(), image: vectorio_core::Shared::new(image), params: first.params.clone(), layers, size_pct: self.size_pct })
+    }
+}
+
+impl Pass {
+    /// Olvida resultados y trabajos: hay que volver a calcularlo todo.
+    fn reset(&mut self) {
+        self.computed = None;
+        self.result = None;
+        self.result_revision = self.result_revision.wrapping_add(1);
+        self.job = None;
+        self.plot = None;
+        self.plot_job = None;
+        self.pending_key = None;
+    }
+
+    /// Separación al día con sus ajustes.
+    fn ready(&self) -> bool {
+        self.result.is_some() && self.computed.as_ref() == Some(&self.params)
+    }
+
+    /// Trazos que saldrán: los de la trama final si ya está, si no los de la separación.
+    fn strokes(&self) -> usize {
+        match (&self.plot, &self.result) {
+            (Some((k, plot)), _) if k.result == self.result_revision => plot.layers.iter().map(|l| l.len()).sum(),
+            (_, Some(res)) => res.layers.iter().map(|l| l.lines.len()).sum(),
+            _ => 0,
+        }
+    }
+
+    fn poll(&mut self, ctx: &egui::Context, image: Option<&Arc<DynamicImage>>) {
+        if let Some((prm, rx)) = &self.job {
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.computed = Some(prm.clone());
+                    self.result = Some(Arc::new(r));
+                    self.result_revision = self.result_revision.wrapping_add(1);
+                    self.job = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.job = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        let stale = self.computed.as_ref() != Some(&self.params);
+        if stale && self.job.is_none() {
+            if let Some(img) = image.cloned() {
+                let prm = self.params.clone();
+                let (tx, rx) = mpsc::channel();
+                let ctx = ctx.clone();
+                let job_prm = prm.clone();
+                std::thread::spawn(move || {
+                    let r = vectorize::vectorize(&img, &job_prm);
+                    let _ = tx.send(r);
+                    ctx.request_repaint();
+                });
+                self.job = Some((prm, rx));
+            }
+        }
+    }
+
+    fn key(&self, doc: &Document, res: &Arc<VecResult>, size_pct: f64) -> PlotKey {
+        let choices = self.assign(doc, res);
+        PlotKey { result: self.result_revision, look: self.look.clone(), scale: scale_on(doc, res, size_pct), widths: self.widths(doc, &choices) }
+    }
+
+    /// Trazos de la vista previa sobre la foto colocada en `img_rect`.
+    fn shapes(&self, doc: &Document, img_rect: Rect) -> Vec<egui::Shape> {
+        let Some(res) = self.result.clone() else { return vec![] };
+        let choices = self.assign(doc, &res);
+        let colors: Vec<[u8; 3]> = choices.iter().map(|c| choice_color(doc, c)).collect();
+        let widths = self.widths(doc, &choices);
+        let fresh = self.plot.as_ref().filter(|(k, _)| k.result == self.result_revision);
+        let mut shapes = Vec::new();
+        match fresh {
+            // Simulación: trazos finales con el grosor real de cada rotulador.
+            Some((key, plot)) => {
+                let mm = img_rect.width() / (res.width * key.scale) as f32;
+                for ((lines, c), w) in plot.layers.iter().zip(&colors).zip(&widths) {
+                    let st = Stroke::new((*w as f32 * mm).max(0.6), theme::pen_color(*c).gamma_multiply(0.9));
+                    for l in lines {
+                        let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * mm).collect();
+                        if pts.len() >= 2 {
+                            shapes.push(pen_mark(pts, st));
+                        }
+                    }
+                }
+            }
+            // Mientras se calcula la primera vez: contornos finos.
+            None => {
+                let k = img_rect.width() / res.width as f32;
+                for (layer, c) in res.layers.iter().zip(&colors) {
+                    let st = Stroke::new(1.0f32, theme::pen_color(*c));
+                    for l in &layer.lines {
+                        let pts: Vec<Pos2> = l.iter().map(|q| img_rect.min + Vec2::new(q.x as f32, q.y as f32) * k).collect();
+                        if pts.len() >= 2 {
+                            shapes.push(egui::Shape::line(pts, st));
+                        }
+                    }
+                }
+            }
+        }
+        shapes
+    }
+
+    /// Rotulador de cada capa. En Colores y Mezcla, cada color del dibujo pasa a ser una
+    /// tinta de la paleta; solo se reutiliza una tinta que ya tenga ese mismo color.
+    fn assign(&self, doc: &Document, res: &VecResult) -> Vec<PenChoice> {
+        let new_pens = matches!(self.params.mode, VecMode::Colors | VecMode::Mix | VecMode::Portrait | VecMode::Topography);
+        let width = match self.params.mode {
+            VecMode::Mix => self.look.screen.pen_width_mm,
+            VecMode::Portrait => self.params.portrait.pen_width_mm,
+            VecMode::Topography => self.params.topo.pen_width_mm,
+            _ => 0.8,
+        };
+        res.layers
+            .iter()
+            .map(|l| {
+                if !new_pens {
+                    return PenChoice::Existing(doc.nearest_pen(l.color));
+                }
+                match doc.pens.iter().position(|p| color_distance(p.color, l.color) <= SAME_INK) {
+                    Some(i) => PenChoice::Existing(i),
+                    None => {
+                        let name = l.name.map(str::to_string).unwrap_or_else(|| Pen::automatic(l.color, width).name);
+                        PenChoice::New(l.color, name, width)
+                    }
+                }
+            })
+            .collect()
+    }
+
+    fn widths(&self, doc: &Document, choices: &[PenChoice]) -> Vec<f64> {
+        choices
+            .iter()
+            .map(|c| match c {
+                PenChoice::Existing(i) => doc.pens.get(*i).map(|p| p.width_mm).unwrap_or(0.8),
+                PenChoice::New(_, _, w) => *w,
+            })
+            .collect()
+    }
+
+    /// Recalcula en segundo plano los trazos finales cuando cambia algo que les afecta.
+    fn poll_plot(&mut self, ctx: &egui::Context) {
+        if let Some((key, rx)) = &self.plot_job {
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.plot = Some((key.clone(), Arc::new(r)));
+                    self.plot_job = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.plot_job = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if self.plot_job.is_some() {
+            return;
+        }
+        let Some(res) = self.result.clone() else { return };
+        let Some(key) = self.pending_key.take() else { return };
+        if self.plot.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        let k = key.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(plot_lines(&res, &k));
+            ctx.request_repaint();
+        });
+        self.plot_job = Some((key, rx));
+    }
+
+    fn build_into(&self, doc: &Document, size_pct: f64, name: &str, items: &mut Vec<Item>, pens: &mut Vec<Pen>) -> Option<()> {
         let res = self.result.as_ref()?;
-        let s = self.scale(doc, res);
+        let s = scale_on(doc, res, size_pct);
         let center = p(doc.paper.width_mm / 2.0, doc.paper.height_mm / 2.0);
         let half = p(res.width * s / 2.0, res.height * s / 2.0);
-        let key = self.key(doc, res);
+        let key = self.key(doc, res, size_pct);
         // La trama añadida usa exactamente los mismos trazos y grosores que la vista
         // previa. Si ya está calculada, se aprovecha sin volver a generar los puntos.
         let cached = self.plot.as_ref().filter(|(cached_key, _)| *cached_key == key);
         let generated = if cached.is_none() && res.layers.iter().any(|layer| layer.coverage.is_some()) { Some(plot_lines(res, &key)) } else { None };
         let plot = cached.map(|(_, plot)| plot.as_ref()).or(generated.as_ref());
-        let mut pens = Vec::new();
-        let mut items = Vec::new();
         for (i, (layer, choice)) in res.layers.iter().zip(self.assign(doc, res)).enumerate() {
             let pen = match choice {
                 PenChoice::Existing(i) => i,
@@ -1004,7 +1214,7 @@ impl VectorizeUi {
                     }
                 },
             };
-            let label = layer.name.map(|n| format!("{} · {}", self.name, n)).unwrap_or_else(|| format!("{} · {}", self.name, i + 1));
+            let label = layer.name.map(|n| format!("{name} · {n}")).unwrap_or_else(|| format!("{name} · {}", i + 1));
             let to_local = |l: &Polyline| -> Polyline { l.iter().map(|q| p(q.x * s - half.x, q.y * s - half.y)).collect() };
             let mut item = match &layer.coverage {
                 // Mezcla: cada tinta guarda su mapa y su trama, que se puede retocar luego.
@@ -1030,14 +1240,16 @@ impl VectorizeUi {
             item.group = Some(0);
             items.push(item);
         }
-        Some((items, pens))
+        Some(())
     }
 
-    /// Foto viva del grupo: la imagen (reducida) y los ajustes de esta separación.
-    fn photo(&self) -> Option<Photo> {
-        let image = EncodedImage::from_image(self.image.as_ref()?).ok()?;
-        Some(Photo { id: 0, name: self.name.clone(), image: vectorio_core::Shared::new(image), params: self.params.clone(), size_pct: self.size_pct })
-    }
+}
+
+/// Escala (mm por px de la separación) con que la foto ocupa `size_pct` del área útil.
+fn scale_on(doc: &Document, res: &VecResult, size_pct: f64) -> f64 {
+    let paper = &doc.paper;
+    let (pw, ph) = (paper.width_mm - 2.0 * paper.margin_mm, paper.height_mm - 2.0 * paper.margin_mm);
+    (pw / res.width).min(ph / res.height) * size_pct / 100.0
 }
 
 /// Diferencia máxima (RGB) para considerar que una tinta de la paleta ya es ese color.
@@ -1377,14 +1589,14 @@ mod tests {
         view.set_image(&ctx, DynamicImage::ImageRgba8(image::RgbaImage::from_fn(64, 48, |x, y| {
             image::Rgba([80, (x*3) as u8, (y*4) as u8, if x > 8 && x < 55 { 255 } else { 0 }])
         })), "Topografía".into());
-        view.params.mode = VecMode::Topography;
-        view.params.topo.lines = 30;
-        view.params.topo.seed = [0.2, 0.8];
-        view.params.topo.gamma = 1.8;
-        view.params.topo.pen_width_mm = 0.175;
-        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.params));
-        view.result = Some(result.clone());
-        let expected = plot_lines(&result, &view.key(&doc, &result));
+        view.pass.params.mode = VecMode::Topography;
+        view.pass.params.topo.lines = 30;
+        view.pass.params.topo.seed = [0.2, 0.8];
+        view.pass.params.topo.gamma = 1.8;
+        view.pass.params.topo.pen_width_mm = 0.175;
+        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.pass.params));
+        view.pass.result = Some(result.clone());
+        let expected = plot_lines(&result, &view.pass.key(&doc, &result, view.size_pct));
         let (items, pens) = view.build(&doc).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(pens.len(), 1);
@@ -1405,9 +1617,9 @@ mod tests {
         let photo = &saved.photos[0];
         let mut reopened = VectorizeUi::default();
         reopened.reopen(&ctx, photo).unwrap();
-        assert_eq!(reopened.params, view.params);
+        assert_eq!(reopened.pass.params, view.pass.params);
         assert_eq!(reopened.image.as_ref().unwrap().to_rgba8(), view.image.as_ref().unwrap().to_rgba8());
-        assert_eq!(vectorize::vectorize(reopened.image.as_ref().unwrap(), &reopened.params).layers[0].lines, result.layers[0].lines);
+        assert_eq!(vectorize::vectorize(reopened.image.as_ref().unwrap(), &reopened.pass.params).layers[0].lines, result.layers[0].lines);
         let svg = vectorio_core::svg_out::export(&saved, &saved.layers());
         assert!(svg.contains("stroke-width=\"0.175\"") && svg.contains("fill=\"none\"") && svg.contains("<path"));
     }
@@ -1417,7 +1629,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut view = VectorizeUi::default();
         view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::from_pixel(80, 100, image::Rgb([100; 3]))), "Origen".into());
-        view.params.mode = VecMode::Topography;
+        view.pass.params.mode = VecMode::Topography;
         view.preview = Preview::Original;
         view.choosing_seed = true;
         view.view.zoom = 2.0;
@@ -1436,7 +1648,7 @@ mod tests {
         let point = image.min+image.size()*Vec2::new(0.42, 0.53);
         frame(&mut view, vec![egui::Event::PointerMoved(point), egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
         frame(&mut view, vec![egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
-        assert!((view.params.topo.seed[0]-0.42).abs() < 1e-5 && (view.params.topo.seed[1]-0.53).abs() < 1e-5);
+        assert!((view.pass.params.topo.seed[0]-0.42).abs() < 1e-5 && (view.pass.params.topo.seed[1]-0.53).abs() < 1e-5);
         assert!(!view.choosing_seed);
         assert_eq!(view.view.zoom, 2.0);
     }
@@ -1449,14 +1661,14 @@ mod tests {
         view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::from_fn(80, 100, |x, y| {
             image::Rgb(if x < 40 { [180, (y+35) as u8, 35] } else { [35, 55, 160] })
         })), "Retrato de prueba".into());
-        view.params.mode = VecMode::Portrait;
-        view.params.portrait.density = 55;
-        view.params.portrait.field_smooth = 6.5;
-        view.params.portrait.length_pct = 32.0;
+        view.pass.params.mode = VecMode::Portrait;
+        view.pass.params.portrait.density = 55;
+        view.pass.params.portrait.field_smooth = 6.5;
+        view.pass.params.portrait.length_pct = 32.0;
         view.size_pct = 65.0;
-        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.params));
-        let expected = plot_lines(&result, &view.key(&doc, &result));
-        view.result = Some(result.clone());
+        let result = Arc::new(vectorize::vectorize(view.image.as_ref().unwrap(), &view.pass.params));
+        let expected = plot_lines(&result, &view.pass.key(&doc, &result, view.size_pct));
+        view.pass.result = Some(result.clone());
         let (items, pens) = view.build(&doc).unwrap();
         assert!(!items.is_empty());
         doc.pens.extend(pens);
@@ -1477,10 +1689,10 @@ mod tests {
         doc.add_photo_items(items, Some(photo), None);
         let loaded = Document::from_json(&doc.to_json()).unwrap();
         let saved = &loaded.photos[0];
-        assert_eq!(saved.params, view.params);
+        assert_eq!(saved.params, view.pass.params);
         let mut reopened = VectorizeUi::default();
         reopened.reopen(&ctx, saved).unwrap();
-        assert_eq!(reopened.params, view.params);
+        assert_eq!(reopened.pass.params, view.pass.params);
         assert_eq!(reopened.size_pct, 65.0);
         assert_eq!(reopened.replacing, Some(saved.id));
         let svg = vectorio_core::svg_out::export(&loaded, &loaded.layers());
@@ -1554,13 +1766,13 @@ mod tests {
         doc.pens[1].width_mm = 1.4;
         doc.add(Item::new("Dibujo anterior", Geometry::Shape(vectorio_core::Shape::Heart { size: 25.0 }), p(30.0, 40.0)));
         let mut view = VectorizeUi::default();
-        view.params.mode = VecMode::Mix;
-        view.look.screen.screen = Screen::Dots;
-        view.look.screen.spacing_mm = 3.0;
+        view.pass.params.mode = VecMode::Mix;
+        view.pass.look.screen.screen = Screen::Dots;
+        view.pass.look.screen.spacing_mm = 3.0;
         view.size_pct = 10.0;
-        view.result = Some(mixed_result(doc.pens[1].color));
-        let res = view.result.as_ref().unwrap();
-        let key = view.key(&doc, res);
+        view.pass.result = Some(mixed_result(doc.pens[1].color));
+        let res = view.pass.result.as_ref().unwrap();
+        let key = view.pass.key(&doc, res, view.size_pct);
         let expected = plot_lines(res, &key);
         assert!(!expected.layers[0].is_empty());
         let (items, pens) = view.build(&doc).unwrap();
@@ -1594,8 +1806,8 @@ mod tests {
         let layer = |color| vectorize::VecLayer { color, closed: true, lines: vec![square.clone()], coverage: None, name: None };
         let near_red = [doc.pens[1].color[0] - 20, doc.pens[1].color[1], doc.pens[1].color[2] + 10];
         let mut view = VectorizeUi::default();
-        view.params.mode = VecMode::Colors;
-        view.result = Some(Arc::new(VecResult {
+        view.pass.params.mode = VecMode::Colors;
+        view.pass.result = Some(Arc::new(VecResult {
             width: 8.0, height: 6.0,
             layers: vec![layer(doc.pens[0].color), layer(near_red), layer([150, 96, 60]), layer([150, 96, 60])],
         }));
@@ -1608,28 +1820,110 @@ mod tests {
     }
 
     #[test]
+    fn stacked_styles_import_bottom_to_top_and_hidden_ones_stay_out() {
+        let doc = Document::default();
+        let square = vec![p(0.0, 0.0), p(4.0, 0.0), p(4.0, 4.0), p(0.0, 0.0)];
+        let result = |color, closed| Arc::new(VecResult {
+            width: 8.0, height: 6.0,
+            layers: vec![vectorize::VecLayer { color, closed, lines: vec![square.clone()], coverage: None, name: None }],
+        });
+        let mut view = VectorizeUi { name: "Foto".into(), ..Default::default() };
+        view.pass.params.mode = VecMode::Colors;
+        view.pass.result = Some(result(doc.pens[1].color, true));
+        view.add_pass();
+        // El nuevo estilo va encima, con la tinta como punto de partida, y es el que se edita.
+        assert_eq!((view.active, view.others.len(), view.pass.params.mode), (1, 1, VecMode::Ink));
+        view.pass.result = Some(result(doc.pens[0].color, false));
+        let (items, _) = view.build(&doc).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].fill.pen, 1);
+        assert!(items[0].name.starts_with("Foto · ") && items[1].name.starts_with("Foto · "));
+        assert_ne!(items[0].name, items[1].name);
+        // Oculto, el de abajo ni se importa ni se guarda en la foto.
+        view.others[0].hidden = true;
+        let (items, _) = view.build(&doc).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "Foto · 1");
+        assert!(view.stack().iter().all(|pass| pass.params.mode != VecMode::Colors || pass.hidden));
+        // Con todo oculto no hay nada que añadir.
+        view.pass.hidden = true;
+        assert!(view.build(&doc).is_none() || view.build(&doc).unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn the_stack_keeps_its_order_when_selecting_removing_and_reopening() {
+        let ctx = egui::Context::default();
+        let mut view = VectorizeUi::default();
+        view.set_image(&ctx, DynamicImage::ImageRgb8(image::RgbImage::from_pixel(16, 12, image::Rgb([90, 90, 90]))), "foto.png".into());
+        view.pass.params.mode = VecMode::Colors;
+        view.add_pass();
+        view.add_pass();
+        let modes = |view: &VectorizeUi| view.stack().iter().map(|pass| pass.params.mode).collect::<Vec<_>>();
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::Ink, VecMode::CrossHatch]);
+        assert_eq!(view.active, 2);
+        // Elegir otro para editarlo no cambia el orden.
+        view.select(0);
+        assert_eq!((view.active, view.pass.params.mode), (0, VecMode::Colors));
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::Ink, VecMode::CrossHatch]);
+        view.select(1);
+        assert_eq!(view.pass.params.mode, VecMode::Ink);
+        // La foto guardada lleva la pila entera y al volver a abrirla sale igual.
+        let photo = view.photo().unwrap();
+        assert_eq!(photo.params.mode, VecMode::Colors);
+        assert_eq!(photo.layers.iter().map(|l| l.mode).collect::<Vec<_>>(), vec![VecMode::Ink, VecMode::CrossHatch]);
+        let mut again = VectorizeUi::default();
+        again.reopen(&ctx, &photo).unwrap();
+        assert_eq!(modes(&again), modes(&view));
+        // Subir y bajar cambian el orden y el estilo en edición sigue siendo el mismo.
+        view.move_pass(1, true);
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::CrossHatch, VecMode::Ink]);
+        assert_eq!((view.active, view.pass.params.mode), (2, VecMode::Ink));
+        view.move_pass(0, true);
+        assert_eq!(modes(&view), vec![VecMode::CrossHatch, VecMode::Colors, VecMode::Ink]);
+        assert_eq!(view.pass.params.mode, VecMode::Ink);
+        view.move_pass(2, true);
+        view.move_pass(0, false);
+        assert_eq!(modes(&view), vec![VecMode::CrossHatch, VecMode::Colors, VecMode::Ink]);
+        let photo = view.photo().unwrap();
+        assert_eq!(photo.params.mode, VecMode::CrossHatch);
+        view.move_pass(0, true);
+        view.move_pass(2, false);
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::Ink, VecMode::CrossHatch]);
+        view.select(1);
+        // Quitar el que se edita pasa a editar el de encima; quitar otro mantiene el elegido.
+        view.remove_pass(1);
+        assert_eq!(modes(&view), vec![VecMode::Colors, VecMode::CrossHatch]);
+        assert_eq!((view.active, view.pass.params.mode), (1, VecMode::CrossHatch));
+        view.remove_pass(0);
+        assert_eq!((view.active, view.others.len(), view.pass.params.mode), (0, 0, VecMode::CrossHatch));
+        // Siempre queda uno.
+        view.remove_pass(0);
+        assert_eq!(modes(&view), vec![VecMode::CrossHatch]);
+    }
+
+    #[test]
     fn loading_another_photo_discards_previous_results_and_jobs() {
         let ctx = egui::Context::default();
         let mut view = VectorizeUi::default();
         let doc = Document::default();
         let result = mixed_result([20, 20, 20]);
-        let key = view.key(&doc, &result);
+        let key = view.pass.key(&doc, &result, view.size_pct);
         let (tx, rx) = mpsc::channel();
         tx.send((*result).clone()).unwrap();
-        view.job = Some((view.params.clone(), rx));
-        view.result = Some(result);
-        view.plot = Some((key.clone(), Arc::new(PlotPreview { layers: vec![] })));
+        view.pass.job = Some((view.pass.params.clone(), rx));
+        view.pass.result = Some(result);
+        view.pass.plot = Some((key.clone(), Arc::new(PlotPreview { layers: vec![] })));
         let (_, plot_rx) = mpsc::channel();
-        view.plot_job = Some((key.clone(), plot_rx));
-        view.pending_key = Some(key);
+        view.pass.plot_job = Some((key.clone(), plot_rx));
+        view.pass.pending_key = Some(key);
         view.view.zoom = 4.0;
         let path = std::env::temp_dir().join(format!("vectorio-photo-reload-{}.png", std::process::id()));
         image::RgbImage::from_pixel(8, 6, image::Rgb([255, 0, 0])).save(&path).unwrap();
         view.load(&ctx, &path).unwrap();
         std::fs::remove_file(path).unwrap();
-        assert!(view.job.is_none() && view.result.is_none() && view.plot.is_none() && view.plot_job.is_none() && view.pending_key.is_none());
+        assert!(view.pass.job.is_none() && view.pass.result.is_none() && view.pass.plot.is_none() && view.pass.plot_job.is_none() && view.pass.pending_key.is_none());
         assert_eq!(view.view.zoom, 1.0);
-        assert_eq!(view.result_revision, 1);
+        assert_eq!(view.pass.result_revision, 1);
     }
 
     #[test]
@@ -1664,7 +1958,7 @@ mod tests {
         }
         assert!(y_of("Estilo") < y_of("Color de la foto"));
         // Mover un ajuste rehace la vista «Original» y lo pasa a la separación.
-        view.params.adjust.saturation = 0.0;
+        view.pass.params.adjust.saturation = 0.0;
         let _ = ctx.run(input(), |ctx| { let _ = view.show(ctx, &doc, Color32::WHITE, true); });
         assert_eq!(view.shown_adjust.saturation, 0.0);
     }
@@ -1706,6 +2000,7 @@ mod tests {
             (1440, 900, true, Some(Style::Mode(VecMode::Stipple)), "punteado"),
             (1440, 900, false, Some(Style::Mode(VecMode::Burin)), "buril"),
             (1440, 900, false, Some(Style::Mode(VecMode::Loops)), "bucles"),
+            (1440, 900, false, Some(Style::Mode(VecMode::Colors)), "apilado"),
             (1440, 900, false, None, "vacio"),
         ];
         for (width, height, dark, style, name) in shots {
@@ -1716,7 +2011,10 @@ mod tests {
             app.mode = crate::app::ViewMode::Photo;
             if let Some(style) = style {
                 app.vec_ui.set_image(&ctx, DynamicImage::ImageRgb8(photo.clone()), "retrato.jpg".into());
-                style.apply(&mut app.vec_ui.params, &mut app.vec_ui.look);
+                style.apply(&mut app.vec_ui.pass.params, &mut app.vec_ui.pass.look);
+                if name == "apilado" {
+                    app.vec_ui.add_pass();
+                }
             }
             let mut textures = HashMap::new();
             let mut output = None;
@@ -1740,8 +2038,9 @@ mod tests {
                     }
                 }
                 output = Some(out);
-                let busy = app.vec_ui.job.is_some() || app.vec_ui.plot_job.is_some() || (app.vec_ui.result.is_some() && app.vec_ui.plot.is_none());
-                if i > 8 && (empty || (app.vec_ui.result.is_some() && !busy)) { break; }
+                let stack = app.vec_ui.stack();
+                let busy = stack.iter().any(|pass| pass.job.is_some() || pass.plot_job.is_some() || pass.result.is_none() || pass.plot.is_none());
+                if i > 8 && (empty || !busy) { break; }
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             let output = output.unwrap();

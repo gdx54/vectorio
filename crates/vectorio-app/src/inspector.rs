@@ -1699,7 +1699,7 @@ mod tests {
         rust_i18n::set_locale("es");
         let ctx = egui::Context::default();
         let mut app = VectorioApp::blank(&ctx);
-        let photo = vectorio_core::Photo { id: 0, name: "Foto".into(), image: vectorio_core::Shared::new(vectorio_core::photo::EncodedImage { bytes: vec![] }), params: Default::default(), size_pct: 80.0 };
+        let photo = vectorio_core::Photo { id: 0, name: "Foto".into(), image: vectorio_core::Shared::new(vectorio_core::photo::EncodedImage { bytes: vec![] }), params: Default::default(), layers: vec![], size_pct: 80.0 };
         let cov = || Coverage { map: Grid::new(4, 4), mm_per_px: 1.0 };
         let items = (0..2).map(|i| {
             let mut it = Item::new(format!("tinta {i}"), Geometry::Traced(Box::new(Traced::new(cov(), TraceParams::default(), i))), p(0.0, 0.0));
