@@ -147,10 +147,42 @@ pub struct MachineUi {
     notice: Option<String>,
     /// Ajustes enviados a la placa por última vez.
     sent: Option<MachineSettings>,
+    /// Cerrar la conexión en cuanto termine la orden en curso.
+    close_after: bool,
+    /// Tinta por la que ya se ha avisado en el Dock.
+    called_for: Option<usize>,
+    awake: KeepAwake,
 }
 
 impl Drop for MachineUi {
     fn drop(&mut self) { if let Some(control) = &self.control { control.stop(); } }
+}
+
+/// Mientras traza, el Mac no entra en reposo por inactividad: al dormirse cortaría el
+/// USB a mitad de dibujo. La pantalla sí puede apagarse. `caffeinate -w` termina solo
+/// si Vectorio se cierra de golpe.
+#[derive(Default)]
+struct KeepAwake(Option<std::process::Child>);
+
+impl KeepAwake {
+    fn set(&mut self, on: bool) {
+        if on == self.0.is_some() { return; }
+        if on {
+            if cfg!(target_os = "macos") {
+                self.0 = std::process::Command::new("/usr/bin/caffeinate")
+                    .args(["-i", "-w", &std::process::id().to_string()])
+                    .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+                    .spawn().ok();
+            }
+        } else if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for KeepAwake {
+    fn drop(&mut self) { self.set(false); }
 }
 
 impl MachineUi {
@@ -197,6 +229,10 @@ impl MachineUi {
                     self.engaged = engaged;
                     if self.status != Status::Off { self.status = Status::Idle; }
                     self.control = None; self.waiting_pen = None; self.paused = false; self.running = None;
+                    if std::mem::take(&mut self.close_after) {
+                        self.send(Cmd::Disconnect);
+                        self.notice = Some(tr!("Trazado terminado. Motores sueltos y máquina desconectada: el Mac ya puede entrar en reposo."));
+                    }
                 }
                 Note::Failed(message) => self.error = Some(message),
                 Note::Step { index, total } => {
@@ -211,7 +247,11 @@ impl MachineUi {
                     self.step_clock.get_or_insert_with(Instant::now);
                 }
                 Note::Button => { self.hold(); self.notice = Some(tr!("Botón de la máquina pulsado: trazado en pausa.")); }
-                Note::Done(Outcome::Finished) => { self.progress.0 = self.progress.1; self.notice = Some(tr!("Trazado terminado.")); }
+                Note::Done(Outcome::Finished) => {
+                    self.progress.0 = self.progress.1;
+                    self.notice = Some(tr!("Trazado terminado."));
+                    self.close_after = settings.disconnect_when_done;
+                }
                 Note::Done(Outcome::Stopped) => self.notice = Some(tr!("Trazado parado. La pluma queda arriba.")),
             }
         }
@@ -285,13 +325,62 @@ impl MachineUi {
     }
 }
 
-/// Recoge los avisos de la máquina; va al principio de cada fotograma de Salida.
-pub fn update(app: &mut VectorioApp) { app.machine_ui.update(&app.prefs.machine); }
+/// Recoge los avisos de la máquina en cada fotograma, en cualquier vista: el trazado
+/// sigue aunque se cambie de pestaña.
+pub fn update(app: &mut VectorioApp, ctx: &egui::Context) {
+    let m = &mut app.machine_ui;
+    m.update(&app.prefs.machine);
+    m.awake.set(m.status == Status::Plotting);
+    // Al pedir una tinta, el Dock rebota hasta que se vuelve a Vectorio.
+    if m.waiting_pen.is_some() && m.called_for != m.waiting_pen {
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical));
+    }
+    m.called_for = m.waiting_pen;
+    if m.status == Status::Plotting { ctx.request_repaint_after(Duration::from_millis(500)); }
+    if let Some(message) = m.notice.take() { app.notify(ctx, message); }
+}
+
+/// Diálogo del cambio de tinta: el trazado espera, con la pluma arriba, hasta Aceptar.
+pub fn pen_dialog(app: &mut VectorioApp, ctx: &egui::Context) {
+    let m = &mut app.machine_ui;
+    let Some(pen) = m.waiting_pen.filter(|_| m.status == Status::Plotting) else { return };
+    let pal = theme::current(ctx);
+    let screen = ctx.screen_rect();
+    let veil = egui::Area::new(egui::Id::new("pen-change-veil")).fixed_pos(screen.min).order(egui::Order::Foreground).show(ctx, |ui| {
+        ui.allocate_rect(screen, egui::Sense::click());
+        ui.painter().rect_filled(screen, 0.0, theme::veil(ui.visuals().dark_mode));
+    });
+    ctx.move_to_top(veil.response.layer_id);
+    let ink = app.doc.pens.get(pen);
+    let name = ink.map_or_else(|| "?".into(), crate::i18n::pen_name);
+    let sheet = egui::Area::new(egui::Id::new("pen-change-sheet")).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .order(egui::Order::Foreground).show(ctx, |ui| {
+        theme::glass_sheet(ui, &pal, |ui| {
+            ui.set_max_width(340.0);
+            ui.horizontal(|ui| {
+                if let Some(ink) = ink {
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                    ui.painter().circle_filled(rect.center(), 8.0, theme::pen_color(ink.color));
+                }
+                ui.label(RichText::new(tr!("Cambio de tinta")).size(15.0).strong().color(pal.text));
+            });
+            ui.add_space(8.0);
+            ui.label(RichText::new(tr!("Pon %{pen} en la máquina y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.", pen = name)).color(pal.text));
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                let accept = theme::accent_button(ui, &tr!("Aceptar")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let stop = ui.button(tr!("Parar")).on_hover_text(tr!("Termina el trazado aquí, con la pluma arriba.")).clicked();
+                if accept { m.resume(); }
+                if stop { m.stop(); }
+            });
+        });
+    });
+    ctx.move_to_top(sheet.response.layer_id);
+}
 
 /// Estado, conexión y trazado: abajo del inspector de Salida.
 pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     let pal = theme::current(ui.ctx());
-    if let Some(message) = app.machine_ui.notice.take() { app.notify(ui.ctx(), message); }
     let m = &mut app.machine_ui;
     theme::section(ui, &tr!("MÁQUINA"));
     ui.label(RichText::new(m.status_text(&app.doc.pens)).color(pal.text));
@@ -377,8 +466,10 @@ pub fn settings(app: &mut VectorioApp, ui: &mut egui::Ui) {
             ui.end_row();
         });
         ui.checkbox(&mut s.return_home, tr!("Volver al origen al terminar"));
-        ui.add_enabled(s.return_home, egui::Checkbox::new(&mut s.release_when_done, tr!("Soltar los motores al volver")))
+        ui.checkbox(&mut s.release_when_done, tr!("Soltar los motores al terminar"))
             .on_hover_text(tr!("Parados siguen haciendo fuerza: zumban y se calientan."));
+        ui.checkbox(&mut s.disconnect_when_done, tr!("Desconectar al terminar"))
+            .on_hover_text(tr!("Suelta los motores y cierra la conexión USB. Mientras traza, el Mac no entra en reposo; al acabar, ya puede."));
     });
     if app.prefs.machine != before { app.prefs_changed(); }
 }
@@ -428,6 +519,54 @@ mod tests {
     }
 
     #[test]
+    fn pen_change_asks_in_a_dialog_and_enter_resumes() {
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let control = Arc::new(Control::default());
+        control.pause();
+        app.machine_ui.status = Status::Plotting;
+        app.machine_ui.control = Some(control.clone());
+        app.machine_ui.waiting_pen = Some(1);
+        app.machine_ui.paused = true;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0));
+        fn has_text(shape: &egui::Shape, text: &str) -> bool {
+            match shape {
+                egui::Shape::Text(t) => t.galley.text().contains(text),
+                egui::Shape::Vec(v) => v.iter().any(|s| has_text(s, text)),
+                _ => false,
+            }
+        }
+        // Un área nueva se mide en el primer fotograma y se dibuja en el segundo.
+        ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        let out = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        let pen = crate::i18n::pen_name(&app.doc.pens[1]);
+        assert!(out.shapes.iter().any(|s| has_text(&s.shape, "Cambio de tinta")));
+        assert!(out.shapes.iter().any(|s| has_text(&s.shape, &format!("Pon {pen} en la máquina"))));
+        assert!(control.is_paused());
+        let enter = egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        ctx.run(egui::RawInput { screen_rect: Some(screen), events: vec![enter], ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        assert!(!control.is_paused(), "Intro acepta el cambio de tinta");
+        // Sin tinta pendiente no hay diálogo.
+        app.machine_ui.waiting_pen = None;
+        let out = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        assert!(!out.shapes.iter().any(|s| has_text(&s.shape, "Cambio de tinta")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keeps_the_mac_awake_only_while_plotting() {
+        let mut awake = KeepAwake::default();
+        awake.set(true);
+        let child = awake.0.as_mut().expect("caffeinate");
+        assert!(child.try_wait().unwrap().is_none(), "caffeinate sigue en marcha");
+        awake.set(true);
+        awake.set(false);
+        assert!(awake.0.is_none());
+    }
+
+    #[test]
     fn timeline_follows_the_machine_and_stops_while_paused() {
         let plan = sample_plan();
         let mut ui = MachineUi::default();
@@ -457,7 +596,7 @@ mod tests {
     fn connects_plots_with_pen_changes_and_stays_connected() {
         let _lock = crate::i18n::locale_lock();
         let link = FakeLink::default();
-        let settings = MachineSettings::default();
+        let settings = MachineSettings { disconnect_when_done: false, ..Default::default() };
         let mut ui = MachineUi::default();
         let l = link.clone();
         ui.connect_with(move || Ok(l), &settings, None);
@@ -483,8 +622,42 @@ mod tests {
     }
 
     #[test]
+    fn a_finished_plot_releases_the_motors_and_disconnects() {
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
+        let link = FakeLink::default();
+        let settings = MachineSettings::default();
+        assert!(settings.disconnect_when_done);
+        let mut ui = MachineUi::default();
+        let l = link.clone();
+        ui.connect_with(move || Ok(l), &settings, None);
+        wait(&mut ui, &settings, |u| u.status == Status::Idle);
+        ui.plot(sample_plan(), PlotSettings::default());
+        ui.awake.set(true);
+        for _ in 0..1000 {
+            ui.update(&settings);
+            if ui.waiting_pen.is_some() { ui.resume(); ui.waiting_pen = None; }
+            if ui.status == Status::Off { break; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(ui.status, Status::Off, "se desconecta al terminar");
+        assert!(ui.error.is_none());
+        assert!(ui.notice.as_deref().is_some_and(|n| n.contains("reposo")));
+        let log = link.log.lock().unwrap();
+        assert_eq!(log.iter().rev().find(|c| c.starts_with("EM")).map(String::as_str), Some("EM,0,0"));
+        drop(log);
+        // Sin trazar, el Mac puede dormir.
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        app.machine_ui = ui;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| update(&mut app, ctx));
+        assert!(app.machine_ui.awake.0.is_none());
+    }
+
+    #[test]
     fn stop_while_waiting_for_a_pen_ends_the_plot() {
         let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
         let settings = MachineSettings::default();
         let mut ui = MachineUi::default();
         ui.connect_with(|| Ok(FakeLink::default()), &settings, None);
@@ -515,6 +688,7 @@ mod tests {
     #[test]
     fn a_missing_machine_reports_why() {
         let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
         let settings = MachineSettings::default();
         let mut ui = MachineUi::default();
         ui.connect_with(|| Err::<FakeLink, _>(MachineError::NotFound), &settings, None);

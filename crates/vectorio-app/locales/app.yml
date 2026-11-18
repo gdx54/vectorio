@@ -2864,6 +2864,20 @@ _version: 2
   en: "Plot finished."
 "Siguiendo a la máquina":
   en: "Following the machine"
+"Soltar los motores al terminar":
+  en: "Release the motors when done"
+"Desconectar al terminar":
+  en: "Disconnect when done"
+"Suelta los motores y cierra la conexión USB. Mientras traza, el Mac no entra en reposo; al acabar, ya puede.":
+  en: "Releases the motors and closes the USB connection. The Mac stays awake while plotting and may sleep once it is done."
+"Trazado terminado. Motores sueltos y máquina desconectada: el Mac ya puede entrar en reposo.":
+  en: "Plot finished. Motors released and machine disconnected: the Mac can sleep now."
+"Aceptar":
+  en: "OK"
+"Pon %{pen} en la máquina y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.":
+  en: "Put %{pen} in the machine and press OK to continue. The pen is up and the carriage stays still."
+"Termina el trazado aquí, con la pluma arriba.":
+  en: "Ends the plot here, with the pen up."
 "Trazado parado. La pluma queda arriba.":
   en: "Plot stopped. The pen stays up."
 "Botón de la máquina pulsado: trazado en pausa.":
@@ -2908,7 +2922,5 @@ _version: 2
   en: "Acceleration"
 "Volver al origen al terminar":
   en: "Return to origin when done"
-"Soltar los motores al volver":
-  en: "Free the motors on return"
 "Parados siguen haciendo fuerza: zumban y se calientan.":
   en: "When idle they keep holding: they hum and get warm."

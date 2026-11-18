@@ -34,10 +34,13 @@ pub struct MachineSettings {
     pub max_speed: f64,
     /// Volver al origen al terminar.
     pub return_home: bool,
-    /// Soltar los motores al volver al origen: parados siguen haciendo fuerza, zumban y
-    /// se calientan. La siguiente orden de movimiento los activa otra vez, tomando la
-    /// posición del carro como origen.
+    /// Soltar los motores al terminar, haya vuelto o no al origen: parados siguen haciendo
+    /// fuerza, zumban y se calientan. La siguiente orden de movimiento los activa otra
+    /// vez, tomando la posición del carro como origen.
     pub release_when_done: bool,
+    /// Cerrar la conexión USB al terminar un trazado completo, para dejarlo todo en
+    /// reposo (por ejemplo, un dibujo que acaba de madrugada). Lo aplica la interfaz.
+    pub disconnect_when_done: bool,
 }
 
 impl Default for MachineSettings {
@@ -46,7 +49,7 @@ impl Default for MachineSettings {
         // A3 en vertical). En una AxiDraw V3 son 300 × 218.
         MachineSettings { steps_per_mm: 80.0, travel_mm: [317.0, 440.0], paper_origin_mm: [0.0, 0.0],
             pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 1000.0, junction_mm: 0.03, max_speed: 200.0, return_home: true,
-            release_when_done: true }
+            release_when_done: true, disconnect_when_done: true }
     }
 }
 
@@ -305,7 +308,7 @@ impl<L: Link> Plotter<L> {
             return self.stopped(lift_ms);
         }
         self.wait_idle()?;
-        if self.settings.return_home && self.settings.release_when_done { self.release()?; }
+        if self.settings.release_when_done { self.release()?; }
         Ok(Outcome::Finished)
     }
 
@@ -601,6 +604,9 @@ mod tests {
         assert_eq!(r, Ok(Outcome::Finished));
         let kin = plotter.settings().kinematics();
         assert!(link.0.lock().unwrap().inked.contains(&kin.motors(p(45.0, 17.0))));
+        // Sin volver al origen, los motores también quedan sueltos al terminar.
+        assert!(!plotter.is_engaged());
+        assert_eq!(link.0.lock().unwrap().log.iter().rev().find(|c| c.starts_with("EM")).map(String::as_str), Some("EM,0,0"));
     }
 
     #[test]
