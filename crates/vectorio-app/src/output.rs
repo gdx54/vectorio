@@ -48,6 +48,8 @@ pub struct OutputUi {
     timeline: Option<egui::TextureHandle>,
     timeline_dark: bool,
     pen_spans: Vec<PenSpan>,
+    /// La línea de tiempo sigue a la máquina mientras traza este mismo plan.
+    live: bool,
     map: Map,
     show_drawing: bool,
     show_travel: bool,
@@ -59,7 +61,7 @@ pub struct OutputUi {
 
 impl Default for OutputUi {
     fn default() -> Self {
-        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], map: Map::Total,
+        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], live: false, map: Map::Total,
             show_drawing: false, show_travel: true, zoom: 1.0, offset: Vec2::ZERO,
             fitted: false, viewport: Vec2::ZERO }
     }
@@ -273,7 +275,10 @@ impl OutputUi {
         let total = plan.stats.total_seconds;
         let pal = theme::current(ui.ctx());
         ui.horizontal_wrapped(|ui| {
-            if ui.add_enabled(ready && total > 0.0, egui::Button::new(if sim.playing { tr!("Pausar") } else { tr!("Simular salida") })).clicked() {
+            let ready = ready && !self.live;
+            if self.live {
+                ui.label(RichText::new(tr!("Siguiendo a la máquina")).strong().color(pal.text));
+            } else if ui.add_enabled(ready && total > 0.0, egui::Button::new(if sim.playing { tr!("Pausar") } else { tr!("Simular salida") })).clicked() {
                 if sim.progress >= 1.0 { sim.progress = 0.0; }
                 sim.playing = !sim.playing; self.map = Map::Route;
             }
@@ -286,6 +291,7 @@ impl OutputUi {
             ui.label(format!("{} / {}", duration(sim.progress as f64 * total), duration(total)));
             ui.checkbox(&mut self.show_travel, tr!("Ver viajes"));
         });
+        let ready = ready && !self.live;
         let (response, painter) = ui.allocate_painter(Vec2::new(ui.available_width(), 82.0), Sense::click_and_drag());
         let r = response.rect;
         let route = Rect::from_min_max(Pos2::new(r.left() + 62.0, r.top() + 10.0), Pos2::new(r.right(), r.top() + 34.0));
@@ -488,7 +494,16 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let current = app.rendered.rev == app.rev && !app.tracing() && !app.is_computing();
     let ready = app.output_ready();
     app.output_ui.update(ctx, &app.doc, &app.rendered, current, &mut app.sim);
-    if app.sim.playing && ready {
+    crate::machine_ui::update(app);
+    // Mientras la máquina traza el plan que se ve, la línea de tiempo y la ruta van con ella.
+    let live = app.machine_ui.live().filter(|(plan, _)| app.output_ui.plan.as_ref().is_some_and(|p| Arc::ptr_eq(p, plan)));
+    app.output_ui.live = live.is_some();
+    if let Some((plan, t)) = live {
+        app.sim.playing = false;
+        app.sim.progress = (t / plan.stats.total_seconds.max(1e-9)).clamp(0.0, 1.0) as f32;
+        app.output_ui.map = Map::Route;
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    } else if app.sim.playing && ready {
         app.output_ui.map = Map::Route;
         let total = app.output_ui.plan.as_ref().map_or(1.0, |p| p.stats.total_seconds).max(1.0);
         app.sim.progress = (app.sim.progress + ctx.input(|i| i.stable_dt).min(0.1) * app.sim.speed / total as f32).min(1.0);

@@ -5,7 +5,7 @@
 use crate::{app::VectorioApp, theme};
 use egui::RichText;
 use std::sync::{mpsc, Arc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use vectorio_core::machine::{Control, Event, Link, MachineError, MachineSettings, Outcome, Plotter, SerialLink};
 use vectorio_core::{output::OutputPlan, PlotSettings};
 
@@ -136,6 +136,11 @@ pub struct MachineUi {
     /// Trazado listo para empezar en cuanto se ponga la primera tinta.
     pending: Option<(Arc<OutputPlan>, PlotSettings)>,
     paused: bool,
+    /// Plan que está trazando la máquina, para que la línea de tiempo la siga.
+    running: Option<Arc<OutputPlan>>,
+    /// Tiempo ya transcurrido en el paso actual y desde cuándo corre, si no está en pausa.
+    step_elapsed: f64,
+    step_clock: Option<Instant>,
     /// Último fallo, a la vista hasta la siguiente orden.
     error: Option<String>,
     /// Aviso para la barra de mensajes de la aplicación.
@@ -191,14 +196,21 @@ impl MachineUi {
                 Note::Ready { engaged } => {
                     self.engaged = engaged;
                     if self.status != Status::Off { self.status = Status::Idle; }
-                    self.control = None; self.waiting_pen = None; self.paused = false;
+                    self.control = None; self.waiting_pen = None; self.paused = false; self.running = None;
                 }
                 Note::Failed(message) => self.error = Some(message),
-                Note::Step { index, total } => { self.progress = (index, total); self.waiting_pen = None; }
-                Note::PenChange(pen) => { self.waiting_pen = Some(pen); self.paused = true; }
-                Note::Paused => self.paused = true,
-                Note::Resumed => { self.paused = false; self.waiting_pen = None; }
-                Note::Button => { self.paused = true; self.notice = Some(tr!("Botón de la máquina pulsado: trazado en pausa.")); }
+                Note::Step { index, total } => {
+                    self.progress = (index, total); self.waiting_pen = None;
+                    self.step_elapsed = 0.0;
+                    self.step_clock = (!self.paused).then(Instant::now);
+                }
+                Note::PenChange(pen) => { self.waiting_pen = Some(pen); self.hold(); }
+                Note::Paused => self.hold(),
+                Note::Resumed => {
+                    self.paused = false; self.waiting_pen = None;
+                    self.step_clock.get_or_insert_with(Instant::now);
+                }
+                Note::Button => { self.hold(); self.notice = Some(tr!("Botón de la máquina pulsado: trazado en pausa.")); }
                 Note::Done(Outcome::Finished) => { self.progress.0 = self.progress.1; self.notice = Some(tr!("Trazado terminado.")); }
                 Note::Done(Outcome::Stopped) => self.notice = Some(tr!("Trazado parado. La pluma queda arriba.")),
             }
@@ -212,6 +224,7 @@ impl MachineUi {
     fn reset(&mut self) {
         if let Some(control) = self.control.take() { control.stop(); }
         self.worker = None; self.status = Status::Off; self.waiting_pen = None; self.pending = None; self.paused = false; self.engaged = false; self.sent = None;
+        self.running = None;
     }
 
     fn plot(&mut self, plan: Arc<OutputPlan>, motion: PlotSettings) {
@@ -219,10 +232,33 @@ impl MachineUi {
         self.control = Some(control.clone());
         self.progress = (0, plan.steps.len());
         self.paused = false; self.waiting_pen = None;
+        self.step_elapsed = 0.0; self.step_clock = None;
+        self.running = Some(plan.clone());
         self.send(Cmd::Plot(plan, motion, control));
     }
 
-    fn pause(&mut self) { if let Some(c) = &self.control { c.pause(); self.paused = true; } }
+    /// Detiene el reloj del paso: en pausa la línea de tiempo no avanza.
+    fn hold(&mut self) {
+        self.paused = true;
+        if let Some(start) = self.step_clock.take() { self.step_elapsed += start.elapsed().as_secs_f64(); }
+    }
+
+    /// Plan que se está trazando y punto de su línea de tiempo, en segundos, por el que
+    /// va la máquina. Dentro de cada paso avanza al ritmo previsto y espera al final si
+    /// la máquina va más lenta; el siguiente paso lo vuelve a poner en hora.
+    pub fn live(&self) -> Option<(Arc<OutputPlan>, f64)> { self.live_at(Instant::now()) }
+
+    fn live_at(&self, now: Instant) -> Option<(Arc<OutputPlan>, f64)> {
+        if self.status != Status::Plotting { return None; }
+        let plan = self.running.clone()?;
+        let Some(step) = plan.steps.get(self.progress.0) else { return Some((plan.clone(), plan.stats.total_seconds)); };
+        let (a, b) = step.times();
+        let running = self.step_clock.map_or(0.0, |start| now.saturating_duration_since(start).as_secs_f64());
+        let t = a + (self.step_elapsed + running).min((b - a).max(0.0));
+        Some((plan, t))
+    }
+
+    fn pause(&mut self) { if let Some(c) = &self.control { c.pause(); self.hold(); } }
     fn resume(&mut self) { if let Some(c) = &self.control { c.resume(); } }
     fn stop(&mut self) { if let Some(c) = &self.control { c.stop(); c.resume(); } }
 
@@ -249,10 +285,12 @@ impl MachineUi {
     }
 }
 
+/// Recoge los avisos de la máquina; va al principio de cada fotograma de Salida.
+pub fn update(app: &mut VectorioApp) { app.machine_ui.update(&app.prefs.machine); }
+
 /// Estado, conexión y trazado: abajo del inspector de Salida.
 pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     let pal = theme::current(ui.ctx());
-    app.machine_ui.update(&app.prefs.machine);
     if let Some(message) = app.machine_ui.notice.take() { app.notify(ui.ctx(), message); }
     let m = &mut app.machine_ui;
     theme::section(ui, &tr!("MÁQUINA"));
@@ -387,6 +425,32 @@ mod tests {
             PlotLayer { pen: 1, paths: vec![vec![p(20.0, 60.0), p(30.0, 70.0)]] },
         ];
         Arc::new(prepare(&layers, &paper, &pens, &PlotSettings::default(), &OutputSettings { drying: false, ..Default::default() }).unwrap())
+    }
+
+    #[test]
+    fn timeline_follows_the_machine_and_stops_while_paused() {
+        let plan = sample_plan();
+        let mut ui = MachineUi::default();
+        ui.status = Status::Plotting; ui.running = Some(plan.clone());
+        let index = plan.steps.iter().position(|s| matches!(s, vectorio_core::output::OutputStep::Draw { .. })).unwrap();
+        let (a, b) = plan.steps[index].times();
+        assert!(b - a > 0.2, "el trazo de prueba dura {} s", b - a);
+        let start = Instant::now();
+        ui.progress = (index, plan.steps.len());
+        ui.step_clock = Some(start);
+        let at = |ui: &MachineUi, s: f64| ui.live_at(start + Duration::from_secs_f64(s)).unwrap().1;
+        assert!((at(&ui, 0.0) - a).abs() < 1e-9);
+        assert!((at(&ui, 0.1) - (a + 0.1)).abs() < 1e-6);
+        // Si la máquina va más lenta que lo previsto, espera al final del paso.
+        assert!((at(&ui, 1e4) - b).abs() < 1e-9);
+        // En pausa no avanza.
+        ui.step_clock = None; ui.step_elapsed = 0.1; ui.paused = true;
+        assert!((at(&ui, 50.0) - (a + 0.1)).abs() < 1e-6);
+        // Terminado: al final; sin trazar, nada que seguir.
+        ui.progress.0 = plan.steps.len();
+        assert_eq!(at(&ui, 0.0), plan.stats.total_seconds);
+        ui.status = Status::Idle;
+        assert!(ui.live().is_none());
     }
 
     #[test]
