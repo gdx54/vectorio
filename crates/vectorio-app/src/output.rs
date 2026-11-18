@@ -494,7 +494,6 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let current = app.rendered.rev == app.rev && !app.tracing() && !app.is_computing();
     let ready = app.output_ready();
     app.output_ui.update(ctx, &app.doc, &app.rendered, current, &mut app.sim);
-    crate::machine_ui::update(app);
     // Mientras la máquina traza el plan que se ve, la línea de tiempo y la ruta van con ella.
     let live = app.machine_ui.live().filter(|(plan, _)| app.output_ui.plan.as_ref().is_some_and(|p| Arc::ptr_eq(p, plan)));
     app.output_ui.live = live.is_some();

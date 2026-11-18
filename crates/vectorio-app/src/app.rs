@@ -1058,6 +1058,7 @@ impl eframe::App for VectorioApp {
             self.request_quit(ctx);
         }
         self.shortcuts(ctx);
+        crate::machine_ui::update(self, ctx);
         self.toolbar(ctx, &pal);
         if self.mode == ViewMode::Output {
             crate::output::show(self, ctx);
@@ -1084,6 +1085,7 @@ impl eframe::App for VectorioApp {
         self.save_prefs(ctx);
         self.show_color_panel(ctx);
         crate::palette_ui::show(self, ctx);
+        crate::machine_ui::pen_dialog(self, ctx);
         self.toast(ctx, &pal);
         theme::restyle_controls(ctx);
         self.update_traces(ctx);
