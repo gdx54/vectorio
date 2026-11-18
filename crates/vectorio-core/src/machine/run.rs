@@ -137,6 +137,14 @@ impl<L: Link> Plotter<L> {
     /// Comprueba la placa, sube la pluma, activa los motores y toma la posición actual
     /// del carro como origen.
     pub fn connect(link: L, settings: MachineSettings) -> Result<Self, MachineError> {
+        let mut plotter = Self::attach(link, settings)?;
+        plotter.set_origin_here()?;
+        Ok(plotter)
+    }
+
+    /// Como `connect`, pero deja los motores sueltos para colocar el carro a mano: el
+    /// origen se toma al primer movimiento.
+    pub fn attach(link: L, settings: MachineSettings) -> Result<Self, MachineError> {
         if !settings.valid() { return Err(MachineError::InvalidSettings); }
         let mut ebb = Ebb::new(link);
         let version = ebb.version()?;
@@ -144,7 +152,8 @@ impl<L: Link> Plotter<L> {
         let mut plotter = Plotter { ebb, settings, kin, pos: (0, 0), pen_up: false, engaged: false, since_button: 0, version };
         plotter.apply_pen_settings()?;
         plotter.set_pen(true, 300)?;
-        plotter.set_origin_here()?;
+        plotter.wait_idle()?;
+        plotter.ebb.motors(false)?;
         Ok(plotter)
     }
 
@@ -204,6 +213,14 @@ impl<L: Link> Plotter<L> {
 
     pub fn set_pen(&mut self, up: bool, delay_ms: u32) -> Result<(), MachineError> {
         if self.pen_up == up { return Ok(()); }
+        self.ebb.pen(up, delay_ms)?;
+        self.pen_up = up;
+        Ok(())
+    }
+
+    /// Lleva la pluma a su altura aunque ya estuviera arriba o abajo: tras cambiar la
+    /// altura, `set_pen` no la movería.
+    pub fn move_pen(&mut self, up: bool, delay_ms: u32) -> Result<(), MachineError> {
         self.ebb.pen(up, delay_ms)?;
         self.pen_up = up;
         Ok(())
@@ -527,6 +544,24 @@ mod tests {
             _ => {}
         });
         assert_eq!(r, Ok(Outcome::Finished));
+    }
+
+    #[test]
+    fn attach_leaves_motors_free_until_the_first_move() {
+        let link = SimLink::default();
+        let mut plotter = Plotter::attach(link.clone(), MachineSettings::default()).unwrap();
+        assert!(!plotter.is_engaged());
+        assert_eq!(link.0.lock().unwrap().log.last().map(String::as_str), Some("EM,0,0"));
+        // El carro se ha movido a mano: el origen se toma al empezar.
+        link.0.lock().unwrap().pos = (5000, -300);
+        let (out, motion) = sample_plan();
+        let control = Control::default();
+        let outcome = plotter.execute(&out, &motion, &control, &mut |e| if let Event::PenChange { .. } = e { control.resume() }).unwrap();
+        assert_eq!(outcome, Outcome::Finished);
+        let log = link.0.lock().unwrap().log.clone();
+        let cs = log.iter().position(|c| c == "CS").expect("origen al empezar");
+        assert_eq!(log[cs - 1], "EM,1,1");
+        assert_eq!(link.0.lock().unwrap().pos, (0, 0));
     }
 
     #[test]

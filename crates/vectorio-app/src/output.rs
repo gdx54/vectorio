@@ -512,9 +512,18 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
             ui.set_width(PANEL_W - 2.0 * theme::PANEL_PAD);
             ui.set_height(height - 2.0 * theme::PANEL_PAD);
             egui::TopBottomPanel::top("output-summary").frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.summary(ui, &app.doc, ready, app.prefs.plotter()));
-            egui::TopBottomPanel::bottom("output-actions").frame(egui::Frame::none()).show_inside(ui, |ui| app.output_ui.actions(ui, &app.doc, ready));
+            egui::TopBottomPanel::bottom("output-actions").frame(egui::Frame::none()).show_inside(ui, |ui| {
+                ui.separator();
+                ui.add_space(6.0);
+                crate::machine_ui::actions(app, ui, ready);
+                app.output_ui.actions(ui, &app.doc, ready);
+            });
             egui::CentralPanel::default().frame(egui::Frame::none()).show_inside(ui, |ui| {
-                egui::ScrollArea::vertical().id_salt("output-settings-scroll").show(ui, |ui| app.output_ui.settings(ui, &mut app.doc, &mut app.sim));
+                egui::ScrollArea::vertical().id_salt("output-settings-scroll").show(ui, |ui| {
+                    app.output_ui.settings(ui, &mut app.doc, &mut app.sim);
+                    ui.add_space(8.0);
+                    crate::machine_ui::settings(app, ui);
+                });
             });
         });
     });
@@ -641,13 +650,13 @@ mod tests {
     use super::*;
     #[test]
     fn exports_and_simulation_stay_visible_in_small_and_large_windows() {
-        visible_in("es", ["Guardar plan con esperas…", "Exportar SVG de la ruta…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas"]);
+        visible_in("es", &["Guardar plan con esperas…", "Exportar SVG de la ruta…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas", "Conectar", "Sin conectar"]);
     }
     #[test]
     fn the_english_texts_also_fit_without_overflowing() {
-        visible_in("en", ["Save plan with waits…", "Export route SVG…", "Simulate output", "Wet · prepared", "Actions", "Pens"]);
+        visible_in("en", &["Save plan with waits…", "Export route SVG…", "Simulate output", "Wet · prepared", "Actions", "Pens", "Connect", "Not connected"]);
     }
-    fn visible_in(locale: &str, labels: [&str; 6]) {
+    fn visible_in(locale: &str, labels: &[&str]) {
         let _lock = crate::i18n::locale_lock();
         rust_i18n::set_locale(locale);
         fn text_rect(shape: &egui::Shape, label: &str) -> Option<Rect> {
@@ -684,7 +693,7 @@ mod tests {
                     show(&mut app, ctx);
                 }));
             }
-            for label in labels {
+            for &label in labels {
                 let (clip, rect) = result.as_ref().unwrap().shapes.iter()
                     .find_map(|s| text_rect(&s.shape, label).map(|r| (s.clip_rect, r))).expect(label);
                 assert!(screen.contains_rect(rect) && clip.contains_rect(rect), "{label} fuera de {size:?}: {rect:?}, clip {clip:?}");

@@ -100,6 +100,7 @@ pub struct VectorioApp {
     pub create_ui: crate::create::CreateUi,
     pub volumetric_ui: crate::volumetric_ui::VolumetricUi,
     pub output_ui: crate::output::OutputUi,
+    pub machine_ui: crate::machine_ui::MachineUi,
     pub prefs: crate::prefs::Preferences,
     prefs_dirty: bool,
     pub prefs_ui: crate::prefs_ui::PrefsUi,
@@ -190,6 +191,7 @@ impl VectorioApp {
             mode: ViewMode::Design,
             sim: Sim::default(),
             output_ui: Default::default(),
+            machine_ui: Default::default(),
             create_ui: Default::default(),
             volumetric_ui: Default::default(),
             prefs: Default::default(),
@@ -226,6 +228,9 @@ impl VectorioApp {
         if language_changed && self.menu.is_some() { self.menu = NativeMenu::install(ctx); }
         self.prefs_dirty = true;
     }
+
+    /// Marca las preferencias para guardarlas en cuanto termine el gesto en curso.
+    pub(crate) fn prefs_changed(&mut self) { self.prefs_dirty = true; }
 
     /// Guarda las preferencias cuando no hay un gesto en curso (un deslizador, un arrastre).
     fn save_prefs(&mut self, ctx: &egui::Context) {

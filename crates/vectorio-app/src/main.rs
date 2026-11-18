@@ -15,6 +15,7 @@ mod colorpanel;
 mod commands;
 mod create;
 mod inspector;
+mod machine_ui;
 mod macos;
 mod output;
 mod paths;
