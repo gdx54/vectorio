@@ -42,9 +42,9 @@ pub struct MachineSettings {
 
 impl Default for MachineSettings {
     fn default() -> Self {
-        // Recorrido de una AxiDraw V3 (cabe un A4 apaisado): conservador hasta que se
-        // configure el de la máquina.
-        MachineSettings { steps_per_mm: 80.0, travel_mm: [300.0, 218.0], paper_origin_mm: [0.0, 0.0],
+        // Recorrido de la MakerQ: 317 mm a lo ancho y 440 mm hacia el usuario (cabe un
+        // A3 en vertical). En una AxiDraw V3 son 300 × 218.
+        MachineSettings { steps_per_mm: 80.0, travel_mm: [317.0, 440.0], paper_origin_mm: [0.0, 0.0],
             pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 1000.0, junction_mm: 0.03, max_speed: 200.0, return_home: true,
             release_when_done: true }
     }
