@@ -12,6 +12,7 @@ pub mod font;
 pub mod geom;
 pub mod generate;
 pub mod ink;
+pub mod machine;
 pub mod mix;
 pub mod optimize;
 pub mod output;

@@ -13,3 +13,4 @@ usvg = "0.44"
 rayon = "1"
 hyphenation = { version = "0.8", features = ["embed_all"] }
 meshopt = "0.6.2"
+serialport = { version = "4.10", default-features = false }
