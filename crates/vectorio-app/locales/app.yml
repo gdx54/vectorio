@@ -2826,3 +2826,87 @@ _version: 2
   en: "Hatch spacing (mm)"
 "Esta pasada utiliza tres tintas, una por eje.":
   en: "This pass uses three inks, one per axis."
+"MÁQUINA":
+  en: "MACHINE"
+"Sin conectar":
+  en: "Not connected"
+"Conectando…":
+  en: "Connecting…"
+"Conectar":
+  en: "Connect"
+"Desconectar":
+  en: "Disconnect"
+"Conectada%{version} · motores activados":
+  en: "Connected%{version} · motors on"
+"Conectada%{version} · carro libre":
+  en: "Connected%{version} · carriage free"
+"Trazar en la máquina":
+  en: "Plot on the machine"
+"Toma como origen el punto donde esté el carro si los motores están sueltos. Antes de cada tinta, pausa para que la pongas.":
+  en: "If the motors are free, wherever the carriage is becomes the origin. Before each ink it pauses so you can load it."
+"Pon %{pen} y pulsa Empezar":
+  en: "Load %{pen} and press Start"
+"Pon %{pen} y pulsa Continuar":
+  en: "Load %{pen} and press Continue"
+"Empezar":
+  en: "Start"
+"Continuar":
+  en: "Continue"
+"Parar":
+  en: "Stop"
+"Sube la pluma y deja el carro donde está.":
+  en: "Lifts the pen and leaves the carriage where it is."
+"En pausa · pluma arriba":
+  en: "Paused · pen up"
+"Trazando · paso %{i} de %{n}":
+  en: "Plotting · step %{i} of %{n}"
+"Trazado terminado.":
+  en: "Plot finished."
+"Trazado parado. La pluma queda arriba.":
+  en: "Plot stopped. The pen stays up."
+"Botón de la máquina pulsado: trazado en pausa.":
+  en: "Machine button pressed: plot paused."
+"No se encuentra la máquina. Comprueba que está encendida y que el cable USB pasa datos, no solo carga.":
+  en: "Can't find the machine. Check that it's on and that the USB cable carries data, not just power."
+"Se ha perdido la conexión USB con la máquina. Comprueba el cable y vuelve a conectar; antes de trazar, lleva el carro al origen.":
+  en: "The USB connection to the machine was lost. Check the cable and connect again; before plotting, bring the carriage back to the origin."
+"El dibujo no cabe en el recorrido de la máquina. Revisa el recorrido y la posición del papel.":
+  en: "The drawing doesn't fit in the machine's travel. Check the travel and the paper position."
+"Revisa los ajustes de la máquina: hay valores fuera de rango.":
+  en: "Check the machine settings: some values are out of range."
+"La máquina ha respondido algo inesperado: %{respuesta}":
+  en: "The machine sent an unexpected reply: %{respuesta}"
+"Máquina: pluma, origen y recorrido":
+  en: "Machine: pen, origin and travel"
+"Fija el boli en el soporte con la pluma abajo, apoyado en el papel sin forzar.":
+  en: "Clamp the pen in its holder with the pen down, resting on the paper without pressure."
+"Pluma arriba":
+  en: "Pen up"
+"Pluma abajo":
+  en: "Pen down"
+"Probar":
+  en: "Try"
+"Mueve solo la pluma a esta altura.":
+  en: "Moves only the pen to this height."
+"La pluma abajo debe quedar por debajo de la de arriba.":
+  en: "Pen down must be lower than pen up."
+"El origen es donde esté el carro al empezar a trazar: suelta los motores y llévalo a mano a la esquina superior izquierda.":
+  en: "The origin is wherever the carriage is when plotting starts: free the motors and move it by hand to the top-left corner."
+"Soltar motores":
+  en: "Free motors"
+"Volver al origen":
+  en: "Return to origin"
+"Papel desde el origen":
+  en: "Paper from origin"
+"Recorrido del carro":
+  en: "Carriage travel"
+"Velocidad máxima":
+  en: "Maximum speed"
+"Aceleración":
+  en: "Acceleration"
+"Volver al origen al terminar":
+  en: "Return to origin when done"
+"Soltar los motores al volver":
+  en: "Free the motors on return"
+"Parados siguen haciendo fuerza: zumban y se calientan.":
+  en: "When idle they keep holding: they hum and get warm."

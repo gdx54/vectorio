@@ -69,6 +69,8 @@ pub struct Preferences {
     pub show_tips: bool,
     pub new_document: NewDocument,
     pub create: crate::create::CreatePrefs,
+    /// Pluma, origen y recorrido del plóter conectado por USB.
+    pub machine: vectorio_core::machine::MachineSettings,
 }
 
 pub const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.8..=1.5;
@@ -76,7 +78,7 @@ pub const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.8..=1.5;
 impl Default for Preferences {
     fn default() -> Self {
         Self { appearance: Appearance::System, language: Language::System, ui_scale: 1.0, paper_tint: 0,
-            plotter_name: "EasyDraw".into(), show_tips: true, new_document: NewDocument::default(), create: Default::default() }
+            plotter_name: "EasyDraw".into(), show_tips: true, new_document: NewDocument::default(), create: Default::default(), machine: Default::default() }
     }
 }
 
