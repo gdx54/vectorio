@@ -43,6 +43,12 @@ pub fn servo_position(pct: f64) -> u32 {
     (SERVO_MIN + (SERVO_MAX - SERVO_MIN) * pct.clamp(0.0, 100.0) / 100.0).round() as u32
 }
 
+/// Velocidad del servo para `SC,11` y `SC,12` con la escala de AxiDraw: al 100 %
+/// recorre toda la escala en 200 ms.
+pub fn servo_rate(pct: f64) -> u32 {
+    ((SERVO_MAX - SERVO_MIN) * 0.03 / 200.0 * pct.clamp(1.0, 100.0)).round() as u32
+}
+
 pub struct Ebb<L> {
     link: L,
 }
@@ -62,10 +68,14 @@ impl<L: Link> Ebb<L> {
         if v.contains("EBB") || v.contains("Firmware") { Ok(v) } else { Err(MachineError::Unexpected(v)) }
     }
 
-    /// Alturas de la pluma arriba y abajo, en % de la escala de AxiDraw.
+    /// Alturas de la pluma arriba y abajo, en % de la escala de AxiDraw, y velocidad del
+    /// servo como AxiDraw al subir al 75 % y bajar al 50 %: así la pluma llega en el tiempo
+    /// de subir y bajar de serie (0,2 s).
     pub fn configure_pen(&mut self, up_pct: f64, down_pct: f64) -> Result<(), MachineError> {
         self.ok(&format!("SC,4,{}", servo_position(up_pct)))?;
-        self.ok(&format!("SC,5,{}", servo_position(down_pct)))
+        self.ok(&format!("SC,5,{}", servo_position(down_pct)))?;
+        self.ok(&format!("SC,11,{}", servo_rate(75.0)))?;
+        self.ok(&format!("SC,12,{}", servo_rate(50.0)))
     }
 
     /// Sube o baja la pluma; los movimientos siguientes esperan `delay_ms`.
@@ -143,6 +153,11 @@ mod tests {
     fn parses_firmware_version() {
         assert_eq!(firmware_version("EBBv13_and_above EB Firmware Version 2.8.1"), Some((2, 8, 1)));
         assert_eq!(firmware_version("basura"), None);
+    }
+
+    #[test]
+    fn servo_rate_matches_axidraw() {
+        assert_eq!((servo_rate(75.0), servo_rate(50.0)), (202, 135));
     }
 
     #[test]

@@ -104,8 +104,15 @@ fn run_worker<L: Link>(open: impl FnOnce() -> Result<L, MachineError>, settings:
             Cmd::Disconnect => { let _ = plotter.release(); return send(Note::Closed); }
         };
         match result {
-            Err(e) if is_lost(&e) => return send(Note::Lost(describe(&e))),
-            Err(e) => send(Note::Failed(describe(&e))),
+            // Un trazado a medias no se puede reanudar: se intenta subir la pluma y soltar
+            // los motores para que no se queden haciendo fuerza.
+            Err(e) if is_lost(&e) => { let _ = plotter.ebb().motors(false); return send(Note::Lost(describe(&e))) }
+            Err(e) => {
+                // Antes de mover nada (plan fuera del recorrido, ajustes no válidos) no hay
+                // nada que soltar.
+                if !matches!(e, MachineError::OutOfBounds | MachineError::InvalidSettings) { let _ = plotter.release(); }
+                send(Note::Failed(describe(&e)))
+            }
             Ok(()) => {}
         }
         send(Note::Ready { engaged: plotter.is_engaged() });
@@ -461,8 +468,9 @@ pub fn settings(app: &mut VectorioApp, ui: &mut egui::Ui) {
             ui.label(tr!("Velocidad máxima"));
             ui.add(egui::DragValue::new(&mut s.max_speed).range(5.0..=400.0).speed(1.0).suffix(" mm/s"));
             ui.end_row();
-            ui.label(tr!("Aceleración"));
+            ui.label(tr!("Aceleración")).on_hover_text(tr!("Con la pluma abajo y en los viajes con la pluma arriba."));
             ui.add(egui::DragValue::new(&mut s.accel).range(100.0..=5000.0).speed(10.0).suffix(" mm/s²"));
+            ui.add(egui::DragValue::new(&mut s.travel_accel).range(100.0..=5000.0).speed(10.0).suffix(" mm/s²"));
             ui.end_row();
         });
         ui.checkbox(&mut s.return_home, tr!("Volver al origen al terminar"));
@@ -482,11 +490,14 @@ mod tests {
 
     /// Placa simulada mínima: responde a todo y puede desconectarse.
     #[derive(Clone, Default)]
-    struct FakeLink { log: Arc<Mutex<Vec<String>>>, unplugged: Arc<std::sync::atomic::AtomicBool> }
+    struct FakeLink { log: Arc<Mutex<Vec<String>>>, unplugged: Arc<std::sync::atomic::AtomicBool>, reject_moves: Arc<std::sync::atomic::AtomicBool> }
 
     impl Link for FakeLink {
         fn exchange(&mut self, cmd: &str, _reply: Reply) -> Result<String, MachineError> {
             if self.unplugged.load(std::sync::atomic::Ordering::Relaxed) { return Err(MachineError::Io("Broken pipe".into())); }
+            if cmd.starts_with("SM") && self.reject_moves.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(MachineError::Device("!8 Err: Unknown command".into()));
+            }
             self.log.lock().unwrap().push(cmd.to_string());
             Ok(match cmd.split(',').next().unwrap() {
                 "V" => "EBBv13_and_above EB Firmware Version 2.8.1".into(),
@@ -619,6 +630,33 @@ mod tests {
         let changed = MachineSettings { pen_up_pct: 90.0, ..settings.clone() };
         wait(&mut ui, &changed, |u| u.status == Status::Idle && u.sent.as_ref() == Some(&changed));
         assert!(link.log.lock().unwrap().iter().any(|c| c == &format!("SC,4,{}", vectorio_core::machine::ebb::servo_position(90.0))));
+    }
+
+    #[test]
+    fn an_error_mid_plot_lifts_the_pen_and_releases_the_motors() {
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
+        let link = FakeLink::default();
+        let settings = MachineSettings::default();
+        let mut ui = MachineUi::default();
+        let l = link.clone();
+        ui.connect_with(move || Ok(l), &settings, None);
+        wait(&mut ui, &settings, |u| u.status == Status::Idle);
+        ui.plot(sample_plan(), PlotSettings::default());
+        wait(&mut ui, &settings, |_| link.log.lock().unwrap().iter().any(|c| c.starts_with("SM")));
+        link.reject_moves.store(true, std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..1000 {
+            ui.update(&settings);
+            if ui.waiting_pen.is_some() { ui.resume(); ui.waiting_pen = None; }
+            if ui.error.is_some() && ui.status == Status::Idle { break; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ui.error.is_some(), "avisa del error");
+        assert!(!ui.engaged, "los motores quedan sueltos");
+        let log = link.log.lock().unwrap().clone();
+        assert_eq!(log.last().map(String::as_str), Some("EM,0,0"));
+        let pen = log.iter().rev().find(|c| c.starts_with("SP,")).map(String::as_str);
+        assert!(pen.is_some_and(|c| c.starts_with("SP,1")), "la pluma queda arriba: {pen:?}");
     }
 
     #[test]

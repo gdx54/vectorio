@@ -116,7 +116,20 @@ pub struct PlotSettings {
 
 impl Default for PlotSettings {
     fn default() -> Self {
-        PlotSettings { draw_speed: 40.0, travel_speed: 120.0, lift_time: 0.3, optimize: true, join_tolerance: 0.05 }
+        // Los de AxiDraw (y Linear) en la MakerQ: 25 % y 75 % de 220,9 mm/s / 1,1, y la
+        // pluma entre 42 % y 85 % en unos 0,2 s.
+        PlotSettings { draw_speed: 50.0, travel_speed: 150.0, lift_time: 0.2, optimize: true, join_tolerance: 0.05 }
+    }
+}
+
+impl PlotSettings {
+    /// Los valores de serie anteriores (40 y 120 mm/s, 0,3 s) pasan a los actuales; los
+    /// que alguien eligiera a mano se respetan.
+    pub fn upgrade_old_defaults(&mut self) {
+        if self.draw_speed == 40.0 && self.travel_speed == 120.0 && self.lift_time == 0.3 {
+            let new = PlotSettings::default();
+            (self.draw_speed, self.travel_speed, self.lift_time) = (new.draw_speed, new.travel_speed, new.lift_time);
+        }
     }
 }
 
@@ -723,6 +736,7 @@ impl Document {
         }
         let mut doc:Document=serde_json::from_value(payload).map_err(|e|e.to_string())?;
         doc.validate_loaded()?;
+        doc.plot.upgrade_old_defaults();
         // Las recetas de Manzanas ya guardadas conservan su encuadre y estilo de fase 2.
         for group in &mut doc.generated {
             if group.generator=="blocks" && !group.params.0.contains_key(crate::generate::SCENE_VERSION) {
@@ -788,6 +802,20 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn old_default_speeds_become_the_axidraw_ones() {
+        let mut old = PlotSettings { draw_speed: 40.0, travel_speed: 120.0, lift_time: 0.3, ..Default::default() };
+        old.upgrade_old_defaults();
+        assert_eq!(old, PlotSettings::default());
+        let mut chosen = PlotSettings { draw_speed: 40.0, travel_speed: 100.0, lift_time: 0.3, ..Default::default() };
+        chosen.upgrade_old_defaults();
+        assert_eq!(chosen.travel_speed, 100.0);
+        let doc = Document { plot: PlotSettings { draw_speed: 40.0, travel_speed: 120.0, lift_time: 0.3, ..Default::default() }, ..Default::default() };
+        let loaded = Document::from_json(&serde_json::to_string(&doc).unwrap()).unwrap();
+        assert_eq!((loaded.plot.draw_speed, loaded.plot.travel_speed, loaded.plot.lift_time), (50.0, 150.0, 0.2));
+    }
+
     use super::*;
 
     #[test]

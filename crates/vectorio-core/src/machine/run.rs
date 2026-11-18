@@ -26,8 +26,10 @@ pub struct MachineSettings {
     /// sube poco: 85 % arriba despega bien el boli fijado con el servo al 42 %.
     pub pen_up_pct: f64,
     pub pen_down_pct: f64,
-    /// Aceleración, mm/s².
+    /// Aceleración con la pluma abajo, mm/s².
     pub accel: f64,
+    /// Aceleración en los viajes con la pluma arriba, mm/s².
+    pub travel_accel: f64,
     /// Desviación de esquina, mm.
     pub junction_mm: f64,
     /// Tope de velocidad, mm/s, por encima de lo que pida el documento.
@@ -48,14 +50,25 @@ impl Default for MachineSettings {
         // Recorrido de la MakerQ: 317 mm a lo ancho y 440 mm hacia el usuario (cabe un
         // A3 en vertical). En una AxiDraw V3 son 300 × 218.
         MachineSettings { steps_per_mm: 80.0, travel_mm: [317.0, 440.0], paper_origin_mm: [0.0, 0.0],
-            pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 1000.0, junction_mm: 0.03, max_speed: 200.0, return_home: true,
+            // Aceleración y esquinas de AxiDraw al 50 % (lo que usa Linear): 20 y 30 in/s²,
+            // y esquinas con desviación de 0,002 in.
+            pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 508.0, travel_accel: 762.0, junction_mm: 0.05, max_speed: 200.0, return_home: true,
             release_when_done: true, disconnect_when_done: true }
     }
 }
 
 impl MachineSettings {
+    /// Aceleración y esquinas guardadas con los valores de serie anteriores (1000 mm/s²,
+    /// 0,03 mm) pasan a los de AxiDraw.
+    pub fn upgrade_old_defaults(&mut self) {
+        if self.accel == 1000.0 && self.junction_mm == 0.03 {
+            let new = MachineSettings::default();
+            (self.accel, self.travel_accel, self.junction_mm) = (new.accel, new.travel_accel, new.junction_mm);
+        }
+    }
+
     pub fn valid(&self) -> bool {
-        let pos = [self.steps_per_mm, self.travel_mm[0], self.travel_mm[1], self.accel, self.max_speed];
+        let pos = [self.steps_per_mm, self.travel_mm[0], self.travel_mm[1], self.accel, self.travel_accel, self.max_speed];
         pos.iter().all(|v| v.is_finite() && *v > 0.0)
             && self.paper_origin_mm.iter().all(|v| v.is_finite())
             && [self.pen_up_pct, self.pen_down_pct].iter().all(|v| (0.0..=100.0).contains(v))
@@ -74,6 +87,10 @@ impl MachineSettings {
 
     fn limits(&self, speed: f64) -> Limits {
         Limits { speed: speed.min(self.max_speed), accel: self.accel, junction_mm: self.junction_mm }
+    }
+
+    fn travel_limits(&self, speed: f64) -> Limits {
+        Limits { accel: self.travel_accel, ..self.limits(speed) }
     }
 }
 
@@ -246,7 +263,7 @@ impl<L: Link> Plotter<L> {
         self.engage()?;
         self.clear_button()?;
         let lift_ms = 300;
-        let flow = self.travel(target, &self.settings.limits(speed), lift_ms, control, on_event)?;
+        let flow = self.travel(target, &self.settings.travel_limits(speed), lift_ms, control, on_event)?;
         self.wait_idle()?;
         Ok(if flow == Flow::Go { Outcome::Finished } else { Outcome::Stopped })
     }
@@ -276,7 +293,7 @@ impl<L: Link> Plotter<L> {
         self.engage()?;
         self.clear_button()?;
         let draw = self.settings.limits(motion.draw_speed);
-        let travel = self.settings.limits(motion.travel_speed);
+        let travel = self.settings.travel_limits(motion.travel_speed);
         if !draw.valid() || !travel.valid() || !motion.lift_time.is_finite() { return Err(MachineError::InvalidSettings); }
         let lift_ms = (motion.lift_time * 1000.0).round().clamp(0.0, 5000.0) as u32;
         let total = out.steps.len();
@@ -607,6 +624,16 @@ mod tests {
         // Sin volver al origen, los motores también quedan sueltos al terminar.
         assert!(!plotter.is_engaged());
         assert_eq!(link.0.lock().unwrap().log.iter().rev().find(|c| c.starts_with("EM")).map(String::as_str), Some("EM,0,0"));
+    }
+
+    #[test]
+    fn old_default_acceleration_becomes_the_axidraw_one() {
+        let mut old = MachineSettings { accel: 1000.0, travel_accel: 1000.0, junction_mm: 0.03, ..Default::default() };
+        old.upgrade_old_defaults();
+        assert_eq!((old.accel, old.travel_accel, old.junction_mm), (508.0, 762.0, 0.05));
+        let mut chosen = MachineSettings { accel: 300.0, ..Default::default() };
+        chosen.upgrade_old_defaults();
+        assert_eq!(chosen.accel, 300.0);
     }
 
     #[test]

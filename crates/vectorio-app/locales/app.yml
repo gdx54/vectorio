@@ -2920,6 +2920,8 @@ _version: 2
   en: "Maximum speed"
 "Aceleración":
   en: "Acceleration"
+"Con la pluma abajo y en los viajes con la pluma arriba.":
+  en: "With the pen down, and when travelling with the pen up."
 "Volver al origen al terminar":
   en: "Return to origin when done"
 "Parados siguen haciendo fuerza: zumban y se calientan.":
