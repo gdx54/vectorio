@@ -90,6 +90,8 @@ impl Preferences {
     pub fn sanitized(mut self) -> Self {
         self.ui_scale = if self.ui_scale.is_finite() { self.ui_scale.clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end()) } else { 1.0 };
         self.paper_tint = self.paper_tint.min(crate::app::PAPER_TINTS.len() - 1);
+        self.new_document.plot.upgrade_old_defaults();
+        self.machine.upgrade_old_defaults();
         self
     }
 
