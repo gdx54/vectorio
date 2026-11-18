@@ -2862,6 +2862,8 @@ _version: 2
   en: "Plotting · step %{i} of %{n}"
 "Trazado terminado.":
   en: "Plot finished."
+"Siguiendo a la máquina":
+  en: "Following the machine"
 "Trazado parado. La pluma queda arriba.":
   en: "Plot stopped. The pen stays up."
 "Botón de la máquina pulsado: trazado en pausa.":
