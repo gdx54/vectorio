@@ -7,7 +7,7 @@ use egui::RichText;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use vectorio_core::machine::{Control, Event, Link, MachineError, MachineSettings, Outcome, Plotter, SerialLink};
-use vectorio_core::{output::OutputPlan, PlotSettings};
+use vectorio_core::{output::{OutputPlan, OutputStep}, PlotSettings};
 
 /// Cada cuánto se comprueba, sin trazar, que la placa sigue al otro lado del cable.
 const PING: Duration = Duration::from_secs(2);
@@ -153,6 +153,21 @@ pub struct MachineUi {
     step_clock: Option<Instant>,
     /// Hasta cuándo espera a que se seque la tinta.
     drying_until: Option<Instant>,
+    /// Cuándo empezó el trazado, tiempo total en pausa (también los cambios de tinta) y
+    /// desde cuándo está en pausa, para decir cuánto lleva y cuánto le queda.
+    started: Option<Instant>,
+    paused_total: Duration,
+    paused_since: Option<Instant>,
+    /// Segundos trazando (sin pausas) al reanudar por última vez: de ahí cuenta la pausa
+    /// programada.
+    since_break: f64,
+    /// La pausa programada está esperando a que se pulse Aceptar.
+    break_due: bool,
+    /// Ya se ha avisado en el Dock de esta pausa programada.
+    called_break: bool,
+    /// Se ha pulsado Trazar: en cuanto la placa esté conectada y la salida calculada,
+    /// pasa al paso de Empezar.
+    want_plot: bool,
     /// Último fallo, a la vista hasta la siguiente orden.
     error: Option<String>,
     /// Aviso para la barra de mensajes de la aplicación.
@@ -266,10 +281,7 @@ impl MachineUi {
                 Note::PenChange(pen) => { self.waiting_pen = Some(pen); self.hold(); }
                 Note::Drying(ms) => self.drying_until = Some(Instant::now() + Duration::from_millis(ms as u64)),
                 Note::Paused => self.hold(),
-                Note::Resumed => {
-                    self.paused = false; self.waiting_pen = None;
-                    self.step_clock.get_or_insert_with(Instant::now);
-                }
+                Note::Resumed => self.unhold(),
                 Note::Button => { self.hold(); self.notice = Some(tr!("Botón de la máquina pulsado: trazado en pausa.")); }
                 Note::Done(Outcome::Finished) => {
                     self.progress.0 = self.progress.1;
@@ -303,6 +315,8 @@ impl MachineUi {
         self.progress = (0, plan.steps.len());
         self.paused = false; self.waiting_pen = None;
         self.step_elapsed = 0.0; self.step_clock = None;
+        self.started = Some(Instant::now()); self.paused_total = Duration::ZERO; self.paused_since = None;
+        self.since_break = 0.0; self.break_due = false;
         self.running = Some(plan.clone());
         self.away = false;
         self.send(Cmd::Plot(plan, motion, control));
@@ -328,6 +342,92 @@ impl MachineUi {
     fn hold(&mut self) {
         self.paused = true;
         if let Some(start) = self.step_clock.take() { self.step_elapsed += start.elapsed().as_secs_f64(); }
+        self.paused_since.get_or_insert_with(Instant::now);
+    }
+
+    /// Vuelve a poner en marcha el reloj del paso y el del trazado.
+    fn unhold(&mut self) {
+        self.paused = false; self.waiting_pen = None; self.break_due = false;
+        self.step_clock.get_or_insert_with(Instant::now);
+        if let Some(since) = self.paused_since.take() { self.paused_total += since.elapsed(); }
+        // Cualquier pausa sirve para sacar mina: la programada vuelve a contar desde aquí.
+        if let Some(active) = self.active_at(Instant::now()) { self.since_break = active; }
+    }
+
+    /// Segundos desde que empezó el trazado y segundos trazando, sin pausas ni cambios de tinta.
+    fn clocks_at(&self, now: Instant) -> Option<(f64, f64)> {
+        let elapsed = now.saturating_duration_since(self.started?).as_secs_f64();
+        let paused = self.paused_total + self.paused_since.map_or(Duration::ZERO, |s| now.saturating_duration_since(s));
+        Some((elapsed, (elapsed - paused.as_secs_f64()).max(0.0)))
+    }
+
+    fn active_at(&self, now: Instant) -> Option<f64> { self.clocks_at(now).map(|(_, active)| active) }
+
+    /// Segundos que faltan para la pausa programada, si la hay.
+    fn break_in(&self, minutes: u32, now: Instant) -> Option<f64> {
+        if minutes == 0 || self.status != Status::Plotting { return None; }
+        Some(self.since_break + minutes as f64 * 60.0 - self.active_at(now)?)
+    }
+
+    /// Lleva adelante «Trazar en la máquina»: con la placa conectada y libre y la salida
+    /// calculada (`plan`), pasa al paso de Empezar. Si no se pudo conectar, se olvida.
+    fn follow_plot_request(&mut self, plan: Option<Arc<OutputPlan>>, motion: &PlotSettings) {
+        if !self.want_plot { return; }
+        match self.status {
+            Status::Off if self.error.is_some() => self.want_plot = false,
+            Status::Idle if self.pending.is_some() => self.want_plot = false,
+            Status::Idle => if let Some(plan) = plan {
+                self.pending = Some((plan, motion.clone()));
+                self.want_plot = false;
+            },
+            _ => {}
+        }
+    }
+
+    /// Hace la pausa programada cuando toca.
+    fn check_break(&mut self, minutes: u32, now: Instant) {
+        if self.paused || self.break_due { return; }
+        if self.break_in(minutes, now).is_some_and(|left| left <= 0.0) {
+            self.pause();
+            self.break_due = true;
+        }
+    }
+
+    /// Cuánto lleva el trazado (con pausas) y cuánto le queda, s, y los cambios de tinta
+    /// pendientes. Lo que queda sale del plan corregido por lo que la máquina ha tardado
+    /// de verdad en lo ya hecho, sin contar pausas ni cambios de tinta, que dependen de
+    /// quien está delante.
+    fn timing_at(&self, now: Instant) -> Option<(f64, f64, usize)> {
+        let (plan, t) = self.live_at(now)?;
+        let (elapsed, active) = self.clocks_at(now)?;
+        let current = self.progress.0;
+        let (mut changes_done, mut changes_left, mut count_left) = (0.0, 0.0, 0);
+        for (i, step) in plan.steps.iter().enumerate() {
+            if let OutputStep::ChangePen { start_s, end_s, .. } = *step {
+                if i < current { changes_done += end_s - start_s; } else {
+                    changes_left += end_s - start_s;
+                    // El cambio que está esperando ahora ya se ve en pantalla.
+                    if !(i == current && self.waiting_pen.is_some()) { count_left += 1; }
+                }
+            }
+        }
+        let done = (t - changes_done).max(0.0);
+        let left = (plan.stats.total_seconds - t - changes_left).max(0.0);
+        // Con poco hecho, la proporción todavía no dice nada: se usa el plan.
+        let ratio = if done > 20.0 { (active / done).clamp(0.5, 4.0) } else { 1.0 };
+        Some((elapsed, left * ratio, count_left))
+    }
+
+    /// «Lleva 12 min 30 s · quedan unos 25 min 10 s + 2 cambios de tinta».
+    pub fn time_text(&self) -> Option<String> {
+        let (elapsed, left, changes) = self.timing_at(Instant::now())?;
+        let mut text = tr!("Lleva %{elapsed} · quedan unos %{left}", elapsed = crate::fmt::duration(elapsed), left = crate::fmt::duration(left));
+        match changes {
+            0 => {}
+            1 => text += &tr!(" + 1 cambio de tinta"),
+            n => text += &tr!(" + %{n} cambios de tinta", n = n),
+        }
+        Some(text)
     }
 
     /// Plan que se está trazando y punto de su línea de tiempo, en segundos, por el que
@@ -346,7 +446,12 @@ impl MachineUi {
     }
 
     fn pause(&mut self) { if let Some(c) = &self.control { c.pause(); self.hold(); } }
-    fn resume(&mut self) { if let Some(c) = &self.control { c.resume(); } }
+    /// Reanuda sin esperar al aviso del hilo: si se pulsa Continuar antes de que la
+    /// máquina llegue a pararse, ese aviso no llega nunca y el botón se quedaría en
+    /// Continuar sin hacer nada.
+    fn resume(&mut self) {
+        if let Some(c) = &self.control { c.resume(); self.unhold(); }
+    }
     fn stop(&mut self) { if let Some(c) = &self.control { c.stop(); c.resume(); } }
 
     fn status_text(&self, pens: &[vectorio_core::Pen]) -> String {
@@ -380,7 +485,12 @@ impl MachineUi {
 pub fn update(app: &mut VectorioApp, ctx: &egui::Context) {
     let m = &mut app.machine_ui;
     m.update(&app.prefs.machine);
+    m.check_break(app.prefs.machine.break_minutes, Instant::now());
     m.awake.set(m.status == Status::Plotting);
+    if m.break_due && !m.called_break {
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical));
+    }
+    m.called_break = m.break_due;
     // Al pedir una tinta, el Dock rebota hasta que se vuelve a Vectorio.
     if m.waiting_pen.is_some() && m.called_for != m.waiting_pen {
         ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical));
@@ -390,10 +500,13 @@ pub fn update(app: &mut VectorioApp, ctx: &egui::Context) {
     if let Some(message) = m.notice.take() { app.notify(ctx, message); }
 }
 
-/// Diálogo del cambio de tinta: el trazado espera, con la pluma arriba, hasta Aceptar.
+/// Diálogo del cambio de tinta o de la pausa programada: el trazado espera, con la
+/// pluma arriba, hasta Aceptar.
 pub fn pen_dialog(app: &mut VectorioApp, ctx: &egui::Context) {
     let m = &mut app.machine_ui;
-    let Some(pen) = m.waiting_pen.filter(|_| m.status == Status::Plotting) else { return };
+    if m.status != Status::Plotting { return; }
+    let pen = m.waiting_pen;
+    if pen.is_none() && !m.break_due { return; }
     let pal = theme::current(ctx);
     let screen = ctx.screen_rect();
     let veil = egui::Area::new(egui::Id::new("pen-change-veil")).fixed_pos(screen.min).order(egui::Order::Foreground).show(ctx, |ui| {
@@ -401,8 +514,12 @@ pub fn pen_dialog(app: &mut VectorioApp, ctx: &egui::Context) {
         ui.painter().rect_filled(screen, 0.0, theme::veil(ui.visuals().dark_mode));
     });
     ctx.move_to_top(veil.response.layer_id);
-    let ink = app.doc.pens.get(pen);
-    let name = ink.map_or_else(|| "?".into(), crate::i18n::pen_name);
+    let ink = pen.and_then(|pen| app.doc.pens.get(pen));
+    let (title, text) = match pen {
+        Some(_) => (tr!("Cambio de tinta"), tr!("Pon %{pen} en la máquina y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.",
+            pen = ink.map_or_else(|| "?".into(), crate::i18n::pen_name))),
+        None => (tr!("Pausa programada"), tr!("Saca un poco de mina (o revisa la punta) y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.")),
+    };
     let sheet = egui::Area::new(egui::Id::new("pen-change-sheet")).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .order(egui::Order::Foreground).show(ctx, |ui| {
         theme::glass_sheet(ui, &pal, |ui| {
@@ -412,10 +529,10 @@ pub fn pen_dialog(app: &mut VectorioApp, ctx: &egui::Context) {
                     let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
                     ui.painter().circle_filled(rect.center(), 8.0, theme::pen_color(ink.color));
                 }
-                ui.label(RichText::new(tr!("Cambio de tinta")).size(15.0).strong().color(pal.text));
+                ui.label(RichText::new(title).size(15.0).strong().color(pal.text));
             });
             ui.add_space(8.0);
-            ui.label(RichText::new(tr!("Pon %{pen} en la máquina y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.", pen = name)).color(pal.text));
+            ui.label(RichText::new(text).color(pal.text));
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 let accept = theme::accent_button(ui, &tr!("Aceptar")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -438,38 +555,42 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
         let (i, n) = m.progress;
         ui.add(egui::ProgressBar::new(if n == 0 { 0.0 } else { i as f32 / n as f32 }).desired_height(6.0));
     }
+    // Trazar pedido: se conecta si hace falta y espera a la salida calculada.
+    let plan = app.output_ui.plan.clone().filter(|p| p.stats.strokes > 0);
+    m.follow_plot_request(plan.clone().filter(|_| ready), &app.doc.plot);
     ui.horizontal_wrapped(|ui| match m.status {
-        Status::Off => {
-            if theme::accent_button(ui, &tr!("Conectar")).clicked() { m.connect(&app.prefs.machine, ui.ctx()); }
-            if m.away && ui.button(tr!("Volver a empezar")).on_hover_text(tr!("Pone la línea de tiempo al principio. Lleva el carro a mano al origen antes de trazar.")).clicked() {
-                restart_timeline(&mut app.sim);
-            }
-        }
-        Status::Connecting => { ui.spinner(); }
         Status::Idle if m.pending.is_some() => {
             if theme::accent_button(ui, &tr!("Empezar")).clicked() {
                 if let Some((plan, motion)) = m.pending.take() { m.plot(plan, motion); }
             }
             if ui.button(tr!("Cancelar")).clicked() { m.pending = None; }
         }
-        Status::Idle | Status::Busy => {
-            let plan = app.output_ui.plan.clone().filter(|p| ready && p.stats.strokes > 0);
+        Status::Off | Status::Connecting | Status::Idle | Status::Busy => {
+            let off = matches!(m.status, Status::Off | Status::Connecting);
             let idle = m.status == Status::Idle;
-            if m.away && m.engaged && ui.add_enabled_ui(idle, |ui| theme::accent_button(ui, &tr!("Volver a empezar"))).inner
+            if m.status == Status::Off && ui.button(tr!("Conectar")).on_hover_text(tr!("Conecta la placa para mover la pluma o calibrar. «Trazar» también conecta si hace falta.")).clicked() {
+                m.connect(&app.prefs.machine, ui.ctx());
+            }
+            if m.away && m.engaged && ui.add_enabled_ui(idle, |ui| ui.button(tr!("Volver a empezar"))).inner
                 .on_hover_text(tr!("Lleva el carro al origen con la pluma arriba y pone la línea de tiempo al principio."))
                 .clicked() {
                 m.go_home();
                 restart_timeline(&mut app.sim);
             }
-            if ui.add_enabled_ui(idle && plan.is_some(), |ui| theme::accent_button(ui, &tr!("Trazar en la máquina"))).inner
-                .on_hover_text(tr!("Toma como origen el punto donde esté el carro si los motores están sueltos. Antes de cada tinta, pausa para que la pongas."))
-                .clicked() {
-                if let Some(plan) = plan { m.pending = Some((plan, app.doc.plot.clone())); }
+            if m.away && !m.engaged && m.status == Status::Off && ui.button(tr!("Volver a empezar")).on_hover_text(tr!("Pone la línea de tiempo al principio. Lleva el carro a mano al origen antes de trazar.")).clicked() {
+                restart_timeline(&mut app.sim);
             }
-            if ui.add_enabled(idle, egui::Button::new(tr!("Desconectar")))
+            let can = plan.is_some() && !m.want_plot && m.status != Status::Connecting;
+            let trazar = ui.add_enabled_ui(can, |ui| theme::accent_button(ui, &tr!("Trazar en la máquina"))).inner
+                .on_hover_text(tr!("Conecta la placa si hace falta y, en cuanto la salida esté calculada, pide la primera tinta. Toma como origen el punto donde esté el carro si los motores están sueltos."))
+                .on_disabled_hover_text(if plan.is_none() { tr!("No hay nada que trazar todavía.") } else { tr!("Preparando el trazado…") });
+            if trazar.clicked() {
+                m.want_plot = true;
+                if m.status == Status::Off { m.connect(&app.prefs.machine, ui.ctx()); }
+            }
+            if !off && ui.add_enabled(idle, egui::Button::new(tr!("Desconectar")))
                 .on_hover_text(tr!("Suelta los motores y cierra la conexión USB. Si el carro quedó a medio dibujo, antes vuelve al origen."))
                 .clicked() { m.disconnect(); }
-            if !idle { ui.spinner(); }
         }
         Status::Plotting => {
             if m.paused {
@@ -478,11 +599,62 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
             if ui.button(tr!("Parar")).on_hover_text(tr!("Sube la pluma y deja el carro donde está.")).clicked() { m.stop(); }
         }
     });
+    if m.want_plot {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            let why = match m.status {
+                Status::Off | Status::Connecting => tr!("Conectando la placa…"),
+                Status::Busy => tr!("Preparando la máquina…"),
+                _ => tr!("Calculando la salida…"),
+            };
+            ui.label(RichText::new(why).small().color(pal.text));
+            if ui.small_button(tr!("Cancelar")).clicked() { m.want_plot = false; }
+        });
+    } else if m.status == Status::Connecting || (m.status == Status::Busy && m.pending.is_none()) {
+        ui.spinner();
+    }
+    if let Some(text) = m.time_text() {
+        ui.label(RichText::new(text).strong().color(pal.text))
+            .on_hover_text(tr!("Lo que queda se calcula con lo que ha tardado la máquina hasta ahora, sin contar pausas ni cambios de tinta."));
+    }
+    let before = app.prefs.machine.break_minutes;
+    let minutes = &mut app.prefs.machine.break_minutes;
+    let plotting = m.status == Status::Plotting;
+    let mut drying = app.doc.output.drying;
+    let mut toggled = false;
+    ui.horizontal(|ui| {
+        // Secado por zonas: con lápiz o portaminas no hace falta esperar. Mientras traza no se cambia.
+        if !plotting {
+            toggled = ui.checkbox(&mut drying, RichText::new(tr!("Esperar secado")).small())
+                .on_hover_text(tr!("Con rotuladores, no vuelve a pisar una zona hasta que se seca. Con lápiz o portaminas, quítalo: traza sin esperas. Los documentos nuevos recuerdan lo último que elijas."))
+                .changed();
+            ui.add_space(4.0);
+        }
+        ui.label(RichText::new(tr!("Pausa")).small().color(pal.tertiary))
+            .on_hover_text(tr!("Para portaminas: cada tantos minutos trazando, sube la pluma, se para y te pide sacar mina. Cuenta desde la última pausa; las pausas y los cambios de tinta no suman."));
+        let label = |n: u32| if n == 0 { tr!("Nunca") } else { tr!("Cada %{n} min", n = n) };
+        egui::ComboBox::from_id_salt("machine-break").icon(crate::theme::combo_icon).selected_text(label(*minutes)).width(96.0).show_ui(ui, |ui| {
+            for n in [0, 5, 10, 15, 20, 30, 45, 60] { ui.selectable_value(minutes, n, label(n)); }
+        });
+        if let Some(left) = m.break_in(*minutes, Instant::now()).filter(|_| !m.paused) {
+            ui.label(RichText::new(tr!("próxima en %{time}", time = crate::fmt::duration(left.max(0.0)))).small().color(pal.text));
+        }
+    });
+    let mut changed = app.prefs.machine.break_minutes != before;
+    if toggled {
+        app.doc.output.drying = drying;
+        app.prefs.new_document.output.drying = drying;
+        changed = true;
+        // El plan pendiente ya no vale: se recalcula y se vuelve a pedir.
+        if app.machine_ui.pending.take().is_some() { app.machine_ui.want_plot = true; }
+    }
+    let m = &mut app.machine_ui;
     if m.away && !m.engaged && m.status != Status::Plotting {
         ui.label(RichText::new(tr!("El carro no está en el origen: con los motores sueltos, llévalo a mano a la esquina superior izquierda antes de volver a trazar.")).small().color(pal.tertiary));
     }
     if let Some(error) = &m.error { ui.label(RichText::new(error).small().color(pal.text)); }
     ui.add_space(4.0);
+    if changed { app.prefs_changed(); }
 }
 
 /// Línea de tiempo de Salida al principio, parada.
@@ -641,6 +813,62 @@ mod tests {
         awake.set(true);
         awake.set(false);
         assert!(awake.0.is_none());
+    }
+
+    #[test]
+    fn continue_works_even_before_the_machine_has_stopped() {
+        let mut ui = MachineUi::default();
+        let control = Arc::new(Control::default());
+        ui.status = Status::Plotting; ui.control = Some(control.clone()); ui.running = Some(sample_plan());
+        ui.started = Some(Instant::now());
+        ui.pause();
+        assert!(ui.paused && control.is_paused());
+        // Continuar antes de que llegue el aviso de pausa del hilo, que ya no llegará.
+        ui.resume();
+        assert!(!ui.paused && !control.is_paused(), "el botón vuelve a Pausar");
+        assert!(ui.paused_since.is_none());
+    }
+
+    #[test]
+    fn scheduled_break_pauses_after_the_chosen_minutes_of_plotting() {
+        let mut ui = MachineUi::default();
+        let control = Arc::new(Control::default());
+        let start = Instant::now();
+        ui.status = Status::Plotting; ui.control = Some(control.clone()); ui.running = Some(sample_plan());
+        ui.started = Some(start - Duration::from_secs(9 * 60));
+        ui.check_break(10, start);
+        assert!(!ui.break_due && !control.is_paused(), "a los 9 min todavía no");
+        assert!((ui.break_in(10, start).unwrap() - 60.0).abs() < 1.0);
+        ui.check_break(0, start + Duration::from_secs(120));
+        assert!(!ui.break_due, "sin pausa programada no para nunca");
+        ui.check_break(10, start + Duration::from_secs(61));
+        assert!(ui.break_due && ui.paused && control.is_paused(), "a los 10 min se para");
+        // Aceptar: sigue y vuelve a contar desde aquí, sin contar lo que estuvo en pausa.
+        ui.resume();
+        assert!(!ui.break_due && !control.is_paused());
+        let left = ui.break_in(10, Instant::now()).unwrap();
+        assert!((left - 600.0).abs() < 2.0, "{left}");
+    }
+
+    #[test]
+    fn plot_request_waits_for_the_board_and_the_output() {
+        let plan = sample_plan();
+        let motion = PlotSettings::default();
+        let mut ui = MachineUi::default();
+        ui.want_plot = true;
+        ui.status = Status::Connecting;
+        ui.follow_plot_request(Some(plan.clone()), &motion);
+        assert!(ui.want_plot && ui.pending.is_none(), "espera a la placa");
+        ui.status = Status::Idle;
+        ui.follow_plot_request(None, &motion);
+        assert!(ui.want_plot && ui.pending.is_none(), "espera a la salida");
+        ui.follow_plot_request(Some(plan.clone()), &motion);
+        assert!(!ui.want_plot && ui.pending.is_some(), "pasa a Empezar");
+        // Si la conexión falla, se olvida la petición.
+        let mut ui = MachineUi::default();
+        ui.want_plot = true; ui.error = Some("sin placa".into());
+        ui.follow_plot_request(Some(plan), &motion);
+        assert!(!ui.want_plot);
     }
 
     #[test]

@@ -43,6 +43,9 @@ pub struct MachineSettings {
     /// Cerrar la conexión USB al terminar un trazado completo, para dejarlo todo en
     /// reposo (por ejemplo, un dibujo que acaba de madrugada). Lo aplica la interfaz.
     pub disconnect_when_done: bool,
+    /// Pausa programada cada tantos minutos trazando (0 = nunca), por ejemplo para sacar
+    /// mina a un portaminas. Cuenta desde la última pausa; la aplica la interfaz.
+    pub break_minutes: u32,
 }
 
 impl Default for MachineSettings {
@@ -53,7 +56,7 @@ impl Default for MachineSettings {
             // Aceleración y esquinas de AxiDraw al 50 % (lo que usa Linear): 20 y 30 in/s²,
             // y esquinas con desviación de 0,002 in.
             pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 508.0, travel_accel: 762.0, junction_mm: 0.05, max_speed: 200.0, return_home: true,
-            release_when_done: true, disconnect_when_done: true }
+            release_when_done: true, disconnect_when_done: true, break_minutes: 0 }
     }
 }
 
@@ -382,14 +385,17 @@ impl<L: Link> Plotter<L> {
     /// Reloj de la máquina en segundos.
     fn clock(&self) -> f64 { self.clock_ms as f64 / 1000.0 }
 
-    /// Espera de secado con la pluma arriba, en tramos cortos para poder parar.
+    /// Espera de secado con la pluma arriba, en tramos cortos para poder parar. Acaba a
+    /// una hora del reloj de la máquina: el tiempo en pausa también seca, y al reanudar
+    /// solo espera lo que falte.
     fn dwell(&mut self, seconds: f64, control: &Control, on_event: &mut dyn FnMut(Event), lift_ms: u32)
         -> Result<Flow, MachineError> {
-        let mut left = (seconds.max(0.0) * 1000.0).ceil().min(u32::MAX as f64) as u32;
-        while left > 0 {
-            let ms = left.min(250);
+        let until = self.clock_ms + (seconds.max(0.0) * 1000.0).ceil().min(u32::MAX as f64) as u64;
+        while self.clock_ms < until {
+            if control.is_paused() && self.hold(control, on_event, lift_ms)? == Flow::Stop { return Ok(Flow::Stop); }
+            let Some(ms) = until.checked_sub(self.clock_ms).filter(|&ms| ms > 0) else { break };
+            let ms = ms.min(250) as u32;
             if self.run(&[Move { ms, m1: 0, m2: 0 }], control, on_event, lift_ms)? == Flow::Stop { return Ok(Flow::Stop); }
-            left -= ms;
         }
         Ok(Flow::Go)
     }
@@ -705,6 +711,35 @@ mod tests {
             assert!(strokes[k].0 >= strokes[k - 3].1 + 20.0 - 1e-6, "trazo {k}: {strokes:?}");
         }
         assert!(dwell > 0);
+    }
+
+    #[test]
+    fn a_pause_while_drying_counts_as_drying() {
+        let (out, motion) = wet_plan();
+        let dwell_of = |pause_ms: u64| {
+            let link = SimLink::default();
+            let mut plotter = Plotter::connect(link.clone(), MachineSettings::default()).unwrap();
+            let control = Arc::new(Control::default());
+            let mut paused_once = false;
+            let r = plotter.execute(&out, &motion, &control, &mut |e| {
+                if let Event::Drying { .. } = e {
+                    if pause_ms > 0 && !paused_once {
+                        paused_once = true;
+                        control.pause();
+                        let c = control.clone();
+                        std::thread::spawn(move || { std::thread::sleep(Duration::from_millis(pause_ms)); c.resume(); });
+                    }
+                }
+            });
+            assert_eq!(r, Ok(Outcome::Finished));
+            let log = link.0.lock().unwrap().log.clone();
+            let (strokes, dwell) = strokes_on_the_clock(&log);
+            assert_eq!(strokes.len(), 6);
+            dwell
+        };
+        let (plain, paused) = (dwell_of(0), dwell_of(1500));
+        // Al reanudar no repite la espera entera: el tiempo en pausa ya ha secado la tinta.
+        assert!(paused + 1200 <= plain, "con pausa {paused} ms, sin pausa {plain} ms");
     }
 
     #[test]

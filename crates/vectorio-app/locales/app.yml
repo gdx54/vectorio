@@ -2842,8 +2842,6 @@ _version: 2
   en: "Connected%{version} · carriage free"
 "Trazar en la máquina":
   en: "Plot on the machine"
-"Toma como origen el punto donde esté el carro si los motores están sueltos. Antes de cada tinta, pausa para que la pongas.":
-  en: "If the motors are free, wherever the carriage is becomes the origin. Before each ink it pauses so you can load it."
 "Pon %{pen} y pulsa Empezar":
   en: "Load %{pen} and press Start"
 "Pon %{pen} y pulsa Continuar":
@@ -2938,3 +2936,45 @@ _version: 2
   en: "Return to origin when done"
 "Parados siguen haciendo fuerza: zumban y se calientan.":
   en: "When idle they keep holding: they hum and get warm."
+"Lleva %{elapsed} · quedan unos %{left}":
+  en: "Elapsed %{elapsed} · about %{left} left"
+" + 1 cambio de tinta":
+  en: " + 1 ink change"
+" + %{n} cambios de tinta":
+  en: " + %{n} ink changes"
+"Lo que queda se calcula con lo que ha tardado la máquina hasta ahora, sin contar pausas ni cambios de tinta.":
+  en: "The time left is based on how long the machine has taken so far, not counting pauses or ink changes."
+"Pausa programada":
+  en: "Scheduled pause"
+"Saca un poco de mina (o revisa la punta) y pulsa Aceptar para seguir. La pluma está arriba y el carro no se mueve.":
+  en: "Push out a little lead (or check the tip) and press OK to continue. The pen is up and the carriage does not move."
+"Conecta la placa para mover la pluma o calibrar. «Trazar» también conecta si hace falta.":
+  en: "Connects the board to move the pen or calibrate. “Plot” also connects when needed."
+"Conecta la placa si hace falta y, en cuanto la salida esté calculada, pide la primera tinta. Toma como origen el punto donde esté el carro si los motores están sueltos.":
+  en: "Connects the board if needed and, as soon as the output is ready, asks for the first ink. If the motors are free, the carriage position becomes the origin."
+"No hay nada que trazar todavía.":
+  en: "Nothing to plot yet."
+"Preparando el trazado…":
+  en: "Preparing the plot…"
+"Conectando la placa…":
+  en: "Connecting the board…"
+"Preparando la máquina…":
+  en: "Preparing the machine…"
+"Calculando la salida…":
+  en: "Calculating the output…"
+"Para portaminas: cada tantos minutos trazando, sube la pluma, se para y te pide sacar mina. Cuenta desde la última pausa; las pausas y los cambios de tinta no suman.":
+  en: "For mechanical pencils: after so many minutes of plotting, it lifts the pen, stops and asks you to push out lead. It counts from the last pause; pauses and ink changes do not add up."
+"Nunca":
+  en: "Never"
+"Cada %{n} min":
+  en: "Every %{n} min"
+"próxima en %{time}":
+  en: "next in %{time}"
+"%{now} de %{total} · faltan %{left}":
+  en: "%{now} of %{total} · %{left} left"
+"Esperar secado":
+  en: "Wait to dry"
+"Pausa":
+  en: "Pause"
+"Con rotuladores, no vuelve a pisar una zona hasta que se seca. Con lápiz o portaminas, quítalo: traza sin esperas. Los documentos nuevos recuerdan lo último que elijas.":
+  en: "With markers, it does not go over an area again until it has dried. With a pencil or mechanical pencil, turn it off to plot without waiting. New documents remember your last choice."
