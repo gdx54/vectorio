@@ -2972,3 +2972,9 @@ _version: 2
   en: "next in %{time}"
 "%{now} de %{total} · faltan %{left}":
   en: "%{now} of %{total} · %{left} left"
+"Esperar secado":
+  en: "Wait to dry"
+"Pausa":
+  en: "Pause"
+"Con rotuladores, no vuelve a pisar una zona hasta que se seca. Con lápiz o portaminas, quítalo: traza sin esperas. Los documentos nuevos recuerdan lo último que elijas.":
+  en: "With markers, it does not go over an area again until it has dried. With a pencil or mechanical pencil, turn it off to plot without waiting. New documents remember your last choice."

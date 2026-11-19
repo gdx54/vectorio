@@ -619,8 +619,18 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     }
     let before = app.prefs.machine.break_minutes;
     let minutes = &mut app.prefs.machine.break_minutes;
+    let plotting = m.status == Status::Plotting;
+    let mut drying = app.doc.output.drying;
+    let mut toggled = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(tr!("Pausa programada")).small().color(pal.tertiary))
+        // Secado por zonas: con lápiz o portaminas no hace falta esperar. Mientras traza no se cambia.
+        if !plotting {
+            toggled = ui.checkbox(&mut drying, RichText::new(tr!("Esperar secado")).small())
+                .on_hover_text(tr!("Con rotuladores, no vuelve a pisar una zona hasta que se seca. Con lápiz o portaminas, quítalo: traza sin esperas. Los documentos nuevos recuerdan lo último que elijas."))
+                .changed();
+            ui.add_space(4.0);
+        }
+        ui.label(RichText::new(tr!("Pausa")).small().color(pal.tertiary))
             .on_hover_text(tr!("Para portaminas: cada tantos minutos trazando, sube la pluma, se para y te pide sacar mina. Cuenta desde la última pausa; las pausas y los cambios de tinta no suman."));
         let label = |n: u32| if n == 0 { tr!("Nunca") } else { tr!("Cada %{n} min", n = n) };
         egui::ComboBox::from_id_salt("machine-break").icon(crate::theme::combo_icon).selected_text(label(*minutes)).width(96.0).show_ui(ui, |ui| {
@@ -630,7 +640,14 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
             ui.label(RichText::new(tr!("próxima en %{time}", time = crate::fmt::duration(left.max(0.0)))).small().color(pal.text));
         }
     });
-    let changed = app.prefs.machine.break_minutes != before;
+    let mut changed = app.prefs.machine.break_minutes != before;
+    if toggled {
+        app.doc.output.drying = drying;
+        app.prefs.new_document.output.drying = drying;
+        changed = true;
+        // El plan pendiente ya no vale: se recalcula y se vuelve a pedir.
+        if app.machine_ui.pending.take().is_some() { app.machine_ui.want_plot = true; }
+    }
     let m = &mut app.machine_ui;
     if m.away && !m.engaged && m.status != Status::Plotting {
         ui.label(RichText::new(tr!("El carro no está en el origen: con los motores sueltos, llévalo a mano a la esquina superior izquierda antes de volver a trazar.")).small().color(pal.tertiary));
