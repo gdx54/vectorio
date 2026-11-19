@@ -44,9 +44,11 @@ pub fn servo_position(pct: f64) -> u32 {
 }
 
 /// Velocidad del servo para `SC,11` y `SC,12` con la escala de AxiDraw: al 100 %
-/// recorre toda la escala en 200 ms.
+/// recorre toda la escala en 200 ms. La placa suma esa cantidad en cada refresco del
+/// servo, cada 24 ms (8 canales de 3 ms); el 0,03 de AxiDraw es solo para el servo de
+/// banda estrecha, con un único canal.
 pub fn servo_rate(pct: f64) -> u32 {
-    ((SERVO_MAX - SERVO_MIN) * 0.03 / 200.0 * pct.clamp(1.0, 100.0)).round() as u32
+    ((SERVO_MAX - SERVO_MIN) * 0.24 / 200.0 * pct.clamp(1.0, 100.0)).round() as u32
 }
 
 pub struct Ebb<L> {
@@ -157,7 +159,11 @@ mod tests {
 
     #[test]
     fn servo_rate_matches_axidraw() {
-        assert_eq!((servo_rate(75.0), servo_rate(50.0)), (202, 135));
+        // pen_handling.py de AxiDraw 3.9.6 con el servo estándar: 17976 × 0,24 / 200 × %.
+        assert_eq!((servo_rate(75.0), servo_rate(50.0)), (1618, 1079));
+        // A esa velocidad, bajar del 85 % al 42 % cabe en el tiempo de serie (0,2 s).
+        let ms = (SERVO_MAX - SERVO_MIN) * 0.43 / servo_rate(50.0) as f64 * 24.0;
+        assert!(ms < 200.0, "{ms} ms");
     }
 
     #[test]
