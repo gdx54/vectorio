@@ -36,6 +36,8 @@ enum Note {
     Paused,
     Resumed,
     Button,
+    /// Espera de secado de tantos ms.
+    Drying(u32),
     Done(Outcome),
 }
 
@@ -98,6 +100,7 @@ fn run_worker<L: Link>(open: impl FnOnce() -> Result<L, MachineError>, settings:
                     Event::Button => Note::Button,
                     Event::Paused => Note::Paused,
                     Event::Resumed => Note::Resumed,
+                    Event::Drying { ms } => Note::Drying(ms),
                 });
                 plotter.execute(&plan, &motion, &control, &mut on_event).map(|outcome| send(Note::Done(outcome)))
             }
@@ -148,6 +151,8 @@ pub struct MachineUi {
     /// Tiempo ya transcurrido en el paso actual y desde cuándo corre, si no está en pausa.
     step_elapsed: f64,
     step_clock: Option<Instant>,
+    /// Hasta cuándo espera a que se seque la tinta.
+    drying_until: Option<Instant>,
     /// Último fallo, a la vista hasta la siguiente orden.
     error: Option<String>,
     /// Aviso para la barra de mensajes de la aplicación.
@@ -255,10 +260,11 @@ impl MachineUi {
                 }
                 Note::Step { index, total } => {
                     self.progress = (index, total); self.waiting_pen = None;
-                    self.step_elapsed = 0.0;
+                    self.step_elapsed = 0.0; self.drying_until = None;
                     self.step_clock = (!self.paused).then(Instant::now);
                 }
                 Note::PenChange(pen) => { self.waiting_pen = Some(pen); self.hold(); }
+                Note::Drying(ms) => self.drying_until = Some(Instant::now() + Duration::from_millis(ms as u64)),
                 Note::Paused => self.hold(),
                 Note::Resumed => {
                     self.paused = false; self.waiting_pen = None;
@@ -360,7 +366,10 @@ impl MachineUi {
             Status::Plotting => match self.waiting_pen {
                 Some(pen) => tr!("Pon %{pen} y pulsa Continuar", pen = pens.get(pen).map_or_else(|| "?".into(), crate::i18n::pen_name)),
                 None if self.paused => tr!("En pausa · pluma arriba"),
-                None => tr!("Trazando · paso %{i} de %{n}", i = self.progress.0 + 1, n = self.progress.1),
+                None => match self.drying_until.map(|t| t.saturating_duration_since(Instant::now())) {
+                    Some(left) if !left.is_zero() => tr!("Esperando a que se seque la tinta · faltan %{s} s", s = left.as_secs() + 1),
+                    _ => tr!("Trazando · paso %{i} de %{n}", i = self.progress.0 + 1, n = self.progress.1),
+                },
             },
         }
     }

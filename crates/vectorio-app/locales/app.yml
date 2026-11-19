@@ -2860,6 +2860,8 @@ _version: 2
   en: "Paused · pen up"
 "Trazando · paso %{i} de %{n}":
   en: "Plotting · step %{i} of %{n}"
+"Esperando a que se seque la tinta · faltan %{s} s":
+  en: "Waiting for the ink to dry · %{s} s left"
 "Trazado terminado.":
   en: "Plot finished."
 "Siguiendo a la máquina":

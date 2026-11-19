@@ -285,14 +285,38 @@ impl WetState {
         }
         (ready - arrival).max(0.0)
     }
-    fn deposit(&mut self, cells: &Footprint, start: f64, end: f64, dry: f64, peak: &mut HeatGrid) {
+    fn deposit(&mut self, cells: &Footprint, start: f64, end: f64, dry: f64, mut peak: Option<&mut HeatGrid>) {
         for &(i, added) in cells {
             let events = self.cells.entry(i).or_default();
             while events.front().is_some_and(|&(t, _)| t + dry <= start + 1e-8) { events.pop_front(); }
-            let total: u64 = events.iter().map(|&(_, n)| n as u64).sum::<u64>() + added as u64;
-            peak.counts[i] = peak.counts[i].max(total.min(u16::MAX as u64) as u16);
+            if let Some(peak) = peak.as_deref_mut() {
+                let total: u64 = events.iter().map(|&(_, n)| n as u64).sum::<u64>() + added as u64;
+                peak.counts[i] = peak.counts[i].max(total.min(u16::MAX as u64) as u16);
+            }
             events.push_back((end, added));
         }
+    }
+}
+
+/// Secado mientras traza la máquina. El plan calcula las esperas con tiempos estimados
+/// sin rampas ni esquinas, y con el cambio de tinta a tiempo fijo; en la máquina el
+/// dibujo suele ir más lento, y esas esperas sobrarían. Esto aplica el mismo criterio
+/// con el tiempo real: cada trazo espera solo lo que falte para que se seque lo que pisa.
+pub struct Drying { wet: WetState, dry: f64, cap: u16 }
+
+impl Drying {
+    /// `None` si el plan no protege el secado.
+    pub fn new(cfg: &OutputSettings) -> Option<Self> {
+        (cfg.drying && cfg.dry_seconds.is_finite() && cfg.dry_seconds > 0.0 && cfg.max_wet_passes > 0)
+            .then(|| Drying { wet: WetState::default(), dry: cfg.dry_seconds, cap: cfg.max_wet_passes })
+    }
+
+    /// Segundos que tiene que esperar `stroke` si empieza en el instante `now`.
+    pub fn wait(&self, stroke: &OutputStroke, now: f64) -> f64 { self.wet.wait(&stroke.footprint, now, self.dry, self.cap) }
+
+    /// Anota que `stroke` se dibujó entre `start` y `end`.
+    pub fn deposit(&mut self, stroke: &OutputStroke, start: f64, end: f64) {
+        self.wet.deposit(&stroke.footprint, start, end, self.dry, None);
     }
 }
 
@@ -347,7 +371,7 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
             }
             let len = length(&s.path);
             let end = now + len / motion.draw_speed;
-            wet.deposit(&s.footprint, now, end, cfg.dry_seconds, &mut peak);
+            wet.deposit(&s.footprint, now, end, cfg.dry_seconds, Some(&mut peak));
             steps.push(OutputStep::Draw { stroke: id, start_s: now, end_s: end });
             stats.draw_mm += len; stats.draw_seconds += len / motion.draw_speed; stats.strokes += 1;
             now = end; cur = *s.path.last().unwrap();
