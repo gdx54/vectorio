@@ -2878,8 +2878,18 @@ _version: 2
   en: "Put %{pen} in the machine and press OK to continue. The pen is up and the carriage stays still."
 "Termina el trazado aquí, con la pluma arriba.":
   en: "Ends the plot here, with the pen up."
-"Trazado parado. La pluma queda arriba.":
-  en: "Plot stopped. The pen stays up."
+"Trazado parado. La pluma queda arriba. «Volver a empezar» lleva el carro al origen.":
+  en: "Plot stopped. The pen stays up. “Start over” takes the carriage back to the origin."
+"Volver a empezar":
+  en: "Start over"
+"Pone la línea de tiempo al principio. Lleva el carro a mano al origen antes de trazar.":
+  en: "Moves the timeline back to the start. Move the carriage to the origin by hand before plotting."
+"Lleva el carro al origen con la pluma arriba y pone la línea de tiempo al principio.":
+  en: "Takes the carriage to the origin with the pen up and moves the timeline back to the start."
+"Suelta los motores y cierra la conexión USB. Si el carro quedó a medio dibujo, antes vuelve al origen.":
+  en: "Releases the motors and closes the USB connection. If the carriage stopped mid-drawing, it returns to the origin first."
+"El carro no está en el origen: con los motores sueltos, llévalo a mano a la esquina superior izquierda antes de volver a trazar.":
+  en: "The carriage is not at the origin: with the motors released, move it by hand to the top-left corner before plotting again."
 "Botón de la máquina pulsado: trazado en pausa.":
   en: "Machine button pressed: plot paused."
 "No se encuentra la máquina. Comprueba que está encendida y que el cable USB pasa datos, no solo carga.":

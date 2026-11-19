@@ -154,8 +154,13 @@ pub struct MachineUi {
     notice: Option<String>,
     /// Ajustes enviados a la placa por última vez.
     sent: Option<MachineSettings>,
-    /// Cerrar la conexión en cuanto termine la orden en curso.
-    close_after: bool,
+    /// Cerrar la conexión en cuanto termine la orden en curso, con este aviso.
+    close_after: Option<String>,
+    /// El carro se quedó fuera del origen (trazado parado o fallido): hay que volver
+    /// antes de empezar otra vez.
+    away: bool,
+    /// Volviendo al origen por «Volver a empezar» o antes de desconectar.
+    homing: bool,
     /// Tinta por la que ya se ha avisado en el Dock.
     called_for: Option<usize>,
     awake: KeepAwake,
@@ -227,6 +232,8 @@ impl MachineUi {
                 Note::Connected(version) => { self.version = version; self.status = Status::Idle; self.engaged = false; }
                 Note::Lost(message) => {
                     let was_connected = self.connected();
+                    if self.status == Status::Plotting || self.homing { self.away = true; }
+                    self.homing = false;
                     self.reset();
                     if was_connected { self.notice = Some(message.clone()); }
                     self.error = Some(message);
@@ -236,12 +243,16 @@ impl MachineUi {
                     self.engaged = engaged;
                     if self.status != Status::Off { self.status = Status::Idle; }
                     self.control = None; self.waiting_pen = None; self.paused = false; self.running = None;
-                    if std::mem::take(&mut self.close_after) {
+                    if std::mem::take(&mut self.homing) && self.error.is_none() { self.away = false; }
+                    if let Some(notice) = self.close_after.take() {
                         self.send(Cmd::Disconnect);
-                        self.notice = Some(tr!("Trazado terminado. Motores sueltos y máquina desconectada: el Mac ya puede entrar en reposo."));
+                        if !notice.is_empty() { self.notice = Some(notice); }
                     }
                 }
-                Note::Failed(message) => self.error = Some(message),
+                Note::Failed(message) => {
+                    if self.status == Status::Plotting { self.away = true; }
+                    self.error = Some(message);
+                }
                 Note::Step { index, total } => {
                     self.progress = (index, total); self.waiting_pen = None;
                     self.step_elapsed = 0.0;
@@ -257,9 +268,15 @@ impl MachineUi {
                 Note::Done(Outcome::Finished) => {
                     self.progress.0 = self.progress.1;
                     self.notice = Some(tr!("Trazado terminado."));
-                    self.close_after = settings.disconnect_when_done;
+                    self.away = !settings.return_home;
+                    if settings.disconnect_when_done {
+                        self.close_after = Some(tr!("Trazado terminado. Motores sueltos y máquina desconectada: el Mac ya puede entrar en reposo."));
+                    }
                 }
-                Note::Done(Outcome::Stopped) => self.notice = Some(tr!("Trazado parado. La pluma queda arriba.")),
+                Note::Done(Outcome::Stopped) => {
+                    self.away = true;
+                    self.notice = Some(tr!("Trazado parado. La pluma queda arriba. «Volver a empezar» lleva el carro al origen."));
+                }
             }
         }
         if self.status == Status::Idle && self.sent.as_ref() != Some(settings) && settings.valid() {
@@ -281,7 +298,24 @@ impl MachineUi {
         self.paused = false; self.waiting_pen = None;
         self.step_elapsed = 0.0; self.step_clock = None;
         self.running = Some(plan.clone());
+        self.away = false;
         self.send(Cmd::Plot(plan, motion, control));
+    }
+
+    /// Lleva el carro al origen con la pluma arriba.
+    fn go_home(&mut self) {
+        self.homing = true;
+        self.send(Cmd::Home);
+    }
+
+    /// Desconecta; si el carro quedó fuera del origen y se sabe dónde está, vuelve antes.
+    fn disconnect(&mut self) {
+        if self.away && self.engaged {
+            self.close_after = Some(String::new());
+            self.go_home();
+        } else {
+            self.send(Cmd::Disconnect);
+        }
     }
 
     /// Detiene el reloj del paso: en pausa la línea de tiempo no avanza.
@@ -398,6 +432,9 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     ui.horizontal_wrapped(|ui| match m.status {
         Status::Off => {
             if theme::accent_button(ui, &tr!("Conectar")).clicked() { m.connect(&app.prefs.machine, ui.ctx()); }
+            if m.away && ui.button(tr!("Volver a empezar")).on_hover_text(tr!("Pone la línea de tiempo al principio. Lleva el carro a mano al origen antes de trazar.")).clicked() {
+                restart_timeline(&mut app.sim);
+            }
         }
         Status::Connecting => { ui.spinner(); }
         Status::Idle if m.pending.is_some() => {
@@ -409,12 +446,20 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
         Status::Idle | Status::Busy => {
             let plan = app.output_ui.plan.clone().filter(|p| ready && p.stats.strokes > 0);
             let idle = m.status == Status::Idle;
+            if m.away && m.engaged && ui.add_enabled_ui(idle, |ui| theme::accent_button(ui, &tr!("Volver a empezar"))).inner
+                .on_hover_text(tr!("Lleva el carro al origen con la pluma arriba y pone la línea de tiempo al principio."))
+                .clicked() {
+                m.go_home();
+                restart_timeline(&mut app.sim);
+            }
             if ui.add_enabled_ui(idle && plan.is_some(), |ui| theme::accent_button(ui, &tr!("Trazar en la máquina"))).inner
                 .on_hover_text(tr!("Toma como origen el punto donde esté el carro si los motores están sueltos. Antes de cada tinta, pausa para que la pongas."))
                 .clicked() {
                 if let Some(plan) = plan { m.pending = Some((plan, app.doc.plot.clone())); }
             }
-            if ui.add_enabled(idle, egui::Button::new(tr!("Desconectar"))).clicked() { m.send(Cmd::Disconnect); }
+            if ui.add_enabled(idle, egui::Button::new(tr!("Desconectar")))
+                .on_hover_text(tr!("Suelta los motores y cierra la conexión USB. Si el carro quedó a medio dibujo, antes vuelve al origen."))
+                .clicked() { m.disconnect(); }
             if !idle { ui.spinner(); }
         }
         Status::Plotting => {
@@ -424,8 +469,17 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
             if ui.button(tr!("Parar")).on_hover_text(tr!("Sube la pluma y deja el carro donde está.")).clicked() { m.stop(); }
         }
     });
+    if m.away && !m.engaged && m.status != Status::Plotting {
+        ui.label(RichText::new(tr!("El carro no está en el origen: con los motores sueltos, llévalo a mano a la esquina superior izquierda antes de volver a trazar.")).small().color(pal.tertiary));
+    }
     if let Some(error) = &m.error { ui.label(RichText::new(error).small().color(pal.text)); }
     ui.add_space(4.0);
+}
+
+/// Línea de tiempo de Salida al principio, parada.
+fn restart_timeline(sim: &mut crate::canvas::Sim) {
+    sim.playing = false;
+    sim.progress = 0.0;
 }
 
 /// Calibración de la pluma, origen y recorrido, dentro de los ajustes de Salida.
@@ -490,11 +544,14 @@ mod tests {
 
     /// Placa simulada mínima: responde a todo y puede desconectarse.
     #[derive(Clone, Default)]
-    struct FakeLink { log: Arc<Mutex<Vec<String>>>, unplugged: Arc<std::sync::atomic::AtomicBool>, reject_moves: Arc<std::sync::atomic::AtomicBool> }
+    struct FakeLink { log: Arc<Mutex<Vec<String>>>, unplugged: Arc<std::sync::atomic::AtomicBool>, reject_moves: Arc<std::sync::atomic::AtomicBool>, slow_moves: Arc<std::sync::atomic::AtomicBool> }
 
     impl Link for FakeLink {
         fn exchange(&mut self, cmd: &str, _reply: Reply) -> Result<String, MachineError> {
             if self.unplugged.load(std::sync::atomic::Ordering::Relaxed) { return Err(MachineError::Io("Broken pipe".into())); }
+            if cmd.starts_with("SM") && self.slow_moves.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
             if cmd.starts_with("SM") && self.reject_moves.load(std::sync::atomic::Ordering::Relaxed) {
                 return Err(MachineError::Device("!8 Err: Unknown command".into()));
             }
@@ -550,14 +607,14 @@ mod tests {
             }
         }
         // Un área nueva se mide en el primer fotograma y se dibuja en el segundo.
-        ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        let _ = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
         let out = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
         let pen = crate::i18n::pen_name(&app.doc.pens[1]);
         assert!(out.shapes.iter().any(|s| has_text(&s.shape, "Cambio de tinta")));
         assert!(out.shapes.iter().any(|s| has_text(&s.shape, &format!("Pon {pen} en la máquina"))));
         assert!(control.is_paused());
         let enter = egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
-        ctx.run(egui::RawInput { screen_rect: Some(screen), events: vec![enter], ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
+        let _ = ctx.run(egui::RawInput { screen_rect: Some(screen), events: vec![enter], ..Default::default() }, |ctx| pen_dialog(&mut app, ctx));
         assert!(!control.is_paused(), "Intro acepta el cambio de tinta");
         // Sin tinta pendiente no hay diálogo.
         app.machine_ui.waiting_pen = None;
@@ -705,6 +762,56 @@ mod tests {
         ui.stop();
         wait(&mut ui, &settings, |u| u.status == Status::Idle);
         assert!(ui.notice.as_deref().is_some_and(|n| n.contains("parado")));
+    }
+
+    /// Posición del carro en pasos sumando los `SM` enviados.
+    fn carriage(log: &[String]) -> (i64, i64) {
+        log.iter().filter(|c| c.starts_with("SM,")).fold((0, 0), |(a, b), c| {
+            let v: Vec<i64> = c.split(',').skip(2).map(|n| n.parse().unwrap()).collect();
+            (a + v[0], b + v[1])
+        })
+    }
+
+    #[test]
+    fn after_a_stop_disconnect_returns_home_first_and_start_over_too() {
+        let _lock = crate::i18n::locale_lock();
+        rust_i18n::set_locale("es");
+        let link = FakeLink::default();
+        link.slow_moves.store(true, std::sync::atomic::Ordering::Relaxed);
+        let settings = MachineSettings::default();
+        let mut ui = MachineUi::default();
+        let l = link.clone();
+        ui.connect_with(move || Ok(l), &settings, None);
+        wait(&mut ui, &settings, |u| u.status == Status::Idle);
+        let stop_midway = |ui: &mut MachineUi| {
+            ui.plot(sample_plan(), PlotSettings::default());
+            let before = link.log.lock().unwrap().iter().filter(|c| c.starts_with("SM")).count();
+            for _ in 0..1000 {
+                ui.update(&settings);
+                if ui.waiting_pen.is_some() { ui.resume(); ui.waiting_pen = None; }
+                if link.log.lock().unwrap().iter().filter(|c| c.starts_with("SM")).count() > before + 20 { break; }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            ui.stop();
+            wait(ui, &settings, |u| u.status == Status::Idle);
+            assert!(ui.away && ui.engaged);
+            let log = link.log.lock().unwrap().clone();
+            assert_ne!(carriage(&log), (0, 0), "se para a medio dibujo: {log:?}");
+        };
+        // «Volver a empezar»: vuelve al origen y sigue conectada.
+        stop_midway(&mut ui);
+        ui.go_home();
+        wait(&mut ui, &settings, |u| u.status == Status::Idle);
+        assert!(!ui.away);
+        assert_eq!(carriage(&link.log.lock().unwrap()), (0, 0));
+        // Desconectar tras parar: primero al origen y luego suelta los motores.
+        stop_midway(&mut ui);
+        ui.disconnect();
+        wait(&mut ui, &settings, |u| u.status == Status::Off);
+        let log = link.log.lock().unwrap().clone();
+        assert_eq!(carriage(&log), (0, 0), "vuelve al origen antes de soltar");
+        assert_eq!(log.last().map(String::as_str), Some("EM,0,0"));
+        assert!(!ui.away);
     }
 
     #[test]
