@@ -50,6 +50,8 @@ pub struct OutputUi {
     pen_spans: Vec<PenSpan>,
     /// La línea de tiempo sigue a la máquina mientras traza este mismo plan.
     live: bool,
+    /// Cuánto lleva y cuánto le queda a la máquina, mientras traza el plan que se ve.
+    live_clock: Option<String>,
     map: Map,
     show_drawing: bool,
     show_travel: bool,
@@ -61,7 +63,7 @@ pub struct OutputUi {
 
 impl Default for OutputUi {
     fn default() -> Self {
-        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], live: false, map: Map::Total,
+        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], live: false, live_clock: None, map: Map::Total,
             show_drawing: false, show_travel: true, zoom: 1.0, offset: Vec2::ZERO,
             fitted: false, viewport: Vec2::ZERO }
     }
@@ -288,7 +290,6 @@ impl OutputUi {
                     for v in [1.0, 5.0, 20.0, 60.0, 200.0] { ui.selectable_value(&mut sim.speed, v, format!("×{v:.0}")); }
                 });
             });
-            ui.label(format!("{} / {}", duration(sim.progress as f64 * total), duration(total)));
             ui.checkbox(&mut self.show_travel, tr!("Ver viajes"));
         });
         let ready = ready && !self.live;
@@ -342,6 +343,12 @@ impl OutputUi {
             response.on_hover_text(tr!("%{time} · %{pen}\nPulsa o arrastra en cualquiera de las dos pistas para recorrer la salida.", time = duration(t), pen = pen));
         }
         let now = sim.progress as f64 * total;
+        // Tiempo bien a la vista: el de la máquina mientras traza, o el de la simulación.
+        let clock = match &self.live_clock {
+            Some(text) if self.live => text.clone(),
+            _ => tr!("%{now} de %{total} · faltan %{left}", now = duration(now), total = duration(total), left = duration(total - now)),
+        };
+        ui.label(RichText::new(clock).size(15.0).strong().color(pal.text));
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(tr!("Gris: viaje · violeta: secado · ocre: cambio")).small().color(pal.tertiary));
             if let Some(step) = plan.steps.get(plan.steps.partition_point(|s| s.times().1 <= now)) {
@@ -497,6 +504,7 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     // Mientras la máquina traza el plan que se ve, la línea de tiempo y la ruta van con ella.
     let live = app.machine_ui.live().filter(|(plan, _)| app.output_ui.plan.as_ref().is_some_and(|p| Arc::ptr_eq(p, plan)));
     app.output_ui.live = live.is_some();
+    app.output_ui.live_clock = live.as_ref().and_then(|_| app.machine_ui.time_text());
     if let Some((plan, t)) = live {
         app.sim.playing = false;
         app.sim.progress = (t / plan.stats.total_seconds.max(1e-9)).clamp(0.0, 1.0) as f32;
