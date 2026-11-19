@@ -7,7 +7,7 @@ use super::{
     plan::{self, Kinematics, Limits, Move},
     MachineError,
 };
-use crate::output::{OutputPlan, OutputStep};
+use crate::output::{Drying, OutputPlan, OutputStep, OutputStroke};
 use crate::{p, PlotSettings, P};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -120,6 +120,8 @@ pub enum Event {
     Button,
     Paused,
     Resumed,
+    /// Pluma arriba y quieta `ms` milisegundos para que se seque la tinta que va a pisar.
+    Drying { ms: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +152,10 @@ pub struct Plotter<L> {
     engaged: bool,
     /// Ms de tramos enviados desde la última consulta del botón.
     since_button: u32,
+    /// Reloj de la máquina, ms: lo que dura todo lo encolado (tramos y esperas de la
+    /// pluma) más el tiempo en pausa. Nunca adelanta al tiempo real, así que las esperas
+    /// de secado que se miden con él no se quedan cortas.
+    clock_ms: u64,
     version: String,
 }
 
@@ -169,7 +175,7 @@ impl<L: Link> Plotter<L> {
         let mut ebb = Ebb::new(link);
         let version = ebb.version()?;
         let kin = settings.kinematics();
-        let mut plotter = Plotter { ebb, settings, kin, pos: (0, 0), pen_up: false, engaged: false, since_button: 0, version };
+        let mut plotter = Plotter { ebb, settings, kin, pos: (0, 0), pen_up: false, engaged: false, since_button: 0, clock_ms: 0, version };
         plotter.apply_pen_settings()?;
         plotter.set_pen(true, 300)?;
         plotter.wait_idle()?;
@@ -233,9 +239,7 @@ impl<L: Link> Plotter<L> {
 
     pub fn set_pen(&mut self, up: bool, delay_ms: u32) -> Result<(), MachineError> {
         if self.pen_up == up { return Ok(()); }
-        self.ebb.pen(up, delay_ms)?;
-        self.pen_up = up;
-        Ok(())
+        self.move_pen(up, delay_ms)
     }
 
     /// Lleva la pluma a su altura aunque ya estuviera arriba o abajo: tras cambiar la
@@ -243,6 +247,7 @@ impl<L: Link> Plotter<L> {
     pub fn move_pen(&mut self, up: bool, delay_ms: u32) -> Result<(), MachineError> {
         self.ebb.pen(up, delay_ms)?;
         self.pen_up = up;
+        self.clock_ms += delay_ms as u64;
         Ok(())
     }
 
@@ -296,6 +301,7 @@ impl<L: Link> Plotter<L> {
         let travel = self.settings.travel_limits(motion.travel_speed);
         if !draw.valid() || !travel.valid() || !motion.lift_time.is_finite() { return Err(MachineError::InvalidSettings); }
         let lift_ms = (motion.lift_time * 1000.0).round().clamp(0.0, 5000.0) as u32;
+        let mut drying = Drying::new(&out.settings);
         let total = out.steps.len();
         for (index, step) in out.steps.iter().enumerate() {
             on_event(Event::Step { index, total });
@@ -309,13 +315,13 @@ impl<L: Link> Plotter<L> {
                     self.hold(control, on_event, lift_ms)?
                 }
                 OutputStep::Travel { to, .. } => self.travel(self.settings.to_machine(to), &travel, lift_ms, control, on_event)?,
-                OutputStep::Wait { start_s, end_s, .. } => {
-                    self.set_pen(true, lift_ms)?;
-                    self.dwell(end_s - start_s, control, on_event, lift_ms)?
-                }
+                // La espera del plan sale de tiempos estimados; la de verdad la decide
+                // `draw` con el reloj de la máquina.
+                OutputStep::Wait { .. } => Flow::Go,
                 OutputStep::Draw { stroke, .. } => {
-                    let path: Vec<P> = out.strokes[stroke].path.iter().map(|&q| self.settings.to_machine(q)).collect();
-                    self.draw(&path, &draw, &travel, lift_ms, control, on_event)?
+                    let stroke = &out.strokes[stroke];
+                    let path: Vec<P> = stroke.path.iter().map(|&q| self.settings.to_machine(q)).collect();
+                    self.draw(&path, stroke, drying.as_mut(), &draw, &travel, lift_ms, control, on_event)?
                 }
             };
             if flow == Flow::Stop { return self.stopped(lift_ms); }
@@ -351,22 +357,35 @@ impl<L: Link> Plotter<L> {
         self.run(&moves, control, on_event, lift_ms)
     }
 
-    fn draw(&mut self, path: &[P], draw: &Limits, travel: &Limits, lift_ms: u32, control: &Control,
-        on_event: &mut dyn FnMut(Event)) -> Result<Flow, MachineError> {
+    #[allow(clippy::too_many_arguments)]
+    fn draw(&mut self, path: &[P], stroke: &OutputStroke, drying: Option<&mut Drying>, draw: &Limits, travel: &Limits,
+        lift_ms: u32, control: &Control, on_event: &mut dyn FnMut(Event)) -> Result<Flow, MachineError> {
         let Some(&start) = path.first() else { return Ok(Flow::Go) };
         // Un trazo que empieza donde acabó el anterior sigue sin levantar la pluma.
         if self.kin.motors(start) != self.pos && self.travel(start, travel, lift_ms, control, on_event)? == Flow::Stop {
             return Ok(Flow::Stop);
         }
+        let wait = drying.as_deref().map_or(0.0, |d| d.wait(stroke, self.clock()));
+        if wait > 0.0 {
+            on_event(Event::Drying { ms: (wait * 1000.0).ceil().min(u32::MAX as f64) as u32 });
+            self.set_pen(true, lift_ms)?;
+            if self.dwell(wait, control, on_event, lift_ms)? == Flow::Stop { return Ok(Flow::Stop); }
+        }
         self.set_pen(false, lift_ms)?;
+        let began = self.clock();
         let moves = plan::plan(path, draw, &self.kin, self.pos);
-        self.run(&moves, control, on_event, lift_ms)
+        let flow = self.run(&moves, control, on_event, lift_ms)?;
+        if let Some(d) = drying { d.deposit(stroke, began, self.clock()); }
+        Ok(flow)
     }
+
+    /// Reloj de la máquina en segundos.
+    fn clock(&self) -> f64 { self.clock_ms as f64 / 1000.0 }
 
     /// Espera de secado con la pluma arriba, en tramos cortos para poder parar.
     fn dwell(&mut self, seconds: f64, control: &Control, on_event: &mut dyn FnMut(Event), lift_ms: u32)
         -> Result<Flow, MachineError> {
-        let mut left = (seconds.max(0.0) * 1000.0).round() as u32;
+        let mut left = (seconds.max(0.0) * 1000.0).ceil().min(u32::MAX as f64) as u32;
         while left > 0 {
             let ms = left.min(250);
             if self.run(&[Move { ms, m1: 0, m2: 0 }], control, on_event, lift_ms)? == Flow::Stop { return Ok(Flow::Stop); }
@@ -389,6 +408,7 @@ impl<L: Link> Plotter<L> {
             if control.is_paused() && self.hold(control, on_event, lift_ms)? == Flow::Stop { return Ok(Flow::Stop); }
             self.ebb.step(mv)?;
             self.since_button = self.since_button.saturating_add(mv.ms);
+            self.clock_ms += mv.ms as u64;
             self.pos = (self.pos.0 + mv.m1, self.pos.1 + mv.m2);
         }
         Ok(Flow::Go)
@@ -400,10 +420,13 @@ impl<L: Link> Plotter<L> {
         self.wait_idle()?;
         self.set_pen(true, lift_ms)?;
         on_event(Event::Paused);
+        let paused = Instant::now();
         while control.is_paused() {
             if control.is_stopped() { return Ok(Flow::Stop); }
             std::thread::sleep(Duration::from_millis(30));
         }
+        // La tinta se sigue secando durante la pausa o el cambio de tinta.
+        self.clock_ms += paused.elapsed().as_millis() as u64;
         if control.is_stopped() { return Ok(Flow::Stop); }
         if was_down { self.set_pen(false, lift_ms)?; }
         on_event(Event::Resumed);
@@ -624,6 +647,81 @@ mod tests {
         // Sin volver al origen, los motores también quedan sueltos al terminar.
         assert!(!plotter.is_engaged());
         assert_eq!(link.0.lock().unwrap().log.iter().rev().find(|c| c.starts_with("EM")).map(String::as_str), Some("EM,0,0"));
+    }
+
+    /// La misma línea seis veces: a partir de la cuarta pasada hay que esperar a que se
+    /// seque la primera.
+    fn wet_plan() -> (OutputPlan, PlotSettings) {
+        let paper = Paper { name: "Prueba".into(), width_mm: 100.0, height_mm: 80.0, margin_mm: 5.0 };
+        let pens = vec![Pen::new("Negro", [0, 0, 0], 0.5)];
+        let layers = vec![PlotLayer { pen: 0, paths: vec![vec![p(10.0, 10.0), p(30.0, 10.0)]; 6] }];
+        let motion = PlotSettings::default();
+        let cfg = OutputSettings { dry_seconds: 20.0, max_wet_passes: 3, ..Default::default() };
+        (prepare(&layers, &paper, &pens, &motion, &cfg).unwrap(), motion)
+    }
+
+    /// Instantes del reloj de la máquina (s) en que empieza y acaba cada trazo, y ms de
+    /// espera sin moverse. Las pasadas van y vuelven: un trazo acaba al levantar la pluma
+    /// o al cambiar de sentido.
+    fn strokes_on_the_clock(log: &[String]) -> (Vec<(f64, f64)>, u64) {
+        let (mut t, mut dwell, mut out) = (0_u64, 0_u64, Vec::new());
+        let (mut began, mut dir) = (None::<u64>, 0_i64);
+        for c in log {
+            let f: Vec<&str> = c.split(',').collect();
+            match f[0] {
+                "SM" => {
+                    let (ms, m1, m2): (u64, i64, i64) = (f[1].parse().unwrap(), f[2].parse().unwrap(), f[3].parse().unwrap());
+                    if m1 == 0 && m2 == 0 { dwell += ms; }
+                    let d = (m1 + m2).signum();
+                    if let Some(b) = began {
+                        if d != 0 && dir != 0 && d != dir { out.push((b as f64 / 1000.0, t as f64 / 1000.0)); began = Some(t); }
+                        if d != 0 { dir = d; }
+                    }
+                    t += ms;
+                }
+                "SP" => {
+                    if f[1] == "1" { if let Some(b) = began.take() { out.push((b as f64 / 1000.0, t as f64 / 1000.0)); } }
+                    t += f[2].parse::<u64>().unwrap();
+                    if f[1] == "0" { began = Some(t); dir = 0; }
+                }
+                _ => {}
+            }
+        }
+        (out, dwell)
+    }
+
+    #[test]
+    fn drying_waits_follow_the_machine_clock() {
+        let (out, motion) = wet_plan();
+        assert!(out.stats.waits > 0, "el plan tiene que esperar");
+        let link = SimLink::default();
+        let mut plotter = Plotter::connect(link.clone(), MachineSettings::default()).unwrap();
+        assert_eq!(plotter.execute(&out, &motion, &Control::default(), &mut |_| {}), Ok(Outcome::Finished));
+        let (strokes, dwell) = strokes_on_the_clock(&link.0.lock().unwrap().log);
+        assert_eq!(strokes.len(), 6);
+        // Nunca hay más de tres pasadas húmedas: cada trazo empieza cuando ya se ha secado
+        // el de tres antes.
+        for k in 3..strokes.len() {
+            assert!(strokes[k].0 >= strokes[k - 3].1 + 20.0 - 1e-6, "trazo {k}: {strokes:?}");
+        }
+        assert!(dwell > 0);
+    }
+
+    #[test]
+    fn a_slower_machine_waits_less_than_the_plan() {
+        let (out, motion) = wet_plan();
+        let link = SimLink::default();
+        // Cada línea de 20 mm tarda más de 4 s: la tinta se seca mientras dibuja.
+        let settings = MachineSettings { max_speed: 5.0, ..Default::default() };
+        let mut plotter = Plotter::connect(link.clone(), settings).unwrap();
+        assert_eq!(plotter.execute(&out, &motion, &Control::default(), &mut |_| {}), Ok(Outcome::Finished));
+        let (strokes, dwell) = strokes_on_the_clock(&link.0.lock().unwrap().log);
+        assert_eq!(strokes.len(), 6);
+        for k in 3..strokes.len() {
+            assert!(strokes[k].0 >= strokes[k - 3].1 + 20.0 - 1e-6, "trazo {k}: {strokes:?}");
+        }
+        let planned = (out.stats.wait_seconds * 1000.0) as u64;
+        assert!(dwell + 2000 < planned, "espera {dwell} ms; el plan, {planned} ms");
     }
 
     #[test]
