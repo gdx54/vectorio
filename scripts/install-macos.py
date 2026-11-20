@@ -87,6 +87,9 @@ def write_bundle(stage, binary, build_info, env):
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
         "NSHumanReadableCopyright": "Vectorio · MIT",
+        # Máquina por Wi-Fi: la Raspberry Pi junto al plóter está en la red local.
+        "NSLocalNetworkUsageDescription": "Vectorio se conecta con la Raspberry Pi que lleva el plóter para trazar por Wi-Fi.",
+        "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
     }
     with (stage / "Contents/Info.plist").open("wb") as handle:
         plistlib.dump(info, handle)

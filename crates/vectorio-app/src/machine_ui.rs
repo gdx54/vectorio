@@ -1,25 +1,16 @@
-//! Máquina: enlace con el plóter por USB. La placa vive en un hilo propio que recibe
-//! órdenes y devuelve avisos; la pausa y la parada van por `Control`, así responden
-//! al momento aunque el hilo esté trazando.
+//! Máquina: enlace con el plóter por USB o por Wi-Fi (una Raspberry Pi junto a la placa).
+//! La placa vive en un hilo propio que recibe órdenes y devuelve avisos; la pausa y la
+//! parada van por `Control`, así responden al momento aunque el hilo esté trazando. Por
+//! Wi-Fi, la misma sesión corre en la Raspberry y el hilo solo reenvía (`machine::remote`).
 
 use crate::{app::VectorioApp, theme};
 use egui::RichText;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use vectorio_core::machine::{Control, Event, Link, MachineError, MachineSettings, Outcome, Plotter, SerialLink};
+use vectorio_core::machine::{remote, session, Control, Link, MachineError, MachineSettings, Notice, Outcome, SerialLink};
 use vectorio_core::{output::{OutputPlan, OutputStep}, PlotSettings};
 
-/// Cada cuánto se comprueba, sin trazar, que la placa sigue al otro lado del cable.
-const PING: Duration = Duration::from_secs(2);
-
-enum Cmd {
-    Settings(MachineSettings),
-    Pen(bool),
-    Release,
-    Home,
-    Plot(Arc<OutputPlan>, PlotSettings, Arc<Control>),
-    Disconnect,
-}
+type Cmd = session::Command;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Note {
@@ -41,84 +32,50 @@ enum Note {
     Done(Outcome),
 }
 
+impl Note {
+    fn from(notice: Notice, wifi: bool) -> Note {
+        match notice {
+            Notice::Connected(version) => Note::Connected(version),
+            Notice::Lost(e) => Note::Lost(describe(&e, wifi)),
+            Notice::Closed => Note::Closed,
+            Notice::Ready { engaged } => Note::Ready { engaged },
+            Notice::Failed(e) => Note::Failed(describe(&e, wifi)),
+            Notice::Step { index, total } => Note::Step { index, total },
+            Notice::PenChange(pen) => Note::PenChange(pen),
+            Notice::Paused => Note::Paused,
+            Notice::Resumed => Note::Resumed,
+            Notice::Button => Note::Button,
+            Notice::Drying(ms) => Note::Drying(ms),
+            Notice::Done(outcome) => Note::Done(outcome),
+        }
+    }
+}
+
 struct Worker { tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Note> }
 
-fn spawn<L: Link + 'static>(open: impl FnOnce() -> Result<L, MachineError> + Send + 'static, settings: MachineSettings,
-    ctx: Option<egui::Context>) -> Worker {
+/// Hilo de la máquina: `run` es la sesión local (`session::run`) o la de la Raspberry
+/// (`remote::run`); las dos atienden las mismas órdenes y dan los mismos avisos.
+fn spawn(run: impl FnOnce(mpsc::Receiver<Cmd>, &dyn Fn(Notice)) + Send + 'static, wifi: bool, ctx: Option<egui::Context>) -> Worker {
     let (tx, cmds) = mpsc::channel();
     let (notes, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let send = |note: Note| { let _ = notes.send(note); if let Some(ctx) = &ctx { ctx.request_repaint(); } };
-        run_worker(open, settings, cmds, &send);
+        let send = |notice: Notice| { let _ = notes.send(Note::from(notice, wifi)); if let Some(ctx) = &ctx { ctx.request_repaint(); } };
+        run(cmds, &send);
     });
     Worker { tx, rx }
 }
 
-/// Fallos que dejan la conexión en duda: se da la máquina por desconectada.
-fn is_lost(error: &MachineError) -> bool { matches!(error, MachineError::Io(_) | MachineError::Timeout(_) | MachineError::NotFound) }
-
-fn describe(error: &MachineError) -> String {
+fn describe(error: &MachineError, wifi: bool) -> String {
     match error {
+        MachineError::NotFound if wifi => tr!("La Raspberry no encuentra la máquina. Comprueba que está encendida y conectada a la Raspberry por el cable USB de datos."),
         MachineError::NotFound => tr!("No se encuentra la máquina. Comprueba que está encendida y que el cable USB pasa datos, no solo carga."),
+        MachineError::Io(_) | MachineError::Timeout(_) if wifi => tr!("Se ha perdido la conexión entre la Raspberry y la máquina. Comprueba el cable y vuelve a conectar; antes de trazar, lleva el carro al origen."),
         MachineError::Io(_) | MachineError::Timeout(_) => tr!("Se ha perdido la conexión USB con la máquina. Comprueba el cable y vuelve a conectar; antes de trazar, lleva el carro al origen."),
+        MachineError::Unreachable => tr!("No se puede conectar con la Raspberry. Comprueba que está encendida, en la misma red Wi-Fi y con el servicio del plóter instalado, y que Vectorio tiene permiso de red local (Ajustes del Sistema → Privacidad y seguridad → Red local). Si estaba trazando, la Raspberry sigue hasta terminar."),
+        MachineError::Busy => tr!("La Raspberry está ocupada con otra acción de la máquina, quizá de Linear. Espera a que termine y vuelve a conectar."),
         MachineError::OutOfBounds => tr!("El dibujo no cabe en el recorrido de la máquina. Revisa el recorrido y la posición del papel."),
         MachineError::InvalidSettings => tr!("Revisa los ajustes de la máquina: hay valores fuera de rango."),
         MachineError::Device(text) | MachineError::Unexpected(text) => tr!("La máquina ha respondido algo inesperado: %{respuesta}", respuesta = text),
-    }
-}
-
-fn run_worker<L: Link>(open: impl FnOnce() -> Result<L, MachineError>, settings: MachineSettings, cmds: mpsc::Receiver<Cmd>, send: &dyn Fn(Note)) {
-    let mut plotter = match open().and_then(|link| Plotter::attach(link, settings)) {
-        Ok(p) => p,
-        Err(e) => return send(Note::Lost(describe(&e))),
-    };
-    send(Note::Connected(plotter.version().to_string()));
-    loop {
-        let cmd = match cmds.recv_timeout(PING) {
-            Ok(cmd) => cmd,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let Err(e) = plotter.ebb().motion() {
-                    if is_lost(&e) { return send(Note::Lost(describe(&e))); }
-                }
-                continue;
-            }
-            // La interfaz se ha ido: se deja la máquina en reposo.
-            Err(mpsc::RecvTimeoutError::Disconnected) => { let _ = plotter.release(); return; }
-        };
-        let result = match cmd {
-            Cmd::Settings(settings) => plotter.update_settings(settings),
-            Cmd::Pen(up) => plotter.move_pen(up, 300).and_then(|()| plotter.wait_idle()),
-            Cmd::Release => plotter.release(),
-            Cmd::Home => {
-                let control = Control::default();
-                plotter.go_home(PlotSettings::default().travel_speed, &control, &mut |_| {}).map(|_| ())
-            }
-            Cmd::Plot(plan, motion, control) => {
-                let mut on_event = |event: Event| send(match event {
-                    Event::Step { index, total } => Note::Step { index, total },
-                    Event::PenChange { pen } => Note::PenChange(pen),
-                    Event::Button => Note::Button,
-                    Event::Paused => Note::Paused,
-                    Event::Resumed => Note::Resumed,
-                    Event::Drying { ms } => Note::Drying(ms),
-                });
-                plotter.execute(&plan, &motion, &control, &mut on_event).map(|outcome| send(Note::Done(outcome)))
-            }
-            Cmd::Disconnect => { let _ = plotter.release(); return send(Note::Closed); }
-        };
-        match result {
-            // Un trazado a medias no se puede reanudar: se intenta subir la pluma y soltar
-            // los motores para que no se queden haciendo fuerza.
-            Err(e) if is_lost(&e) => { let _ = plotter.ebb().motors(false); return send(Note::Lost(describe(&e))) }
-            Err(e) => {
-                // Antes de mover nada (plan fuera del recorrido, ajustes no válidos) no hay
-                // nada que soltar.
-                if !matches!(e, MachineError::OutOfBounds | MachineError::InvalidSettings) { let _ = plotter.release(); }
-                send(Note::Failed(describe(&e)))
-            }
-            Ok(()) => {}
-        }
-        send(Note::Ready { engaged: plotter.is_engaged() });
     }
 }
 
@@ -219,12 +176,23 @@ impl Drop for KeepAwake {
 
 impl MachineUi {
     fn connect(&mut self, settings: &MachineSettings, ctx: &egui::Context) {
-        self.connect_with(|| SerialLink::open_first().map(|(link, _)| link), settings, Some(ctx.clone()));
+        if settings.wifi {
+            let (host, start) = (settings.wifi_host.trim().to_string(), settings.clone());
+            self.worker = Some(spawn(move |cmds, send| remote::run(&host, start, cmds, send), true, Some(ctx.clone())));
+            self.connecting(settings);
+        } else {
+            self.connect_with(|| SerialLink::open_first().map(|(link, _)| link), settings, Some(ctx.clone()));
+        }
     }
 
     fn connect_with<L: Link + 'static>(&mut self, open: impl FnOnce() -> Result<L, MachineError> + Send + 'static,
         settings: &MachineSettings, ctx: Option<egui::Context>) {
-        self.worker = Some(spawn(open, settings.clone(), ctx));
+        let start = settings.clone();
+        self.worker = Some(spawn(move |cmds, send| session::run(open, start, cmds, send), false, ctx));
+        self.connecting(settings);
+    }
+
+    fn connecting(&mut self, settings: &MachineSettings) {
         self.sent = Some(settings.clone());
         self.status = Status::Connecting;
         self.error = None;
@@ -550,7 +518,12 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     let pal = theme::current(ui.ctx());
     let m = &mut app.machine_ui;
     theme::section(ui, &tr!("MÁQUINA"));
-    ui.label(RichText::new(m.status_text(&app.doc.pens)).color(pal.text));
+    let mut status = m.status_text(&app.doc.pens);
+    if app.prefs.machine.wifi && matches!(m.status, Status::Off | Status::Connecting) {
+        status = format!("{status} · Wi-Fi ({})", app.prefs.machine.wifi_host.trim());
+    }
+    ui.label(RichText::new(status).color(pal.text));
+    let link_ok = !app.prefs.machine.wifi || remote::valid_host(&app.prefs.machine.wifi_host);
     if m.status == Status::Plotting {
         let (i, n) = m.progress;
         ui.add(egui::ProgressBar::new(if n == 0 { 0.0 } else { i as f32 / n as f32 }).desired_height(6.0));
@@ -568,7 +541,7 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
         Status::Off | Status::Connecting | Status::Idle | Status::Busy => {
             let off = matches!(m.status, Status::Off | Status::Connecting);
             let idle = m.status == Status::Idle;
-            if m.status == Status::Off && ui.button(tr!("Conectar")).on_hover_text(tr!("Conecta la placa para mover la pluma o calibrar. «Trazar» también conecta si hace falta.")).clicked() {
+            if m.status == Status::Off && ui.add_enabled(link_ok, egui::Button::new(tr!("Conectar"))).on_hover_text(tr!("Conecta la placa para mover la pluma o calibrar. «Trazar» también conecta si hace falta.")).clicked() {
                 m.connect(&app.prefs.machine, ui.ctx());
             }
             if m.away && m.engaged && ui.add_enabled_ui(idle, |ui| ui.button(tr!("Volver a empezar"))).inner
@@ -580,7 +553,7 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
             if m.away && !m.engaged && m.status == Status::Off && ui.button(tr!("Volver a empezar")).on_hover_text(tr!("Pone la línea de tiempo al principio. Lleva el carro a mano al origen antes de trazar.")).clicked() {
                 restart_timeline(&mut app.sim);
             }
-            let can = plan.is_some() && !m.want_plot && m.status != Status::Connecting;
+            let can = plan.is_some() && !m.want_plot && m.status != Status::Connecting && (link_ok || !off);
             let trazar = ui.add_enabled_ui(can, |ui| theme::accent_button(ui, &tr!("Trazar en la máquina"))).inner
                 .on_hover_text(tr!("Conecta la placa si hace falta y, en cuanto la salida esté calculada, pide la primera tinta. Toma como origen el punto donde esté el carro si los motores están sueltos."))
                 .on_disabled_hover_text(if plan.is_none() { tr!("No hay nada que trazar todavía.") } else { tr!("Preparando el trazado…") });
@@ -671,6 +644,26 @@ pub fn settings(app: &mut VectorioApp, ui: &mut egui::Ui) {
     let s = &mut app.prefs.machine;
     let idle = m.status == Status::Idle;
     egui::CollapsingHeader::new(tr!("Máquina: pluma, origen y recorrido")).id_salt("machine-settings").show(ui, |ui| {
+        // USB o Wi-Fi (Raspberry Pi junto a la placa): se elige sin conexión y vale al conectar.
+        ui.add_enabled_ui(m.status == Status::Off, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(tr!("Conexión"));
+                egui::ComboBox::from_id_salt("machine-link")
+                    .selected_text(if s.wifi { tr!("Wi-Fi (Raspberry Pi)") } else { tr!("USB") })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut s.wifi, false, tr!("USB"));
+                        ui.selectable_value(&mut s.wifi, true, tr!("Wi-Fi (Raspberry Pi)"));
+                    });
+                if s.wifi {
+                    ui.add(egui::TextEdit::singleline(&mut s.wifi_host).desired_width(120.0).hint_text("pizero.local"))
+                        .on_hover_text(tr!("Nombre o IP de la Raspberry Pi conectada a la placa por USB, con el servicio del plóter instalado."));
+                }
+            });
+        });
+        if s.wifi && !remote::valid_host(&s.wifi_host) {
+            ui.label(RichText::new(tr!("Escribe el nombre de la Raspberry (por ejemplo, pizero.local) o su IP.")).small().color(pal.text));
+        }
+        ui.add_space(6.0);
         ui.label(RichText::new(tr!("Fija el boli en el soporte con la pluma abajo, apoyado en el papel sin forzar.")).small().color(pal.tertiary));
         for (label, value, up) in [(tr!("Pluma arriba"), &mut s.pen_up_pct, true), (tr!("Pluma abajo"), &mut s.pen_down_pct, false)] {
             ui.horizontal(|ui| {

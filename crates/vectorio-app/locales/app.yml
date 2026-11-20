@@ -2978,3 +2978,21 @@ _version: 2
   en: "Pause"
 "Con rotuladores, no vuelve a pisar una zona hasta que se seca. Con lápiz o portaminas, quítalo: traza sin esperas. Los documentos nuevos recuerdan lo último que elijas.":
   en: "With markers, it does not go over an area again until it has dried. With a pencil or mechanical pencil, turn it off to plot without waiting. New documents remember your last choice."
+"Conexión":
+  en: "Connection"
+"USB":
+  en: "USB"
+"Wi-Fi (Raspberry Pi)":
+  en: "Wi-Fi (Raspberry Pi)"
+"Nombre o IP de la Raspberry Pi conectada a la placa por USB, con el servicio del plóter instalado.":
+  en: "Name or IP of the Raspberry Pi wired to the board by USB, with the plotter service installed."
+"Escribe el nombre de la Raspberry (por ejemplo, pizero.local) o su IP.":
+  en: "Type the Raspberry Pi's name (for example, pizero.local) or its IP."
+"La Raspberry no encuentra la máquina. Comprueba que está encendida y conectada a la Raspberry por el cable USB de datos.":
+  en: "The Raspberry Pi can't find the machine. Check that it is on and wired to the Raspberry Pi with the USB data cable."
+"Se ha perdido la conexión entre la Raspberry y la máquina. Comprueba el cable y vuelve a conectar; antes de trazar, lleva el carro al origen.":
+  en: "The connection between the Raspberry Pi and the machine was lost. Check the cable and connect again; before plotting, bring the carriage back to the origin."
+"No se puede conectar con la Raspberry. Comprueba que está encendida, en la misma red Wi-Fi y con el servicio del plóter instalado, y que Vectorio tiene permiso de red local (Ajustes del Sistema → Privacidad y seguridad → Red local). Si estaba trazando, la Raspberry sigue hasta terminar.":
+  en: "Can't connect to the Raspberry Pi. Check that it is on, on the same Wi-Fi network and with the plotter service installed, and that Vectorio has Local Network permission (System Settings → Privacy & Security → Local Network). If it was plotting, the Raspberry Pi keeps going until it finishes."
+"La Raspberry está ocupada con otra acción de la máquina, quizá de Linear. Espera a que termine y vuelve a conectar.":
+  en: "The Raspberry Pi is busy with another machine action, maybe from Linear. Wait for it to finish and connect again."

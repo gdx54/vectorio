@@ -56,7 +56,7 @@ pub fn heat_level(n: u16) -> usize {
     match n { 0..=1 => 0, 2 => 1, 3 => 2, 4..=5 => 3, 6..=9 => 4, _ => 5 }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct HeatGrid {
     pub cell_mm: f64,
     pub cols: usize,
@@ -97,7 +97,8 @@ impl HeatGrid {
     }
 }
 
-type Footprint = Vec<(usize, u16)>;
+/// Celdas que pisa un trazo y cuántas veces: las esperas de secado salen de aquí.
+pub type Footprint = Vec<(usize, u16)>;
 
 /// Pasadas físicas por celda. Permanecer dentro no suma; salir y volver sí.
 fn footprint(path: &[P], grid: &HeatGrid, radius: f64) -> Footprint {
@@ -149,7 +150,7 @@ fn footprint(path: &[P], grid: &HeatGrid, radius: f64) -> Footprint {
     out
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutputStroke {
     pub pen: usize,
     pub path: Polyline,
@@ -157,7 +158,7 @@ pub struct OutputStroke {
     footprint: Footprint,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum OutputStep {
     ChangePen { pen: usize, start_s: f64, end_s: f64 },
@@ -175,7 +176,7 @@ impl OutputStep {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OutputStats {
     pub draw_mm: f64,
     pub travel_mm: f64,
@@ -191,7 +192,7 @@ pub struct OutputStats {
     pub outside_points: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutputPlan {
     pub format: String,
     pub units: String,
@@ -217,6 +218,17 @@ pub struct OutputPlan {
 }
 
 impl OutputPlan {
+    /// Huellas de secado de cada trazo. El JSON del plan no las incluye; la máquina por
+    /// Wi-Fi las recibe aparte para esperar lo mismo que por USB.
+    pub fn footprints(&self) -> Vec<&Footprint> { self.strokes.iter().map(|s| &s.footprint).collect() }
+
+    /// Devuelve las huellas a un plan leído de JSON. Falla si no casan con los trazos.
+    pub fn set_footprints(&mut self, footprints: Vec<Footprint>) -> bool {
+        if footprints.len() != self.strokes.len() { return false; }
+        for (stroke, cells) in self.strokes.iter_mut().zip(footprints) { stroke.footprint = cells; }
+        true
+    }
+
     /// SVG del orden preparado; las esperas solo existen en el plan JSON.
     pub fn layers(&self) -> Vec<PlotLayer> {
         let mut layers: Vec<PlotLayer> = Vec::new();
