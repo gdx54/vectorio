@@ -7,6 +7,13 @@ Vectorio puede trazar en la EasyDraw/MakerQ (placa EiBotBoard) a través de una 
 1. Máquina → «Máquina: pluma, origen y recorrido» → **Conexión: Wi-Fi (Raspberry Pi)** y el nombre de la Raspberry (`pizero.local`) o su IP. Se guarda en las preferencias (`machine.wifi`, `machine.wifi_host`).
 2. **Conectar** o **Trazar en la máquina**, como por USB. La primera vez macOS pide permiso de **red local** para Vectorio: hay que aceptarlo (Ajustes del Sistema → Privacidad y seguridad → Red local).
 3. Pausar, Continuar, Parar, cambios de tinta, botón de la placa, secado, pausa programada, Volver al origen y Desconectar al terminar funcionan igual que por USB.
+4. Para desenchufar la Raspberry, sin conexión: **Apagar Raspberry** (junto a su nombre) y confirmar. Se desenchufa cuando se apaga su luz verde, unos 20 segundos. La Raspberry lo rechaza mientras alguien usa la máquina.
+
+Apagar necesita una regla de `sudo` en la Raspberry, creada una vez con su contraseña:
+
+```bash
+ssh -t raul@pizero.local "echo 'raul ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff' | sudo tee /etc/sudoers.d/linear-poweroff && sudo chmod 440 /etc/sudoers.d/linear-poweroff && sudo visudo -cf /etc/sudoers.d/linear-poweroff"
+```
 
 ## Cómo funciona
 
@@ -24,6 +31,7 @@ Protocolo del servicio (solo red local):
 | `POST /session` `{"app":"vectorio","settings":{…}}` | Abre la sesión en la primera placa `/dev/ttyACM*`. 409 si la máquina está ocupada (también por Linear), 503 sin placa, 501 sin `vectorio-machine`. |
 | `POST /session/<id>/send` | Una orden `Wire` en JSON (`"Home"`, `{"Pen":true}`, `{"Plot":{"plan":…,"footprints":…,"motion":…}}`, `"Pause"`, `"Resume"`, `"Stop"`, `"Disconnect"`…). |
 | `GET /session/<id>?after=N` | Avisos desde el número N, si sigue abierta y el número siguiente. |
+| `POST /poweroff` | Apaga la Raspberry. 409 si la máquina está en uso, 501 sin la regla de `sudo`. `/info` indica `"poweroff": true` cuando está permitido. |
 
 El JSON del plan no lleva las huellas de secado, así que van aparte (`footprints`) y la Raspberry las devuelve al plan. Al salir, Vectorio para el trazado y cierra la sesión, así la placa queda libre al momento (para Linear, por ejemplo). Si no llega a hacerlo (se cuelga o pierde la red), una sesión que nadie consulta durante 45 segundos recibe `Idle`: suelta los motores, termina el trazado en curso o para uno en pausa.
 

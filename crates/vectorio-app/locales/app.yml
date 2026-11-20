@@ -2996,3 +2996,25 @@ _version: 2
   en: "Can't connect to the Raspberry Pi. Check that it is on, on the same Wi-Fi network and with the plotter service installed, and that Vectorio has Local Network permission (System Settings → Privacy & Security → Local Network). If it was plotting, the Raspberry Pi keeps going until it finishes."
 "La Raspberry está ocupada con otra acción de la máquina, quizá de Linear. Espera a que termine y vuelve a conectar.":
   en: "The Raspberry Pi is busy with another machine action, maybe from Linear. Wait for it to finish and connect again."
+"Apagando la Raspberry…":
+  en: "Shutting down the Raspberry Pi…"
+"¿Apagar la Raspberry?":
+  en: "Shut down the Raspberry Pi?"
+"Apagar":
+  en: "Shut down"
+"Apagar Raspberry":
+  en: "Shut down Raspberry Pi"
+"Apaga la Raspberry para poder desenchufarla sin riesgo.":
+  en: "Shuts down the Raspberry Pi so it can be unplugged safely."
+"La Raspberry se está apagando. Desenchúfala cuando se apague su luz verde (unos 20 segundos).":
+  en: "The Raspberry Pi is shutting down. Unplug it once its green light goes out (about 20 seconds)."
+"La Raspberry está usando la máquina (puede que siga trazando). Espera a que termine y vuelve a intentarlo.":
+  en: "The Raspberry Pi is using the machine (it may still be plotting). Wait for it to finish and try again."
+"La Raspberry aún no tiene permiso para apagarse desde la app. Se configura una vez: consulta la guía «Máquina por Wi-Fi».":
+  en: "The Raspberry Pi isn't allowed to shut down from the app yet. It's a one-time setup: see the “Machine over Wi-Fi” guide."
+"No se encuentra la Raspberry en la red. Puede que ya esté apagada.":
+  en: "The Raspberry Pi can't be found on the network. It may already be off."
+"La Raspberry no ha podido apagarse. Inténtalo de nuevo.":
+  en: "The Raspberry Pi couldn't shut down. Try again."
+"Desconecta primero la máquina.":
+  en: "Disconnect the machine first."
