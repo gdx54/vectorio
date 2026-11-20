@@ -145,8 +145,13 @@ pub fn run_with(mut bridge: Bridge, settings: MachineSettings, cmds: mpsc::Recei
             let cmd = match cmds.try_recv() {
                 Ok(cmd) => cmd,
                 Err(mpsc::TryRecvError::Empty) => break,
-                // La interfaz se ha ido: la Raspberry deja la máquina en reposo.
-                Err(mpsc::TryRecvError::Disconnected) => { let _ = bridge.send(&id, &json!("Disconnect")); return; }
+                // La interfaz se ha ido (por ejemplo, al salir del programa): se para el
+                // trazado si lo pidió y la Raspberry deja la máquina en reposo y libre.
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if control.as_ref().is_some_and(|c| c.is_stopped()) && !stopped { let _ = bridge.send(&id, &json!("Stop")); }
+                    let _ = bridge.send(&id, &json!("Disconnect"));
+                    return;
+                }
             };
             let order = wire(&cmd);
             if !matches!(cmd, Command::Disconnect) { queue.push_back(matches!(cmd, Command::Plot(..))); }
@@ -318,6 +323,24 @@ mod tests {
         drop(tx);
         client.join().unwrap();
         assert_eq!((count("Pause"), count("Resume"), count("Stop"), count("Disconnect")), (1, 1, 1, 1));
+    }
+
+    #[test]
+    fn quitting_mid_plot_stops_it_and_frees_the_machine() {
+        use crate::{output::{prepare, OutputSettings}, p, Paper, Pen, PlotLayer, PlotSettings};
+        let (port, orders) = fake_bridge(vec![Notice::Connected("2.8.1".into())]);
+        let plan = prepare(&[PlotLayer { pen: 0, paths: vec![vec![p(2.0, 2.0), p(9.0, 4.0)]] }],
+            &Paper { name: "Prueba".into(), width_mm: 30.0, height_mm: 20.0, margin_mm: 0.0 },
+            &[Pen::new("Negro", [0, 0, 0], 0.5)], &PlotSettings::default(), &OutputSettings::default()).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let control = Arc::new(Control::default());
+        tx.send(Command::Plot(Arc::new(plan), PlotSettings::default(), control.clone())).unwrap();
+        // Como al salir del programa: para y suelta el canal en el acto.
+        control.stop();
+        drop(tx);
+        run_with(Bridge::with_port("127.0.0.1", port), MachineSettings::default(), rx, &|_| {});
+        let names: Vec<String> = orders.lock().unwrap().iter().filter_map(|o| o.as_str().map(str::to_string)).collect();
+        assert_eq!(names, ["Stop", "Disconnect"]);
     }
 
     #[test]

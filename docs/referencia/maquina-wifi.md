@@ -25,7 +25,7 @@ Protocolo del servicio (solo red local):
 | `POST /session/<id>/send` | Una orden `Wire` en JSON (`"Home"`, `{"Pen":true}`, `{"Plot":{"plan":…,"footprints":…,"motion":…}}`, `"Pause"`, `"Resume"`, `"Stop"`, `"Disconnect"`…). |
 | `GET /session/<id>?after=N` | Avisos desde el número N, si sigue abierta y el número siguiente. |
 
-El JSON del plan no lleva las huellas de secado, así que van aparte (`footprints`) y la Raspberry las devuelve al plan. Una sesión que nadie consulta durante 10 minutos recibe `Idle`: suelta los motores, termina el trazado en curso o para uno en pausa.
+El JSON del plan no lleva las huellas de secado, así que van aparte (`footprints`) y la Raspberry las devuelve al plan. Al salir, Vectorio para el trazado y cierra la sesión, así la placa queda libre al momento (para Linear, por ejemplo). Si no llega a hacerlo (se cuelga o pierde la red), una sesión que nadie consulta durante 45 segundos recibe `Idle`: suelta los motores, termina el trazado en curso o para uno en pausa.
 
 ## Instalar o actualizar en la Raspberry
 

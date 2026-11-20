@@ -51,18 +51,18 @@ impl Note {
     }
 }
 
-struct Worker { tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Note> }
+struct Worker { tx: mpsc::Sender<Cmd>, rx: mpsc::Receiver<Note>, thread: std::thread::JoinHandle<()> }
 
 /// Hilo de la máquina: `run` es la sesión local (`session::run`) o la de la Raspberry
 /// (`remote::run`); las dos atienden las mismas órdenes y dan los mismos avisos.
 fn spawn(run: impl FnOnce(mpsc::Receiver<Cmd>, &dyn Fn(Notice)) + Send + 'static, wifi: bool, ctx: Option<egui::Context>) -> Worker {
     let (tx, cmds) = mpsc::channel();
     let (notes, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let thread = std::thread::spawn(move || {
         let send = |notice: Notice| { let _ = notes.send(Note::from(notice, wifi)); if let Some(ctx) = &ctx { ctx.request_repaint(); } };
         run(cmds, &send);
     });
-    Worker { tx, rx }
+    Worker { tx, rx, thread }
 }
 
 fn describe(error: &MachineError, wifi: bool) -> String {
@@ -144,7 +144,7 @@ pub struct MachineUi {
 }
 
 impl Drop for MachineUi {
-    fn drop(&mut self) { if let Some(control) = &self.control { control.stop(); } }
+    fn drop(&mut self) { self.shutdown(); }
 }
 
 /// Mientras traza, el Mac no entra en reposo por inactividad: al dormirse cortaría el
@@ -190,6 +190,18 @@ impl MachineUi {
         let start = settings.clone();
         self.worker = Some(spawn(move |cmds, send| session::run(open, start, cmds, send), false, ctx));
         self.connecting(settings);
+    }
+
+    /// Al salir del programa: para el trazado y cierra la sesión antes de que termine el
+    /// proceso. Por USB sube la pluma y suelta los motores; por Wi-Fi, además, la Raspberry
+    /// deja la placa libre al momento (para Linear, por ejemplo).
+    pub fn shutdown(&mut self) {
+        if let Some(control) = self.control.take() { control.stop(); control.resume(); }
+        if let Some(Worker { tx, thread, .. }) = self.worker.take() {
+            drop(tx);
+            let start = Instant::now();
+            while !thread.is_finished() && start.elapsed() < Duration::from_secs(3) { std::thread::sleep(Duration::from_millis(20)); }
+        }
     }
 
     fn connecting(&mut self, settings: &MachineSettings) {
