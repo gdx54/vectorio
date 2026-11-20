@@ -29,6 +29,17 @@ pub fn valid_host(host: &str) -> bool {
         && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
 }
 
+/// Respuesta de la Raspberry a «Apagar Raspberry».
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerOff {
+    /// Se está apagando: se puede desenchufar cuando se apague su luz verde.
+    Started,
+    /// La máquina está en uso (trazando, Linear…).
+    Busy,
+    /// Falta el permiso para apagarse (o el servicio es anterior).
+    NotAllowed,
+}
+
 /// Cliente HTTP mínimo del servicio: una petición por conexión, como responde el servicio.
 pub struct Bridge {
     host: String,
@@ -89,6 +100,16 @@ impl Bridge {
         match self.call("POST", &format!("/session/{id}/send"), Some(body.as_bytes()), timeout)? {
             (200, _) => Ok(()),
             (404, _) => Err(MachineError::Unreachable),
+            (_, reply) => Err(MachineError::Unexpected(reply.to_string())),
+        }
+    }
+
+    /// Apaga la Raspberry si nadie usa la máquina.
+    pub fn poweroff(&mut self) -> Result<PowerOff, MachineError> {
+        match self.call("POST", "/poweroff", None, Duration::from_secs(10))? {
+            (200, _) => Ok(PowerOff::Started),
+            (409, _) => Ok(PowerOff::Busy),
+            (501 | 404, _) => Ok(PowerOff::NotAllowed),
             (_, reply) => Err(MachineError::Unexpected(reply.to_string())),
         }
     }
@@ -211,6 +232,31 @@ mod tests {
     fn host_names() {
         assert!(valid_host("pizero.local") && valid_host("192.168.1.139") && valid_host("plotter-pi"));
         assert!(!valid_host("") && !valid_host("pi zero") && !valid_host("-x") && !valid_host("a/b") && !valid_host("x:80"));
+    }
+
+    /// Responde a una sola petición con `code` y devuelve la línea pedida.
+    fn answer_once(code: u16) -> (u16, std::thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (port, std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            let body = "{}";
+            write!(stream, "HTTP/1.1 {code} X\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_string()
+        }))
+    }
+
+    #[test]
+    fn powering_off_reports_what_the_raspberry_said() {
+        for (code, want) in [(200, PowerOff::Started), (409, PowerOff::Busy), (501, PowerOff::NotAllowed), (404, PowerOff::NotAllowed)] {
+            let (port, line) = answer_once(code);
+            assert_eq!(Bridge::with_port("127.0.0.1", port).poweroff(), Ok(want));
+            assert!(line.join().unwrap().starts_with("POST /poweroff "));
+        }
+        let (port, _) = answer_once(500);
+        assert!(Bridge::with_port("127.0.0.1", port).poweroff().is_err());
     }
 
     /// Servicio simulado: abre la sesión, guarda las órdenes y entrega los avisos de `script`

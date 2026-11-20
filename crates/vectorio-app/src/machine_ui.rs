@@ -141,6 +141,10 @@ pub struct MachineUi {
     /// Tinta por la que ya se ha avisado en el Dock.
     called_for: Option<usize>,
     awake: KeepAwake,
+    /// «Apagar Raspberry» pulsado, a la espera de confirmar.
+    poweroff_ask: bool,
+    /// Respuesta de la Raspberry a la orden de apagarse.
+    poweroff: Option<mpsc::Receiver<String>>,
 }
 
 impl Drop for MachineUi {
@@ -477,6 +481,11 @@ pub fn update(app: &mut VectorioApp, ctx: &egui::Context) {
     }
     m.called_for = m.waiting_pen;
     if m.status == Status::Plotting { ctx.request_repaint_after(Duration::from_millis(500)); }
+    if let Some(answer) = m.poweroff.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        m.poweroff = None;
+        m.notice = Some(answer);
+    }
+    if m.poweroff.is_some() { ctx.request_repaint_after(Duration::from_millis(200)); }
     if let Some(message) = m.notice.take() { app.notify(ctx, message); }
 }
 
@@ -642,6 +651,40 @@ pub fn actions(app: &mut VectorioApp, ui: &mut egui::Ui, ready: bool) {
     if changed { app.prefs_changed(); }
 }
 
+/// «Apagar Raspberry», para desenchufarla sin estropear su tarjeta. Solo sin conexión: la
+/// Raspberry, además, lo rechaza mientras alguien usa la máquina.
+fn power_off(m: &mut MachineUi, host: &str, ui: &mut egui::Ui, pal: &theme::Palette) {
+    if m.poweroff.is_some() {
+        ui.spinner();
+        ui.label(RichText::new(tr!("Apagando la Raspberry…")).small().color(pal.tertiary));
+    } else if m.poweroff_ask {
+        ui.label(RichText::new(tr!("¿Apagar la Raspberry?")).small());
+        if ui.button(tr!("Apagar")).clicked() {
+            m.poweroff_ask = false;
+            let (tx, rx) = mpsc::channel();
+            let host = host.trim().to_string();
+            std::thread::spawn(move || { let _ = tx.send(power_off_answer(remote::Bridge::new(&host).poweroff())); });
+            m.poweroff = Some(rx);
+        }
+        if ui.button(tr!("Cancelar")).clicked() { m.poweroff_ask = false; }
+    } else if ui.button(tr!("Apagar Raspberry"))
+        .on_hover_text(tr!("Apaga la Raspberry para poder desenchufarla sin riesgo."))
+        .on_disabled_hover_text(tr!("Desconecta primero la máquina."))
+        .clicked() {
+        m.poweroff_ask = true;
+    }
+}
+
+fn power_off_answer(answer: Result<remote::PowerOff, MachineError>) -> String {
+    match answer {
+        Ok(remote::PowerOff::Started) => tr!("La Raspberry se está apagando. Desenchúfala cuando se apague su luz verde (unos 20 segundos)."),
+        Ok(remote::PowerOff::Busy) => tr!("La Raspberry está usando la máquina (puede que siga trazando). Espera a que termine y vuelve a intentarlo."),
+        Ok(remote::PowerOff::NotAllowed) => tr!("La Raspberry aún no tiene permiso para apagarse desde la app. Se configura una vez: consulta la guía «Máquina por Wi-Fi»."),
+        Err(MachineError::Unreachable) => tr!("No se encuentra la Raspberry en la red. Puede que ya esté apagada."),
+        Err(_) => tr!("La Raspberry no ha podido apagarse. Inténtalo de nuevo."),
+    }
+}
+
 /// Línea de tiempo de Salida al principio, parada.
 fn restart_timeline(sim: &mut crate::canvas::Sim) {
     sim.playing = false;
@@ -669,6 +712,8 @@ pub fn settings(app: &mut VectorioApp, ui: &mut egui::Ui) {
                 if s.wifi {
                     ui.add(egui::TextEdit::singleline(&mut s.wifi_host).desired_width(120.0).hint_text("pizero.local"))
                         .on_hover_text(tr!("Nombre o IP de la Raspberry Pi conectada a la placa por USB, con el servicio del plóter instalado."));
+                    // Junto al nombre de la Raspberry, que es lo que apaga.
+                    if remote::valid_host(&s.wifi_host) { power_off(m, &s.wifi_host, ui, &pal); }
                 }
             });
         });
