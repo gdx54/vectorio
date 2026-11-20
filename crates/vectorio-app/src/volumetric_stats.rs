@@ -8,6 +8,7 @@ struct Key {
     pens: Vec<Pen>,
     plot: vectorio_core::PlotSettings,
     output: vectorio_core::output::OutputSettings,
+    dynamics: vectorio_core::output::Dynamics,
 }
 #[derive(Default)]
 pub(super) struct Estimate {
@@ -54,6 +55,7 @@ impl Estimate {
                             &key.pens,
                             &key.plot,
                             &key.output,
+                            &key.dynamics,
                             &abort,
                         )
                         .ok()
@@ -130,6 +132,7 @@ pub(super) fn footer(
         pens: app.doc.pens.clone(),
         plot: app.doc.plot.clone(),
         output: app.doc.output.clone(),
+        dynamics: app.prefs.machine.dynamics(),
     };
     if current && state.estimate.key.as_ref() != Some(&key) {
         if let Some(drawing) = state.materialized(&app.doc.pens) {
@@ -228,6 +231,7 @@ mod tests {
             pens: app.doc.pens.clone(),
             plot: app.doc.plot.clone(),
             output: app.doc.output.clone(),
+            dynamics: app.prefs.machine.dynamics(),
         };
         let mut estimate = Estimate::default();
         let wait = |estimate: &mut Estimate| {

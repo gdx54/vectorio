@@ -522,7 +522,7 @@ impl VectorioApp {
     /// El plan de salida corresponde al dibujo y a los ajustes actuales: ni el dibujo ni
     /// las tintas se están recalculando y el plan ya no está desfasado.
     pub fn output_ready(&self) -> bool {
-        self.rendered.rev == self.rev && !self.tracing() && !self.is_computing() && self.output_ui.ready(self.rev, &self.doc.output)
+        self.rendered.rev == self.rev && !self.tracing() && !self.is_computing() && self.output_ui.ready(self.rev, &self.doc.output, &self.prefs.machine.dynamics())
     }
 
     // ── Archivos ────────────────────────────────────────────────────────────────
