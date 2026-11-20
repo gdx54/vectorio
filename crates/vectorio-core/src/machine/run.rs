@@ -46,6 +46,11 @@ pub struct MachineSettings {
     /// Pausa programada cada tantos minutos trazando (0 = nunca), por ejemplo para sacar
     /// mina a un portaminas. Cuenta desde la última pausa; la aplica la interfaz.
     pub break_minutes: u32,
+    /// Conectar por Wi-Fi con la Raspberry Pi que lleva la placa por USB, en vez de por el
+    /// cable del Mac. Lo aplica la interfaz al conectar.
+    pub wifi: bool,
+    /// Nombre o IP de esa Raspberry en la red.
+    pub wifi_host: String,
 }
 
 impl Default for MachineSettings {
@@ -56,7 +61,8 @@ impl Default for MachineSettings {
             // Aceleración y esquinas de AxiDraw al 50 % (lo que usa Linear): 20 y 30 in/s²,
             // y esquinas con desviación de 0,002 in.
             pen_up_pct: 85.0, pen_down_pct: 42.0, accel: 508.0, travel_accel: 762.0, junction_mm: 0.05, max_speed: 200.0, return_home: true,
-            release_when_done: true, disconnect_when_done: true, break_minutes: 0 }
+            release_when_done: true, disconnect_when_done: true, break_minutes: 0,
+            wifi: false, wifi_host: "pizero.local".into() }
     }
 }
 
@@ -127,7 +133,7 @@ pub enum Event {
     Drying { ms: u32 },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outcome {
     Finished,
     Stopped,

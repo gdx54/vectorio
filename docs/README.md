@@ -20,6 +20,7 @@ Project documentation, grouped by area. Historical plans describe the state and 
 
 - [Output plan format](referencia/formato-salida.md).
 - [Topography (FastMarchingTopoPlot adaptation)](referencia/topografia.md).
+- [Plotting over Wi-Fi through a Raspberry Pi](referencia/maquina-wifi.md).
 
 ## History (`historial/`)
 
