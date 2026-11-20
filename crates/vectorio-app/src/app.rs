@@ -562,6 +562,7 @@ impl VectorioApp {
     pub fn request_quit(&mut self, ctx: &egui::Context) {
         if self.confirm_document_change(ctx) {
             self.recovery.finish();
+            self.machine_ui.shutdown();
             self.quitting = true;
             crate::macos::quit(ctx);
         }
