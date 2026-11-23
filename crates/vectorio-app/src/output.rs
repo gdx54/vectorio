@@ -6,7 +6,7 @@ use std::sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc};
 use vectorio_core::{output::{self, HeatGrid, OutputError, OutputPlan, OutputSettings, OutputStep}, Document, P};
 
 #[derive(Clone, PartialEq)]
-struct Key { rev: u64, settings: OutputSettings }
+struct Key { rev: u64, settings: OutputSettings, dynamics: output::Dynamics }
 
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Map { #[default] Total, Before, After, Route }
@@ -74,11 +74,12 @@ fn heat_color(i: usize) -> Color32 {
 }
 
 impl OutputUi {
-    pub fn ready(&self, rev: u64, cfg: &OutputSettings) -> bool {
-        self.plan.is_some() && self.job.is_none() && self.key.as_ref() == Some(&Key { rev, settings: cfg.clone() })
+    /// `dynamics`: cómo se mueve la máquina; si cambia, el plan se rehace con los nuevos tiempos.
+    pub fn ready(&self, rev: u64, cfg: &OutputSettings, dynamics: &output::Dynamics) -> bool {
+        self.plan.is_some() && self.job.is_none() && self.key.as_ref() == Some(&Key { rev, settings: cfg.clone(), dynamics: *dynamics })
     }
-    fn update(&mut self, ctx: &egui::Context, doc: &Document, rendered: &Rendered, current: bool, sim: &mut Sim) {
-        let key = Key { rev: rendered.rev, settings: doc.output.clone() };
+    fn update(&mut self, ctx: &egui::Context, doc: &Document, rendered: &Rendered, dynamics: output::Dynamics, current: bool, sim: &mut Sim) {
+        let key = Key { rev: rendered.rev, settings: doc.output.clone(), dynamics };
         // Un cálculo con valores que ya no son los actuales se interrumpe y se descarta.
         if self.job.as_ref().is_some_and(|j| j.key != key) {
             if let Some(job) = self.job.take() { job.cancel.store(true, Ordering::Relaxed); }
@@ -147,7 +148,7 @@ impl OutputUi {
             (if stacked.is_some() { vec![] } else { rendered.layers.clone() }, doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), cancel.clone(), ctx.clone());
         std::thread::spawn(move || {
             let layers = match stacked { Some((doc, per_item)) => doc.canvas_layers_from(per_item), None => layers };
-            let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &flag);
+            let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &dynamics, &flag);
             let _ = tx.send(result); ctx.request_repaint();
         });
         self.job = Some(Job { key, cancel, rx }); self.error = None; sim.playing = false;
@@ -500,7 +501,7 @@ impl OutputUi {
 pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let current = app.rendered.rev == app.rev && !app.tracing() && !app.is_computing();
     let ready = app.output_ready();
-    app.output_ui.update(ctx, &app.doc, &app.rendered, current, &mut app.sim);
+    app.output_ui.update(ctx, &app.doc, &app.rendered, app.prefs.machine.dynamics(), current, &mut app.sim);
     // Mientras la máquina traza el plan que se ve, la línea de tiempo y la ruta van con ella.
     let live = app.machine_ui.live().filter(|(plan, _)| app.output_ui.plan.as_ref().is_some_and(|p| Arc::ptr_eq(p, plan)));
     app.output_ui.live = live.is_some();
@@ -707,7 +708,7 @@ mod tests {
             app.rendered.layers = app.doc.layers();
             let plan = output::prepare(&app.rendered.layers, &app.doc.paper, &app.doc.pens, &app.doc.plot, &app.doc.output).unwrap();
             let (tx, rx) = mpsc::channel(); tx.send(Ok(plan)).unwrap();
-            app.output_ui.job = Some(Job { key: Key { rev: app.rev, settings: app.doc.output.clone() }, cancel: Arc::new(AtomicBool::new(false)), rx });
+            app.output_ui.job = Some(Job { key: Key { rev: app.rev, settings: app.doc.output.clone(), dynamics: app.prefs.machine.dynamics() }, cancel: Arc::new(AtomicBool::new(false)), rx });
             let screen = Rect::from_min_size(Pos2::ZERO, size);
             let mut result = None;
             for _ in 0..3 {
@@ -720,7 +721,7 @@ mod tests {
                     .find_map(|s| text_rect(&s.shape, label).map(|r| (s.clip_rect, r))).expect(label);
                 assert!(screen.contains_rect(rect) && clip.contains_rect(rect), "{label} fuera de {size:?}: {rect:?}, clip {clip:?}");
             }
-            assert!(app.output_ui.ready(app.rev, &app.doc.output), "rev {}, key {:?}, cfg {:?}, job {}", app.rev,
+            assert!(app.output_ui.ready(app.rev, &app.doc.output, &app.prefs.machine.dynamics()), "rev {}, key {:?}, cfg {:?}, job {}", app.rev,
                 app.output_ui.key.as_ref().map(|k| (&k.settings, k.rev)), app.doc.output, app.output_ui.job.is_some());
             let changed = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
                 if appearance == theme::Appearance::Light { theme::Appearance::Dark.apply(ctx); }
@@ -730,7 +731,7 @@ mod tests {
             let heat = app.output_ui.heat_textures[0].id();
             assert!(changed.shapes.iter().any(|s| has_heat(&s.shape, heat)), "El mapa debe seguir pintado al cambiar de tema");
             app.doc.output.dry_seconds += 1.0;
-            assert!(!app.output_ui.ready(app.rev, &app.doc.output), "No se puede exportar el plan con ajustes anteriores");
+            assert!(!app.output_ui.ready(app.rev, &app.doc.output, &app.prefs.machine.dynamics()), "No se puede exportar el plan con ajustes anteriores");
         }
         rust_i18n::set_locale("es");
     }
@@ -752,8 +753,8 @@ mod tests {
             let mut ui = OutputUi::default();
             let mut sim = Sim::default();
             for _ in 0..500 {
-                let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, doc, &rendered, true, &mut sim));
-                if ui.ready(rendered.rev, &doc.output) { break; }
+                let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, doc, &rendered, Default::default(), true, &mut sim));
+                if ui.ready(rendered.rev, &doc.output, &output::Dynamics::default()) { break; }
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
             let plan = ui.plan.expect("plan");
@@ -771,16 +772,16 @@ mod tests {
         let mut doc = Document::default();
         let rendered = Rendered::default();
         let plan = output::prepare(&[], &doc.paper, &doc.pens, &doc.plot, &doc.output).unwrap();
-        let mut ui = OutputUi { plan: Some(Arc::new(plan)), key: Some(Key { rev: rendered.rev, settings: doc.output.clone() }), ..Default::default() };
+        let mut ui = OutputUi { plan: Some(Arc::new(plan)), key: Some(Key { rev: rendered.rev, settings: doc.output.clone(), dynamics: Default::default() }), ..Default::default() };
         let mut sim = Sim { progress: 0.4, ..Sim::default() };
         doc.output.dry_seconds += 5.0;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, Default::default(), true, &mut sim));
         assert!(ui.job.is_none() && ui.pending.is_some(), "un cambio con plan previo espera antes de calcular");
         // Un cálculo en curso con valores antiguos se interrumpe al llegar otros nuevos.
         let cancel = Arc::new(AtomicBool::new(false));
         let (_tx, rx) = mpsc::channel();
-        ui.job = Some(Job { key: Key { rev: rendered.rev, settings: OutputSettings::default() }, cancel: cancel.clone(), rx });
-        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        ui.job = Some(Job { key: Key { rev: rendered.rev, settings: OutputSettings::default(), dynamics: Default::default() }, cancel: cancel.clone(), rx });
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, Default::default(), true, &mut sim));
         assert!(cancel.load(Ordering::Relaxed) && ui.job.is_none());
         assert_eq!(sim.progress, 0.4);
     }
