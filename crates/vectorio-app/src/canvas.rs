@@ -114,16 +114,42 @@ pub fn show(app: &mut VectorioApp, ui: &mut egui::Ui) {
         tools(app, ui, &resp, &painter, &xf, &pal);
         pen_drop(app, ui, &painter, &xf, rect);
     }
-    if app.doc.items.is_empty() {
-        let c = xf.s(p(app.doc.paper.width_mm / 2.0, app.doc.paper.height_mm / 2.0));
-        painter.text(
-            c,
-            egui::Align2::CENTER_CENTER,
-            ts!("Escribe (T), dibuja (P), añade formas (S) o arrastra aquí una foto o un SVG"),
-            egui::FontId::proportional(14.0),
-            Color32::from_gray(150),
-        );
+    if app.doc.items.is_empty() && !modal {
+        first_gesture(app, ui, &xf, &pal);
     }
+}
+
+/// Papel vacío: en lugar de una lista de teclas, tres acciones para empezar y, con una
+/// herramienta elegida, el gesto que hay que hacer sobre el papel.
+fn first_gesture(app: &mut VectorioApp, ui: &mut egui::Ui, xf: &Xf, pal: &Palette) {
+    let paper = &app.doc.paper;
+    let center = xf.s(p(paper.width_mm / 2.0, paper.height_mm / 2.0));
+    let gesture = match app.tool {
+        Tool::Draw => Some(ts!("Arrastra sobre el papel para dibujar a mano alzada.")),
+        Tool::Text => Some(ts!("Pulsa en el papel, o arrastra un recuadro, para crear una caja de texto.")),
+        Tool::Shape => Some(ts!("Arrastra sobre el papel para trazar la forma elegida.")),
+        Tool::Select | Tool::Strokes => None,
+    };
+    if let Some(text) = gesture {
+        if !matches!(app.interaction, Interaction::None) { return; }
+        let galley = ui.painter().layout(text.to_owned(), egui::FontId::proportional(14.0), pal.secondary, 320.0);
+        let rect = egui::Align2::CENTER_CENTER.anchor_size(center, galley.size()).expand2(Vec2::new(14.0, 9.0));
+        ui.painter().rect_filled(rect, 10.0, pal.card.gamma_multiply(0.9));
+        ui.painter().galley(rect.min + Vec2::new(14.0, 9.0), galley, pal.secondary);
+        return;
+    }
+    let size = Vec2::new(330.0, 76.0);
+    let rect = egui::Align2::CENTER_CENTER.anchor_size(center, size);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Center)));
+    child.label(egui::RichText::new(ts!("El papel está vacío. ¿Cómo quieres empezar?")).color(pal.secondary));
+    child.add_space(6.0);
+    child.horizontal(|ui| {
+        ui.add_space(((size.x - 3.0 * 96.0 - 2.0 * ui.spacing().item_spacing.x) / 2.0).max(0.0));
+        let button = |ui: &mut egui::Ui, label: &str, tip: &str| ui.add_sized([96.0, 30.0], egui::Button::new(label)).on_hover_text(tip);
+        if button(ui, ts!("Dibujar"), ts!("Mano alzada (P)")).clicked() { app.choose_tool(Tool::Draw); }
+        if button(ui, ts!("Escribir"), ts!("Texto manuscrito (T)")).clicked() { app.choose_tool(Tool::Text); }
+        if button(ui, ts!("Importar"), ts!("SVG o foto; también puedes arrastrarlos aquí")).clicked() { app.pick_import = true; }
+    });
 }
 
 fn fit(app: &mut VectorioApp, rect: Rect) {
@@ -379,10 +405,63 @@ fn handle_cursor(ui: &egui::Ui, resp: &egui::Response, h: &Handles, corners: &[u
 const ALL_CORNERS: [usize; 4] = [0, 1, 2, 3];
 const FRAME_CORNERS: [usize; 1] = [2];
 
+fn stroke_tool(app: &mut VectorioApp, ui: &egui::Ui, resp: &egui::Response, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
+    use crate::strokes::{self, StrokeId};
+    let extend = ui.input(|i| i.modifiers.shift || i.modifiers.command);
+    let hit_at = |pos: Pos2| strokes::nearest(&app.doc, xf.mm(pos), 5.0 / xf.zoom as f64);
+    let mut hover = None;
+    if resp.drag_started_by(PointerButton::Primary) {
+        resp.request_focus();
+        let origin = ui.input(|i| i.pointer.press_origin());
+        if let Some((pos, id)) = origin.and_then(|s| hit_at(s).map(|id| (s, id))) {
+            if !app.stroke_selection.ids.contains(&id) { app.stroke_selection.pick(Some(id), extend); }
+            app.stroke_selection.drag_start = Some(xf.mm(pos));
+        }
+    } else if app.stroke_selection.drag_start.is_none() {
+        hover = resp.hover_pos().and_then(hit_at);
+        if resp.clicked_by(PointerButton::Primary) {
+            resp.request_focus();
+            app.stroke_selection.pick(hover, extend);
+        }
+    }
+    let destination = ui.input(|i| i.pointer.latest_pos()).map(|pos| xf.mm(pos));
+    let delta = app.stroke_selection.drag_start.zip(destination).map(|(a,b)| b - a).unwrap_or_default();
+    if app.stroke_selection.drag_start.is_some() {
+        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+        if resp.drag_stopped_by(PointerButton::Primary) {
+            app.stroke_selection.move_by(&mut app.doc, delta);
+            app.stroke_selection.drag_start = None;
+        } else if !ui.input(|i| i.pointer.primary_down()) {
+            app.stroke_selection.drag_start = None;
+        }
+    } else if hover.is_some() { ui.ctx().set_cursor_icon(CursorIcon::Grab); }
+
+    let offset = if app.stroke_selection.drag_start.is_some() { delta } else { P::default() };
+    let mut highlight = Vec::new();
+    for item in &app.doc.items {
+        let Some(lines) = strokes::lines(item) else { continue };
+        let selected = app.stroke_selection.ids.range(StrokeId(item.id, 0)..=StrokeId(item.id, usize::MAX));
+        let hovered = hover.filter(|id| id.0 == item.id && !app.stroke_selection.ids.contains(id));
+        for id in selected.copied().chain(hovered) {
+            if let Some(line) = lines.get(id.1) {
+                let pts = screen_line(line, xf, &|q| item.place.apply(q) + offset);
+                let width: f32 = if Some(id) == hovered { 1.5 } else { 2.8 };
+                add_line(&mut highlight, pts, Stroke::new(width, pal.accent));
+            }
+        }
+    }
+    painter.extend(highlight);
+}
+
 fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
     let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
     let tol = 6.0 / xf.zoom as f64;
     let panning = matches!(app.interaction, Interaction::Pan) || ui.input(|i| i.key_down(Key::Space)) && !ui.ctx().wants_keyboard_input();
+
+    if app.tool == Tool::Strokes {
+        if !panning { stroke_tool(app, ui, resp, painter, xf, pal); }
+        return;
+    }
 
     match app.tool {
         Tool::Draw | Tool::Shape => {
@@ -395,7 +474,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                 ui.ctx().set_cursor_icon(CursorIcon::Text);
             }
         }
-        Tool::Select => {}
+        Tool::Select | Tool::Strokes => {}
     }
 
     // Selección actual y sus asas. Con varios objetos, las asas son las del recuadro
@@ -477,6 +556,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                         }
                     }
                 }
+                Tool::Strokes => {}
                 Tool::Draw => app.interaction = Interaction::Draw(vec![q]),
                 Tool::Shape => app.interaction = Interaction::Box(q, q),
                 Tool::Text => {
@@ -602,7 +682,7 @@ fn tools(app: &mut VectorioApp, ui: &mut egui::Ui, resp: &egui::Response, painte
                     } else { finish_text(app, q, None); }
                 }
                 Tool::Shape => finish_shape(app, q, q),
-                Tool::Draw => {}
+                Tool::Draw | Tool::Strokes => {}
             }
         }
     }
@@ -756,7 +836,9 @@ fn finish_shape(app: &mut VectorioApp, a: P, b: P) {
     item.stroke = Some(app.active_pen);
     item.fill.pen = app.active_pen;
     app.add_item(item);
+    // Formas vuelve a Seleccionar para ajustar la que se acaba de crear; se avisa al soltar.
     app.tool = Tool::Select;
+    app.notify_tool_return = true;
 }
 
 #[cfg(test)]
@@ -815,6 +897,32 @@ mod handle_tests {
         }
         frame(app, ctx, t + 0.05, vec![button(to, false)]);
         frame(app, ctx, t + 0.1, vec![]);
+    }
+
+    #[test]
+    fn direct_drag_moves_only_the_grabbed_polyline_in_world_coordinates() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let segment = vec![p(0.0, 0.0), p(15.0, 0.0)];
+        let other = vec![p(0.0, 12.0), p(15.0, 12.0)];
+        let mut item = Item::new("Dos trazos", Geometry::Path { lines: vec![segment.clone(), other.clone()], closed: false }, p(120.0, 100.0));
+        item.place.rotation_deg = 90.0;
+        item.place.scale = 2.0;
+        let place = item.place;
+        let id = app.doc.add(item);
+        app.run(&ctx, crate::commands::Command::Tool(Tool::Strokes));
+        frame(&mut app, &ctx, 0.0, vec![]);
+        let transform = xf(&app);
+        let start = transform.s(place.apply(p(7.0, 0.0)));
+        let delta = p(9.0, 6.0);
+        drag(&mut app, &ctx, start, start + Vec2::new(9.0, 6.0) * transform.zoom);
+        let edited = &app.doc.get(id).unwrap().world_lines();
+        assert!(edited[0][0].dist(place.apply(segment[0]) + delta) < 0.01);
+        assert_eq!(edited[1][0], place.apply(other[0]));
+        app.run(&ctx, crate::commands::Command::Delete);
+        let reopened = vectorio_core::Document::from_json(&app.doc.to_json()).unwrap();
+        assert_eq!(reopened.get(id).unwrap().local_lines().0, vec![other]);
+        assert_eq!(reopened.layers()[0].paths.len(), 1);
     }
 
     #[test]

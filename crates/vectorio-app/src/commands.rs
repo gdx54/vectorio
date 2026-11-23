@@ -10,7 +10,9 @@ use std::sync::mpsc;
 pub enum Command {
     New,
     Open,
+    ImportSvg,
     ImportImage,
+    ImportModel,
     Save,
     SaveAs,
     ExportSvg,
@@ -40,6 +42,7 @@ pub enum Command {
     PlayPause,
     Paper(usize),
     Shortcuts,
+    FirstDrawing,
     Appearance(crate::theme::Appearance),
     Preferences,
     Palettes,
@@ -81,6 +84,7 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
 /// Teclas sueltas: solo cuando no se está escribiendo.
 const PLAIN_KEYS: &[(Key, Command)] = &[
     (Key::V, Command::Tool(Tool::Select)),
+    (Key::A, Command::Tool(Tool::Strokes)),
     (Key::P, Command::Tool(Tool::Draw)),
     (Key::T, Command::Tool(Tool::Text)),
     (Key::S, Command::Tool(Tool::Shape)),
@@ -93,11 +97,11 @@ const PLAIN_KEYS: &[(Key, Command)] = &[
 pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     (
         tm!("Herramientas"),
-        &[("V", tm!("Seleccionar y mover")), ("P", tm!("Mano alzada")), ("T", tm!("Caja de texto manuscrito")), ("S", tm!("Formas")), ("I · ⇧⌘I", tm!("Foto → dibujo"))],
+        &[("V", tm!("Seleccionar y mover")), ("A", tm!("Seleccionar trazos")), ("P", tm!("Mano alzada")), ("T", tm!("Caja de texto manuscrito")), ("S", tm!("Formas")), ("I · ⇧⌘I", tm!("Convertir foto"))],
     ),
     (
         tm!("Archivo"),
-        &[("⌘N", tm!("Nuevo")), ("⌘O", tm!("Abrir")), ("⌘,", tm!("Ajustes")), ("⌘S · ⇧⌘S", tm!("Guardar · Guardar como")), ("⌘E · ⇧⌘E", tm!("Exportar SVG · uno por rotulador"))],
+        &[("⌘N", tm!("Nuevo")), ("⌘O", tm!("Abrir proyecto")), ("⌘,", tm!("Ajustes")), ("⌘S · ⇧⌘S", tm!("Guardar · Guardar como")), ("⌘E · ⇧⌘E", tm!("Exportar SVG · uno por rotulador"))],
     ),
     (
         tm!("Edición"),
@@ -117,13 +121,19 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         tm!("Vista"),
-        &[("⌘1 · ⌘2 · ⌘3", tm!("Diseño · Crear · Salida")), ("N", tm!("Otra semilla en Crear")), ("⌘= · ⌘−", tm!("Acercar · Alejar")), ("⌘0 · ⇧⌘0", tm!("Ajustar · Tamaño real")), (tm!("Espacio"), tm!("Simular (Salida) · arrastrar para desplazar")), (tm!("Pellizco · ⌘ rueda"), tm!("Zoom"))],
+        &[("⌘1 · ⌘2 · ⌘5", tm!("Diseño · Escenas · Foto")), ("⌘4 · ⌘3", tm!("Modelo 3D · Salida")), ("N", tm!("Otra semilla en Escenas")), ("⌘= · ⌘−", tm!("Acercar · Alejar")), ("⌘0 · ⇧⌘0", tm!("Ajustar · Tamaño real")), (tm!("Espacio"), tm!("Simular (Salida) · arrastrar para desplazar")), (tm!("Pellizco · ⌘ rueda"), tm!("Zoom"))],
     ),
 ];
 
 impl VectorioApp {
     /// Lee el teclado y lanza las órdenes que correspondan.
     pub fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.awaiting_document_change() {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape) || i.consume_key(Modifiers::COMMAND, Key::W)) {
+                self.cancel_document_change();
+            }
+            return;
+        }
         if self.palette_ui.open {
             if !ctx.wants_keyboard_input() && !ctx.memory(|m| m.any_popup_open()) && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
                 self.palette_ui.close_request();
@@ -195,6 +205,10 @@ impl VectorioApp {
         let nudges = [(Key::ArrowLeft, (-step, 0.0)), (Key::ArrowRight, (step, 0.0)), (Key::ArrowUp, (0.0, -step)), (Key::ArrowDown, (0.0, step))];
         for (k, (dx, dy)) in nudges {
             if ctx.input(|i| i.key_pressed(k)) {
+                if self.tool == Tool::Strokes && self.mode == ViewMode::Design {
+                    self.stroke_selection.move_by(&mut self.doc, vectorio_core::p(dx, dy));
+                    continue;
+                }
                 for id in self.selection() {
                     if let Some(it) = self.doc.get_mut(id).filter(|it| !it.locked) {
                         it.place.pos = it.place.pos + vectorio_core::p(dx, dy);
@@ -217,6 +231,10 @@ impl VectorioApp {
         }
         if self.mode == ViewMode::Create { self.create_ui.cancel(); self.mode = ViewMode::Design; return; }
         if matches!(self.mode, ViewMode::Volumetric | ViewMode::Photo) { self.mode = ViewMode::Design; return; }
+        if self.tool == Tool::Strokes {
+            if self.stroke_selection.drag_start.take().is_some() { return; }
+            if !self.stroke_selection.ids.is_empty() { self.stroke_selection.ids.clear(); return; }
+        }
         match std::mem::take(&mut self.interaction) {
             Interaction::None | Interaction::Pan => {}
             Interaction::Move { orig, .. } | Interaction::Scale { orig, .. } | Interaction::Rotate { orig, .. } => {
@@ -245,6 +263,10 @@ impl VectorioApp {
     }
 
     pub fn run(&mut self, ctx: &egui::Context, cmd: Command) {
+        if self.awaiting_document_change() {
+            if cmd == Command::CloseWindow { self.cancel_document_change(); }
+            return;
+        }
         // Menú y teclado comparten la misma barrera: ninguna hoja permite editar detrás.
         if self.prefs_ui.open && !matches!(cmd, Command::CloseWindow | Command::Quit) { return; }
         if (self.color_edit.is_some() || self.show_help || self.palette_ui.open)
@@ -252,6 +274,8 @@ impl VectorioApp {
         match cmd {
             Command::New => self.new_document(ctx),
             Command::Open => self.open_dialog(ctx),
+            Command::ImportSvg => self.import_svg_dialog(ctx),
+            Command::ImportModel => self.import_model_dialog(ctx),
             Command::ImportImage => {
                 if self.vec_ui.open_dialog(ctx) { self.mode = ViewMode::Photo; }
             }
@@ -289,7 +313,9 @@ impl VectorioApp {
             }
             Command::Duplicate => self.duplicate_selected(),
             Command::Delete => {
-                if self.pen_focus && self.doc.pens.len() > 1 {
+                if self.mode == ViewMode::Design && self.tool == Tool::Strokes {
+                    self.stroke_selection.delete(&mut self.doc);
+                } else if self.pen_focus && self.doc.pens.len() > 1 {
                     // La lista de rotuladores tiene el foco: se borra el rotulador activo.
                     self.remove_pen(self.active_pen);
                 } else if !self.pen_focus {
@@ -299,6 +325,8 @@ impl VectorioApp {
             Command::SelectAll => {
                 if ctx.wants_keyboard_input() {
                     ctx.input_mut(|i| i.events.push(egui::Event::Key { key: Key::A, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND }));
+                } else if self.mode == ViewMode::Design && self.tool == Tool::Strokes {
+                    self.stroke_selection.select_all(&self.doc);
                 } else {
                     self.pen_focus = false;
                     self.set_selection(self.doc.items.iter().filter(|it| it.visible).map(|it| it.id).collect());
@@ -315,7 +343,7 @@ impl VectorioApp {
                         (Some(i), true) => (i + n - 1) % n,
                         (Some(i), false) => (i + 1) % n,
                     };
-                    self.selected = Some(self.doc.items[next].id);
+                    self.set_selection(vec![self.doc.items[next].id]);
                 }
             }
             Command::Deselect => self.set_selection(vec![]),
@@ -337,7 +365,7 @@ impl VectorioApp {
                 }
             }
             Command::Tool(t) => {
-                self.tool = t;
+                self.choose_tool(t);
                 self.mode = ViewMode::Design;
             }
             Command::Mode(m) => {
@@ -363,7 +391,14 @@ impl VectorioApp {
                 self.sim.playing = !self.sim.playing;
             }
             Command::Paper(i) => { let prefs = crate::prefs::Preferences { paper_tint: i.min(PAPER_TINTS.len() - 1), ..self.prefs.clone() }; self.set_prefs(ctx, prefs); }
-            Command::Shortcuts => self.show_help = !self.show_help,
+            Command::Shortcuts => {
+                self.show_help = !(self.show_help && self.help_page == crate::app::HelpPage::Shortcuts);
+                self.help_page = crate::app::HelpPage::Shortcuts;
+            }
+            Command::FirstDrawing => {
+                self.show_help = true;
+                self.help_page = crate::app::HelpPage::FirstDrawing;
+            }
             Command::Appearance(appearance) => {
                 let prefs = crate::prefs::Preferences { appearance, ..self.prefs.clone() };
                 self.set_prefs(ctx, prefs);
@@ -435,15 +470,19 @@ impl NativeMenu {
             true,
             &[
                 &item(&tr!("Nuevo"), Some("CmdOrCtrl+N"), Command::New),
-                &item(&tr!("Abrir…"), Some("CmdOrCtrl+O"), Command::Open),
-                &item(&tr!("Foto → dibujo…"), Some("Shift+CmdOrCtrl+I"), Command::ImportImage),
+                &item(&tr!("Abrir proyecto…"), Some("CmdOrCtrl+O"), Command::Open),
                 &sep(),
-                &item(&tr!("Cerrar"), Some("CmdOrCtrl+W"), Command::CloseWindow),
                 &item(&tr!("Guardar"), Some("CmdOrCtrl+S"), Command::Save),
                 &item(&tr!("Guardar como…"), Some("Shift+CmdOrCtrl+S"), Command::SaveAs),
                 &sep(),
+                &item(&tr!("Importar SVG…"), None, Command::ImportSvg),
+                &item(&tr!("Convertir foto…"), Some("Shift+CmdOrCtrl+I"), Command::ImportImage),
+                &item(&tr!("Importar modelo 3D…"), None, Command::ImportModel),
+                &sep(),
                 &item(&tr!("Exportar SVG…"), Some("CmdOrCtrl+E"), Command::ExportSvg),
                 &item(&tr!("Exportar un SVG por rotulador…"), Some("Shift+CmdOrCtrl+E"), Command::ExportPerPen),
+                &sep(),
+                &item(&tr!("Cerrar ventana"), Some("CmdOrCtrl+W"), Command::CloseWindow),
             ],
         )
         .ok()?;
@@ -491,6 +530,7 @@ impl NativeMenu {
             true,
             &[
                 &item(&tr!("Seleccionar y mover   V"), None, Command::Tool(Tool::Select)),
+                &item(&tr!("Seleccionar trazos   A"), None, Command::Tool(Tool::Strokes)),
                 &item(&tr!("Mano alzada   P"), None, Command::Tool(Tool::Draw)),
                 &item(&tr!("Texto manuscrito   T"), None, Command::Tool(Tool::Text)),
                 &item(&tr!("Formas   S"), None, Command::Tool(Tool::Shape)),
@@ -510,13 +550,12 @@ impl NativeMenu {
             tr!("Visualización"),
             true,
             &[
+                // Mismo orden que la barra; los atajos de siempre se conservan.
                 &item(&tr!("Diseño"), Some("CmdOrCtrl+1"), Command::Mode(ViewMode::Design)),
-                &item(&tr!("Crear"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Create)),
-                &item(&tr!("Salida"), Some("CmdOrCtrl+3"), Command::Mode(ViewMode::Output)),
-                &item(&tr!("Volumen"), Some("CmdOrCtrl+4"), Command::Mode(ViewMode::Volumetric)),
+                &item(&tr!("Escenas"), Some("CmdOrCtrl+2"), Command::Mode(ViewMode::Create)),
                 &item(&tr!("Foto"), Some("CmdOrCtrl+5"), Command::Mode(ViewMode::Photo)),
-                &appearance,
-                &item(&tr!("Simular o pausar la salida"), None, Command::PlayPause),
+                &item(&tr!("Modelo 3D"), Some("CmdOrCtrl+4"), Command::Mode(ViewMode::Volumetric)),
+                &item(&tr!("Salida"), Some("CmdOrCtrl+3"), Command::Mode(ViewMode::Output)),
                 &sep(),
                 &item(&tr!("Acercar"), Some("CmdOrCtrl+Equal"), Command::ZoomIn),
                 &item(&tr!("Alejar"), Some("CmdOrCtrl+Minus"), Command::ZoomOut),
@@ -524,6 +563,7 @@ impl NativeMenu {
                 &item(&tr!("Tamaño real"), Some("Shift+CmdOrCtrl+Digit0"), Command::ZoomActual),
                 &sep(),
                 &paper,
+                &appearance,
                 &sep(),
                 &P::fullscreen(Some(&tr!("Pantalla completa"))),
             ],
@@ -536,7 +576,7 @@ impl NativeMenu {
             &[&P::minimize(Some(&tr!("Minimizar"))), &P::maximize(Some(&tr!("Zoom"))), &sep(), &P::bring_all_to_front(Some(&tr!("Traer todo al frente")))],
         )
         .ok()?;
-        let help = Submenu::with_items(tr!("Ayuda"), true, &[&item(&tr!("Atajos de teclado"), Some("CmdOrCtrl+Slash"), Command::Shortcuts)]).ok()?;
+        let help = Submenu::with_items(tr!("Ayuda"), true, &[&item(&tr!("Mi primer dibujo"), None, Command::FirstDrawing), &item(&tr!("Atajos de teclado"), Some("CmdOrCtrl+Slash"), Command::Shortcuts)]).ok()?;
 
         let menu = Menu::with_items(&[&app_menu, &file, &edit, &object, &tools, &view, &window, &help]).ok()?;
         #[cfg(target_os = "macos")]

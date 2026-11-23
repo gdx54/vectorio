@@ -146,8 +146,8 @@ fn glass_fixture(ctx: &egui::Context, app: &VectorioApp, preferences: &mut crate
                 ui.add_enabled(false, egui::Button::new("Rehacer"));
             });
             crate::app::capsule(ui, &pal, |ui| {
-                for label in ["Diseño", "Crear", "Salida"] {
-                    crate::app::text_segment(ui, &pal, label, label == "Crear");
+                for label in ["Diseño", "Escenas", "Salida"] {
+                    crate::app::text_segment(ui, &pal, label, label == "Escenas");
                 }
             });
             theme::accent_button(ui, "Exportar");

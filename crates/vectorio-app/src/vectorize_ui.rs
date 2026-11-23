@@ -485,7 +485,7 @@ impl VectorizeUi {
                         };
                         ui.label(RichText::new(summary).strong());
                         ui.add_enabled_ui(ready, |ui| {
-                            let label = if self.replacing.is_some() { ts!("Sustituir en el papel") } else { ts!("Añadir al papel") };
+                            let label = if self.replacing.is_some() { ts!("Actualizar en el lienzo") } else { ts!("Añadir al lienzo") };
                             if theme::accent_button(ui, label).on_hover_text("⏎").clicked() { accept = true; }
                         });
                     }
@@ -2085,7 +2085,7 @@ mod tests {
         let x_of = |w: &str| texts.iter().find(|(t, _)| t == w).map(|(_, x)| *x).unwrap_or_else(|| panic!("falta «{w}»: {texts:?}"));
         let y_of = |w: &str| texts.iter().position(|(t, _)| t == w).unwrap_or_else(|| panic!("falta «{w}»: {texts:?}"));
         // El selector de estilos encabeza el panel de la izquierda, como en Crear y Volumen.
-        for w in ["Estilo", "Color de la foto", "Detalle", "TAMAÑO EN EL PAPEL", "Añadir al papel"] {
+        for w in ["Estilo", "Color de la foto", "Detalle", "TAMAÑO EN EL PAPEL", "Añadir al lienzo"] {
             assert!(x_of(w) < PANEL_WIDTH + 40.0, "«{w}» debería ir en el panel izquierdo");
         }
         assert!(y_of("Estilo") < y_of("Color de la foto"));

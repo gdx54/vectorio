@@ -3,8 +3,6 @@ _version: 2
   en: "Unsaved changes"
 "Descartar cambios":
   en: "Discard changes"
-"Guarda el proyecto antes de continuar para conservar tus cambios.":
-  en: "Save the project before continuing to keep your changes."
 "Sin guardar":
   en: "Unsaved"
 "Espera a que terminen de actualizarse las tintas antes de exportar.":
@@ -29,46 +27,22 @@ _version: 2
   en: "Couldn't save the settings: %{error}"
 "%{name} · tinta compartida":
   en: "%{name} · shared pen"
-"Todo lo compatible":
-  en: "All supported files"
 "Proyecto Vectorio":
   en: "Vectorio project"
-"Imagen":
-  en: "Image"
-"No se pudo abrir el proyecto: %{error}":
-  en: "Couldn't open the project: %{error}"
 "No se pudo abrir la imagen: %{error}":
   en: "Couldn't open the image: %{error}"
-"No se pudo leer el SVG: %{error}":
-  en: "Couldn't read the SVG: %{error}"
 "%{n} trazados importados de %{name}":
   en: "%{n} paths imported from %{name}"
-"El SVG no contiene trazados":
-  en: "The SVG contains no paths"
-"SVG no válido: %{error}":
-  en: "Invalid SVG: %{error}"
 "Guardado %{name}":
   en: "Saved %{name}"
-"No se pudo guardar: %{error}":
-  en: "Couldn't save: %{error}"
 "Espera a que termine el cálculo de la salida.":
   en: "Wait for the output calculation to finish."
 "SVG exportado con %{n} capas (una por rotulador)":
   en: "SVG exported with %{n} layers (one per pen)"
-"No se pudo exportar: %{error}":
-  en: "Couldn't export: %{error}"
 "Carpeta para las páginas SVG":
   en: "Folder for the SVG pages"
-"No se pudieron exportar las páginas: %{error}":
-  en: "Couldn't export the pages: %{error}"
-"%{n} páginas SVG exportadas":
-  en: "%{n} SVG pages exported"
 "Carpeta para un SVG por rotulador":
   en: "Folder for one SVG per pen"
-"%{n} archivos SVG exportados":
-  en: "%{n} SVG files exported"
-"Error al exportar: %{error}":
-  en: "Export error: %{error}"
 "Sin título":
   en: "Untitled"
 "Seleccionar y mover (V)":
@@ -87,20 +61,12 @@ _version: 2
   en: "Prepare · %{plotter}"
 "Exportar":
   en: "Export"
-"Plan con esperas…":
-  en: "Plan with waits…"
 "SVG de la ruta, sin pausas (⌘E)":
   en: "Route SVG, no pauses (⌘E)"
-"SVG para plotter (⌘E)":
-  en: "SVG for plotter (⌘E)"
 "Un SVG por rotulador…":
   en: "One SVG per pen…"
-"Guardar proyecto (⌘S)":
-  en: "Save project (⌘S)"
 "Guardar como… (⇧⌘S)":
   en: "Save as… (⇧⌘S)"
-"Nuevo documento (⌘N)":
-  en: "New document (⌘N)"
 "Salida":
   en: "Output"
 "Diseño":
@@ -141,8 +107,6 @@ _version: 2
   en: "File"
 "Nuevo":
   en: "New"
-"Abrir":
-  en: "Open"
 "Ajustes":
   en: "Settings"
 "Guardar · Guardar como":
@@ -217,10 +181,6 @@ _version: 2
   en: "Show All"
 "Salir de Vectorio":
   en: "Quit Vectorio"
-"Abrir…":
-  en: "Open…"
-"Foto → dibujo…":
-  en: "Photo → drawing…"
 "Cerrar":
   en: "Close"
 "Guardar":
@@ -269,8 +229,6 @@ _version: 2
   en: "Appearance"
 "Visualización":
   en: "View"
-"Simular o pausar la salida":
-  en: "Simulate or pause the output"
 "Acercar":
   en: "Zoom in"
 "Alejar":
@@ -345,22 +303,8 @@ _version: 2
   en: "Conservative estimate: each footprint is considered wet until the end of the stroke dries."
 "Recalcular salida":
   en: "Recalculate output"
-"Guardar plan con esperas…":
-  en: "Save plan with waits…"
-"Exportar SVG de la ruta…":
-  en: "Export route SVG…"
-"JSON: ruta y pausas. SVG: recorrido sin esperas.":
-  en: "JSON: route and pauses. SVG: route without waits."
-"Guardar plan de salida con secado":
-  en: "Save output plan with drying"
 "Plan de salida Vectorio":
   en: "Vectorio output plan"
-"Plan guardado en %{ruta}":
-  en: "Plan saved to %{ruta}"
-"No se pudo guardar el plan: %{error}":
-  en: "Couldn't save the plan: %{error}"
-"SVG de la ruta exportado en %{ruta}":
-  en: "Route SVG exported to %{ruta}"
 "%{w} × %{h} mm · preparación sin conexión al plotter":
   en: "%{w} × %{h} mm · preparation with no plotter connection"
 "estimados":
@@ -591,8 +535,6 @@ _version: 2
   en: "Auto"
 "Azul":
   en: "Blue"
-"Añadir al papel":
-  en: "Add to paper"
 "Añadir tinta":
   en: "Add pen"
 "Añadir un rotulador a la paleta":
@@ -661,8 +603,6 @@ _version: 2
   en: "Light first"
 "Claros y oscuros":
   en: "Lights and darks"
-"Clic: dibujar con esta tinta · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa":
-  en: "Click: draw with this pen · double-click: color (top) or name (bottom) · drag to reorder or drop it on a layer"
 "Color":
   en: "Color"
 "Color del contorno":
@@ -791,8 +731,6 @@ _version: 2
   en: "Interleave with the full stroke"
 "Escala":
   en: "Scale"
-"Escribe (T), dibuja (P), añade formas (S) o arrastra aquí una foto o un SVG":
-  en: "Type (T), draw (P), add shapes (S) or drag a photo or an SVG here"
 "Escribe 6 cifras, por ejemplo #327AC8.":
   en: "Type 6 digits, for example #327AC8."
 "Escribe o pega tu texto completo…":
@@ -1179,8 +1117,6 @@ _version: 2
   en: "Overlays several pens with crossed hatching or interleaved dots: the colors mix on the paper, as in four-color printing."
 "Superpuesto":
   en: "Overlay"
-"Sustituir en el papel":
-  en: "Replace on paper"
 "Sólido":
   en: "Solid"
 "T · arrastra una caja y escribe a mano":
@@ -1301,24 +1237,12 @@ _version: 2
   en: "%{meters} m · %{ms} ms"
 "Activado":
   en: "Enabled"
-"Actualizar grupo":
-  en: "Update group"
 "Aleatorio":
   en: "Randomize"
 "Bloquear este parámetro en Aleatorio":
   en: "Lock this parameter when randomizing"
-"Colocar en el lienzo":
-  en: "Place on canvas"
-"Crear":
-  en: "Create"
-"Diseño · Crear · Salida":
-  en: "Design · Create · Output"
-"Editar en Crear…":
-  en: "Edit in Create…"
 "El papel puede saturarse: más de 80 m.":
   en: "The paper may become saturated: over 80 m."
-"Generadores de dibujo":
-  en: "Drawing generators"
 "Grupo generado: clic para seleccionar sus partes":
   en: "Generated group: click to select its parts"
 "Longitud por parte":
@@ -1327,8 +1251,6 @@ _version: 2
   en: "Over 40 m: dense drawing."
 "N · nuevos parámetros y semilla":
   en: "N · new parameters and seed"
-"Otra semilla en Crear":
-  en: "New seed in Create"
 "Preparando trazos finales…":
   en: "Preparing final paths…"
 "Preparando vista previa…":
@@ -1983,8 +1905,6 @@ _version: 2
   en: "Scene"
 "Estimación con los ajustes de Salida.":
   en: "Estimate using Output settings."
-"Exportar SVG":
-  en: "Export SVG"
 "Familia de curvas":
   en: "Curve family"
 "Familia de esta pasada":
@@ -2059,10 +1979,6 @@ _version: 2
   en: "Visibility"
 "Vista dividida":
   en: "Split view"
-"Volumen":
-  en: "Volume"
-"Volumen 3D":
-  en: "3D volume"
 "Añade una pasada para empezar.":
   en: "Add a pass to get started."
 "Más":
@@ -2270,8 +2186,6 @@ _version: 2
 "Aplicar gradiente de tintas":
   en: "Apply ink gradient"
 
-"Actualizar objeto 3D":
-  en: "Update 3D object"
 
 "Perspectiva":
   en: "Perspective"
@@ -2300,17 +2214,11 @@ _version: 2
 "Separación de vistas (mm)":
   en: "View spacing (mm)"
 
-"Editar en Volumen…":
-  en: "Edit in Volume…"
 
-"Abrir en Volumen":
-  en: "Open in Volume"
 
 "Recuperar proyecto":
   en: "Recover project"
 
-"Hay una copia automática de una sesión interrumpida. ¿Quieres recuperarla?":
-  en: "An interrupted session has an automatic copy. Would you like to recover it?"
 
 "Recuperar":
   en: "Recover"
@@ -3018,3 +2926,207 @@ _version: 2
   en: "The Raspberry Pi couldn't shut down. Try again."
 "Desconecta primero la máquina.":
   en: "Disconnect the machine first."
+"Seleccionar trazos (A)":
+  en: "Select strokes (A)"
+"Seleccionar trazos   A":
+  en: "Select strokes   A"
+"Seleccionar trazos":
+  en: "Select strokes"
+"Pulsa una línea para seleccionarla. Usa Mayús para añadir o quitar trazos.":
+  en: "Click a line to select it. Shift-click to add or remove strokes."
+"Las fotos con trama viva se pueden convertir en trazos fijos desde su inspector.":
+  en: "Live photo screens can be converted to fixed strokes in their inspector."
+"1 trazo seleccionado":
+  en: "1 stroke selected"
+"%{n} trazos seleccionados":
+  en: "%{n} strokes selected"
+"Arrastra para mover. Las flechas mueven 1 mm y Mayús con flechas, 10 mm.":
+  en: "Drag to move. Arrow keys move 1 mm, or 10 mm with Shift."
+"Eliminar trazos seleccionados":
+  en: "Delete selected strokes"
+"¿Guardar los cambios de «%{name}» antes de crear otro proyecto?":
+  en: "Save changes to “%{name}” before creating another project?"
+"¿Guardar los cambios de «%{name}» antes de abrir otro proyecto?":
+  en: "Save changes to “%{name}” before opening another project?"
+"¿Guardar los cambios de «%{name}» antes de salir?":
+  en: "Save changes to “%{name}” before quitting?"
+"%{n} archivos SVG en la carpeta nueva «%{name}»":
+  en: "%{n} SVG files in the new folder “%{name}”"
+"Abrir en Modelo 3D":
+  en: "Open in 3D model"
+"Abrir proyecto":
+  en: "Open project"
+"Abrir proyecto (⌘O) · clic secundario: importar":
+  en: "Open project (⌘O) · right-click: import"
+"Abrir proyecto…":
+  en: "Open project…"
+"Activar contorno":
+  en: "Enable stroke"
+"Actualizar en el lienzo":
+  en: "Update on canvas"
+"Ajustes de la tinta":
+  en: "Pen settings"
+"Aplicar al contorno":
+  en: "Apply to stroke"
+"Aplicar al relleno":
+  en: "Apply to fill"
+"Arrastra sobre el papel para dibujar a mano alzada.":
+  en: "Drag on the paper to draw freehand."
+"Arrastra sobre el papel para trazar la forma elegida.":
+  en: "Drag on the paper to draw the chosen shape."
+"Añadir al lienzo":
+  en: "Add to canvas"
+"Cambia el contorno de la selección a esta tinta":
+  en: "Changes the selection's stroke to this pen"
+"Cambiar el color o el grosor afecta a los %{count} objetos que la usan.":
+  en: "Changing the color or width affects the %{count} objects that use it."
+"Cerrar ventana":
+  en: "Close window"
+"Clic: tinta para dibujar · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa":
+  en: "Click: drawing pen · double-click: color (top) or name (bottom) · drag to reorder or drop it on a layer"
+"Con Seleccionar trazos (A) puedes mover o borrar una línea suelta.":
+  en: "With Select strokes (A) you can move or delete a single line."
+"Convertir foto":
+  en: "Convert photo"
+"Convertir foto…":
+  en: "Convert photo…"
+"Diseño · Escenas · Foto":
+  en: "Design · Scenes · Photo"
+"Editar en Escenas…":
+  en: "Edit in Scenes…"
+"Editar en Modelo 3D…":
+  en: "Edit in 3D model…"
+"El lienzo está vacío. Dibuja, escribe o importa algo antes de exportar.":
+  en: "The canvas is empty. Draw, write or import something before exporting."
+"El lienzo está vacío. Pulsa «Añadir al lienzo» para exportar el dibujo de la foto.":
+  en: "The canvas is empty. Press “Add to canvas” to export the photo drawing."
+"El lienzo está vacío. Pulsa «Añadir al lienzo» para exportar la escena.":
+  en: "The canvas is empty. Press “Add to canvas” to export the scene."
+"El lienzo no tiene trazos que exportar.":
+  en: "The canvas has no strokes to export."
+"El papel está vacío. ¿Cómo quieres empezar?":
+  en: "The paper is empty. How do you want to start?"
+"El plan conserva las pausas; el SVG, solo el recorrido.":
+  en: "The plan keeps the pauses; the SVG, only the route."
+"Elegir ubicación…":
+  en: "Choose location…"
+"Elige una tinta en TINTAS, a la izquierda. Es la tinta para dibujar.":
+  en: "Pick a pen under PENS, on the left. It is the drawing pen."
+"Empezar a dibujar":
+  en: "Start drawing"
+"Es la tinta para dibujar con Mano alzada, Texto y Formas.":
+  en: "It is the pen used by Freehand, Text and Shapes."
+"Escribir":
+  en: "Write"
+"Exportar SVG del modelo":
+  en: "Export model SVG"
+"Exportar escribe el SVG del lienzo. En Salida revisas el recorrido, lo simulas y guardas el plan con pausas.":
+  en: "Export writes the canvas SVG. In Output you review the route, simulate it and save the plan with pauses."
+"Exportar ruta SVG…":
+  en: "Export route SVG…"
+"Forma añadida. Vuelves a Seleccionar para ajustarla; pulsa S para otra.":
+  en: "Shape added. Back to Select to adjust it; press S for another."
+"Guarda el proyecto con Guardar, junto al nombre, o ⌘S.":
+  en: "Save the project with Save, next to the name, or ⌘S."
+"Guardar plan con pausas":
+  en: "Save plan with pauses"
+"Guardar plan con pausas…":
+  en: "Save plan with pauses…"
+"Guardar proyecto (⌘S) · clic secundario: Guardar como…":
+  en: "Save project (⌘S) · right-click: Save as…"
+"Hay una copia automática de «%{name}» guardada %{age} en una sesión interrumpida. ¿Quieres recuperarla?":
+  en: "There is an automatic copy of “%{name}” saved %{age} in an interrupted session. Do you want to recover it?"
+"Importar":
+  en: "Import"
+"Importar SVG":
+  en: "Import SVG"
+"Importar SVG…":
+  en: "Import SVG…"
+"Importar modelo 3D":
+  en: "Import 3D model"
+"Importar modelo 3D…":
+  en: "Import 3D model…"
+"JSON con la ruta, los cambios de tinta y las esperas de secado":
+  en: "JSON with the route, pen changes and drying waits"
+"Mi primer dibujo":
+  en: "My first drawing"
+"Modelo 3D":
+  en: "3D model"
+"Modelo 3D · Salida":
+  en: "3D model · Output"
+"Mostrar en Finder":
+  en: "Show in Finder"
+"No hay cambios sin guardar":
+  en: "No unsaved changes"
+"No se exportó ningún archivo en «%{file}»: %{error}":
+  en: "No file was exported to “%{file}”: %{error}"
+"No se pudo abrir «%{file}»: %{error}":
+  en: "Couldn't open “%{file}”: %{error}"
+"No se pudo escribir «%{file}»: %{error}":
+  en: "Couldn't write “%{file}”: %{error}"
+"No se pudo exportar «%{file}»: %{error}":
+  en: "Couldn't export “%{file}”: %{error}"
+"No se pudo guardar «%{file}»: %{error}":
+  en: "Couldn't save “%{file}”: %{error}"
+"No se pudo leer «%{file}»: %{error}":
+  en: "Couldn't read “%{file}”: %{error}"
+"Otra semilla en Escenas":
+  en: "Another seed in Scenes"
+"Plan con pausas guardado":
+  en: "Plan with pauses saved"
+"Plan con pausas…":
+  en: "Plan with pauses…"
+"Previsualizar papel %{name}":
+  en: "Preview %{name} paper"
+"Pulsa Mano alzada (P) y arrastra sobre el papel.":
+  en: "Press Freehand (P) and drag on the paper."
+"Pulsa en el papel, o arrastra un recuadro, para crear una caja de texto.":
+  en: "Click on the paper, or drag a box, to create a text box."
+"Rellena la selección con esta tinta; un relleno vacío pasa a rayado":
+  en: "Fills the selection with this pen; an empty fill becomes hatching"
+"Revisar recorrido":
+  en: "Review route"
+"SVG de la ruta exportado, sin pausas":
+  en: "Route SVG exported, without pauses"
+"SVG del lienzo (⌘E)":
+  en: "Canvas SVG (⌘E)"
+"SVG del modelo 3D (⌘E)":
+  en: "3D model SVG (⌘E)"
+"SVG o foto":
+  en: "SVG or photo"
+"SVG o foto; también puedes arrastrarlos aquí":
+  en: "SVG or photo; you can also drag them here"
+"Solo el recorrido: sin pausas ni cambios de tinta":
+  en: "Only the route: no pauses or pen changes"
+"Tinta para dibujar: %{name}":
+  en: "Drawing pen: %{name}"
+"Trazar":
+  en: "Plot"
+"Un SVG por rotulador del lienzo…":
+  en: "One SVG per pen from the canvas…"
+"Un SVG por rotulador del modelo 3D…":
+  en: "One SVG per pen from the 3D model…"
+"Vista previa pendiente":
+  en: "Preview pending"
+"Vista previa pendiente: no se exporta hasta que pulses «Añadir al lienzo».":
+  en: "Preview pending: nothing is exported until you press “Add to canvas”."
+"hace %{n} días":
+  en: "%{n} days ago"
+"hace %{n} h":
+  en: "%{n} h ago"
+"hace %{n} min":
+  en: "%{n} min ago"
+"hace un momento":
+  en: "a moment ago"
+"plan con pausas":
+  en: "plan with pauses"
+"páginas":
+  en: "pages"
+"rotuladores":
+  en: "pens"
+"ruta":
+  en: "route"
+"«%{file}» no contiene trazados.":
+  en: "“%{file}” contains no paths."
+"«%{file}» no es un SVG válido: %{error}":
+  en: "“%{file}” is not a valid SVG: %{error}"

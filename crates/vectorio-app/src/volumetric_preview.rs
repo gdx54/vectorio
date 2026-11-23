@@ -131,7 +131,7 @@ fn model_preview(ui: &mut egui::Ui, state: &mut VolumetricUi, app: &VectorioApp,
         painter.text(
             rect.min,
             egui::Align2::LEFT_TOP,
-            tr!("Volumen 3D"),
+            tr!("Modelo 3D"),
             egui::FontId::proportional(12.),
             pal.secondary,
         );
