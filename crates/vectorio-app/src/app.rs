@@ -435,6 +435,37 @@ impl VectorioApp {
         self.set_selection(left);
     }
 
+    /// Saca los trazos elegidos a objetos nuevos y los deja seleccionados para cambiarles
+    /// la tinta, moverlos u ocultarlos.
+    pub fn separate_strokes(&mut self, ctx: &egui::Context) {
+        if self.mode != ViewMode::Design || self.tool != Tool::Strokes {
+            self.notify(ctx, tr!("Elige líneas con Seleccionar trazos (A) para separarlas."));
+            return;
+        }
+        let created = self.stroke_selection.separate(&mut self.doc, |name| tr!("%{name} · separado", name = name));
+        if created.is_empty() {
+            self.notify(ctx, tr!("Elige solo una parte de las líneas de un objeto para separarlas."));
+            return;
+        }
+        let message = if created.len() == 1 {
+            tr!("Separado en un objeto nuevo: puedes cambiarle la tinta, moverlo u ocultarlo.")
+        } else {
+            tr!("Separado en %{n} objetos nuevos: puedes cambiarles la tinta, moverlos u ocultarlos.", n = created.len())
+        };
+        self.set_selection(created);
+        self.notify(ctx, message);
+    }
+
+    /// Fija la foto viva pulsada con Seleccionar trazos para poder tocar sus líneas.
+    pub fn freeze_live_photo(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.stroke_selection.live.take() else { return };
+        let frozen = crate::strokes::freeze_live(&mut self.doc, id);
+        self.stroke_selection.index.invalidate();
+        if frozen > 0 {
+            self.notify(ctx, tr!("Foto convertida en trazos fijos: ya puedes elegir sus líneas."));
+        }
+    }
+
     pub fn duplicate_selected(&mut self) {
         let new = self.doc.duplicate(&self.selection(), vectorio_core::p(8.0, 8.0));
         if !new.is_empty() {
@@ -576,7 +607,7 @@ impl VectorioApp {
         !self.trace_jobs.is_empty()
     }
 
-    fn track_changes(&mut self, ctx: &egui::Context) {
+    pub(crate) fn track_changes(&mut self, ctx: &egui::Context) {
         if self.doc != self.shown {
             self.shown = self.doc.clone();
             self.rev += 1;

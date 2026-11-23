@@ -406,25 +406,52 @@ const ALL_CORNERS: [usize; 4] = [0, 1, 2, 3];
 const FRAME_CORNERS: [usize; 1] = [2];
 
 fn stroke_tool(app: &mut VectorioApp, ui: &egui::Ui, resp: &egui::Response, painter: &egui::Painter, xf: &Xf, pal: &Palette) {
-    use crate::strokes::{self, StrokeId};
-    let extend = ui.input(|i| i.modifiers.shift || i.modifiers.command);
-    let hit_at = |pos: Pos2| strokes::nearest(&app.doc, xf.mm(pos), 5.0 / xf.zoom as f64);
+    use crate::strokes::{self, Combine, StrokeId};
+    let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+    let extend = shift || command;
+    let tolerance = 5.0 / xf.zoom as f64;
+    app.stroke_selection.index.refresh(&app.doc);
+    let hit_at = |app: &VectorioApp, pos: Pos2| app.stroke_selection.index.nearest(&app.doc, xf.mm(pos), tolerance);
     let mut hover = None;
     if resp.drag_started_by(PointerButton::Primary) {
         resp.request_focus();
-        let origin = ui.input(|i| i.pointer.press_origin());
-        if let Some((pos, id)) = origin.and_then(|s| hit_at(s).map(|id| (s, id))) {
-            if !app.stroke_selection.ids.contains(&id) { app.stroke_selection.pick(Some(id), extend); }
-            app.stroke_selection.drag_start = Some(xf.mm(pos));
+        if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
+            match hit_at(app, origin) {
+                // Arrastrar una línea la mueve (con las demás elegidas).
+                Some(id) => {
+                    if !app.stroke_selection.ids.contains(&id) { app.stroke_selection.pick(Some(id), extend); }
+                    app.stroke_selection.drag_start = Some(xf.mm(origin));
+                }
+                // Arrastrar en un hueco dibuja un recuadro de selección.
+                None => app.stroke_selection.marquee = Some(xf.mm(origin)),
+            }
+            app.stroke_selection.live = None;
         }
-    } else if app.stroke_selection.drag_start.is_none() {
-        hover = resp.hover_pos().and_then(hit_at);
+    } else if app.stroke_selection.drag_start.is_none() && app.stroke_selection.marquee.is_none() {
+        hover = resp.hover_pos().and_then(|pos| hit_at(app, pos));
         if resp.clicked_by(PointerButton::Primary) {
             resp.request_focus();
+            app.stroke_selection.live = match (hover, resp.interact_pointer_pos().or(resp.hover_pos())) {
+                (None, Some(pos)) => strokes::live_photo_at(&app.doc, xf.mm(pos), tolerance),
+                _ => None,
+            };
             app.stroke_selection.pick(hover, extend);
         }
     }
     let destination = ui.input(|i| i.pointer.latest_pos()).map(|pos| xf.mm(pos));
+    if let Some(start) = app.stroke_selection.marquee {
+        let end = destination.unwrap_or(start);
+        let rect = Rect::from_two_pos(xf.s(start), xf.s(end));
+        painter.rect(rect, 0.0, pal.accent.gamma_multiply(0.10), Stroke::new(1.0_f32, pal.accent));
+        if resp.drag_stopped_by(PointerButton::Primary) {
+            let found = app.stroke_selection.index.in_rect(&app.doc, start, end);
+            let how = if command { Combine::Remove } else if shift { Combine::Add } else { Combine::Replace };
+            app.stroke_selection.combine(found, how);
+            app.stroke_selection.marquee = None;
+        } else if !ui.input(|i| i.pointer.primary_down()) {
+            app.stroke_selection.marquee = None;
+        }
+    }
     let delta = app.stroke_selection.drag_start.zip(destination).map(|(a,b)| b - a).unwrap_or_default();
     if app.stroke_selection.drag_start.is_some() {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -923,6 +950,61 @@ mod handle_tests {
         let reopened = vectorio_core::Document::from_json(&app.doc.to_json()).unwrap();
         assert_eq!(reopened.get(id).unwrap().local_lines().0, vec![other]);
         assert_eq!(reopened.layers()[0].paths.len(), 1);
+    }
+
+    #[test]
+    fn a_box_in_empty_space_selects_lines_and_separating_gives_them_their_own_object() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let lines: Vec<vectorio_core::Polyline> = (0..10).map(|i| vec![p(0.0, i as f64 * 3.0), p(20.0, i as f64 * 3.0)]).collect();
+        let mut photo = Item::new("Rojo", Geometry::Path { lines, closed: false }, p(80.0, 80.0));
+        photo.stroke = Some(1);
+        photo.group = Some(500);
+        let id = app.doc.add(photo);
+        app.run(&ctx, crate::commands::Command::Tool(Tool::Strokes));
+        frame(&mut app, &ctx, 0.0, vec![]);
+        let transform = xf(&app);
+        // De un hueco a la izquierda hasta media altura: cruza las líneas 0..=3 por su mitad.
+        drag(&mut app, &ctx, transform.s(p(70.0, 78.0)), transform.s(p(85.0, 89.5)));
+        let chosen: Vec<usize> = app.stroke_selection.ids.iter().map(|s| s.1).collect();
+        assert_eq!(chosen, vec![0, 1, 2, 3]);
+        assert!(app.stroke_selection.marquee.is_none());
+        app.track_changes(&ctx);
+        app.run(&ctx, crate::commands::Command::SeparateStrokes);
+        let part = app.selected.expect("el objeto nuevo queda seleccionado");
+        assert_eq!(app.tool, Tool::Select);
+        assert_eq!(app.doc.items.iter().map(|it| it.id).collect::<Vec<_>>(), vec![id, part]);
+        let new = app.doc.get(part).unwrap();
+        assert_eq!((new.stroke, new.group, new.local_lines().0.len()), (Some(1), None, 4));
+        assert_eq!(app.doc.get(id).unwrap().local_lines().0.len(), 6);
+        app.track_changes(&ctx);
+        app.undo();
+        assert_eq!(app.doc.items.len(), 1);
+        assert_eq!(app.doc.get(id).unwrap().local_lines().0.len(), 10);
+    }
+
+    #[test]
+    fn clicking_a_live_photo_offers_to_fix_its_lines() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let mut traced = vectorio_core::Traced::new(vectorio_core::Coverage { map: vectorio_core::raster::Grid::new(2, 2), mm_per_px: 1.0 }, Default::default(), 1);
+        traced.lines = vectorio_core::Shared::new((0..5).map(|i| vec![p(0.0, i as f64 * 2.0), p(30.0, i as f64 * 2.0)]).collect());
+        let id = app.doc.add(Item::new("Tinta viva", Geometry::Traced(Box::new(traced)), p(60.0, 60.0)));
+        app.run(&ctx, crate::commands::Command::Tool(Tool::Strokes));
+        frame(&mut app, &ctx, 0.0, vec![]);
+        let at = xf(&app).s(p(75.0, 64.0));
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut app, &ctx, 1.05, vec![button(true)]);
+        frame(&mut app, &ctx, 1.1, vec![button(false)]);
+        assert_eq!(app.stroke_selection.live, Some(id));
+        assert!(app.stroke_selection.ids.is_empty());
+        app.freeze_live_photo(&ctx);
+        assert!(matches!(app.doc.get(id).unwrap().geometry, Geometry::Screened { .. }));
+        frame(&mut app, &ctx, 2.0, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut app, &ctx, 2.05, vec![button(true)]);
+        frame(&mut app, &ctx, 2.1, vec![button(false)]);
+        assert_eq!(app.stroke_selection.ids.iter().copied().collect::<Vec<_>>(), vec![crate::strokes::StrokeId(id, 2)]);
     }
 
     #[test]

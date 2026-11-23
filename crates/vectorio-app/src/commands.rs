@@ -22,6 +22,7 @@ pub enum Command {
     Undo,
     Redo,
     Duplicate,
+    SeparateStrokes,
     Delete,
     SelectAll,
     SelectNext,
@@ -60,6 +61,7 @@ const COMMAND_KEYS: &[(Modifiers, Key, Command)] = &[
     (Modifiers::COMMAND, Key::W, Command::CloseWindow),
     (Modifiers::COMMAND, Key::Q, Command::Quit),
     (Modifiers::COMMAND, Key::D, Command::Duplicate),
+    (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::G, Command::SeparateStrokes),
     (Modifiers::COMMAND, Key::A, Command::SelectAll),
     (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::CloseBracket, Command::BringToFront),
     (Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::OpenBracket, Command::SendToBack),
@@ -110,6 +112,7 @@ pub const CHEATSHEET: &[(&str, &[(&str, &str)])] = &[
             ("⌘D · ⌫", tm!("Duplicar · Eliminar")),
             ("⌘A", tm!("Seleccionar todo")),
             (tm!("Arrastrar en vacío"), tm!("Seleccionar con recuadro")),
+            ("⇧⌘G", tm!("Separar trazos en objeto nuevo")),
             (tm!("⇧ · ⌘ clic"), tm!("Añadir o quitar de la selección")),
             ("⇥ · ⇧⇥", tm!("Objeto siguiente · anterior")),
             (tm!("Esc"), tm!("Cancelar, cerrar, deseleccionar")),
@@ -232,7 +235,8 @@ impl VectorioApp {
         if self.mode == ViewMode::Create { self.create_ui.cancel(); self.mode = ViewMode::Design; return; }
         if matches!(self.mode, ViewMode::Volumetric | ViewMode::Photo) { self.mode = ViewMode::Design; return; }
         if self.tool == Tool::Strokes {
-            if self.stroke_selection.drag_start.take().is_some() { return; }
+            if self.stroke_selection.drag_start.take().is_some() || self.stroke_selection.marquee.take().is_some() { return; }
+            if self.stroke_selection.live.take().is_some() { return; }
             if !self.stroke_selection.ids.is_empty() { self.stroke_selection.ids.clear(); return; }
         }
         match std::mem::take(&mut self.interaction) {
@@ -312,6 +316,7 @@ impl VectorioApp {
                 }
             }
             Command::Duplicate => self.duplicate_selected(),
+            Command::SeparateStrokes => self.separate_strokes(ctx),
             Command::Delete => {
                 if self.mode == ViewMode::Design && self.tool == Tool::Strokes {
                     self.stroke_selection.delete(&mut self.doc);
@@ -497,6 +502,7 @@ impl NativeMenu {
                 &sep(),
                 &item(&tr!("Duplicar"), Some("CmdOrCtrl+D"), Command::Duplicate),
                 &item(&tr!("Eliminar"), None, Command::Delete),
+                &item(&tr!("Separar trazos en objeto nuevo"), Some("Shift+CmdOrCtrl+G"), Command::SeparateStrokes),
                 &sep(),
                 &item(&tr!("Seleccionar todo"), Some("CmdOrCtrl+A"), Command::SelectAll),
                 &item(&tr!("Seleccionar siguiente"), None, Command::SelectNext),

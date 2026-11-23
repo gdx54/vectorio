@@ -531,13 +531,7 @@ fn photo_section(app: &mut VectorioApp, ui: &mut Ui, group: u64) {
         reopen_photo(app, ui.ctx(), group);
     }
     if live > 0 && ui.button(ts!("Convertir en trazos fijos")).on_hover_text(ts!("Las tramas dejan de recalcularse y ya no se pueden retocar")).clicked() {
-        for id in &members {
-            if let Some(it) = app.doc.get_mut(*id).filter(|it| !it.locked) {
-                if let Geometry::Traced(t) = &it.geometry {
-                    it.geometry = Geometry::Screened { lines: t.lines.to_vec(), screen: t.trace.style };
-                }
-            }
-        }
+        if let Some(first) = members.first() { crate::strokes::freeze_live(&mut app.doc, *first); }
     }
     if live >= 2 {
         mix_section(app, ui, &members);
@@ -1022,13 +1016,29 @@ fn object_row(app: &mut VectorioApp, ui: &mut Ui, id: u64, drop: &mut Option<(Ve
 pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     if app.tool == crate::app::Tool::Strokes && !app.pen_focus {
         ui.heading(ts!("Seleccionar trazos"));
+        let ctx = ui.ctx().clone();
+        if let Some(name) = app.stroke_selection.live.and_then(|id| app.doc.get(id)).map(|it| {
+            it.group.and_then(|g| app.doc.photos.iter().find(|ph| ph.id == g)).map_or_else(|| it.name.clone(), |ph| ph.name.clone())
+        }) {
+            theme::section(ui, ts!("FOTO VIVA"));
+            ui.label(tr!("«%{name}» es una trama viva: se recalcula desde la foto y sus líneas no se pueden tocar una a una.", name = name));
+            if ui.button(ts!("Convertir en trazos fijos")).on_hover_text(ts!("Todas sus tintas pasan a líneas fijas que puedes mover, borrar o separar; la trama deja de poder retocarse. Se puede deshacer.")).clicked() {
+                app.freeze_live_photo(&ctx);
+            }
+            ui.add_space(8.0);
+        }
         let count = app.stroke_selection.ids.len();
         if count == 0 {
-            ui.label(ts!("Pulsa una línea para seleccionarla. Usa Mayús para añadir o quitar trazos."));
-            ui.label(ts!("Las fotos con trama viva se pueden convertir en trazos fijos desde su inspector."));
+            ui.label(ts!("Pulsa una línea para elegirla o arrastra en un hueco para elegir con un recuadro. Mayús añade y ⌘ quita."));
+            ui.label(ts!("Para tocar las líneas de una foto viva, púlsala y conviértela en trazos fijos."));
         } else {
             ui.label(if count == 1 { tr!("1 trazo seleccionado") } else { tr!("%{n} trazos seleccionados", n = count) });
             ui.label(ts!("Arrastra para mover. Las flechas mueven 1 mm y Mayús con flechas, 10 mm."));
+            let can_separate = app.stroke_selection.can_separate(&app.doc);
+            let separate = ui.add_enabled(can_separate, egui::Button::new(ts!("Separar en objeto nuevo")))
+                .on_hover_text(ts!("Saca estas líneas a un objeto propio en Capas, con la misma tinta, para cambiarle la tinta, moverlo u ocultarlo (⇧⌘G)"))
+                .on_disabled_hover_text(ts!("Ya son todas las líneas de su objeto: selecciónalo con Seleccionar (V)"));
+            if separate.clicked() { app.separate_strokes(&ctx); }
             if ui.button(ts!("Eliminar trazos seleccionados")).clicked() { app.stroke_selection.delete(&mut app.doc); }
         }
         return;

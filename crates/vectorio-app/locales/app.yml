@@ -2932,10 +2932,6 @@ _version: 2
   en: "Select strokes   A"
 "Seleccionar trazos":
   en: "Select strokes"
-"Pulsa una línea para seleccionarla. Usa Mayús para añadir o quitar trazos.":
-  en: "Click a line to select it. Shift-click to add or remove strokes."
-"Las fotos con trama viva se pueden convertir en trazos fijos desde su inspector.":
-  en: "Live photo screens can be converted to fixed strokes in their inspector."
 "1 trazo seleccionado":
   en: "1 stroke selected"
 "%{n} trazos seleccionados":
@@ -3130,3 +3126,33 @@ _version: 2
   en: "“%{file}” contains no paths."
 "«%{file}» no es un SVG válido: %{error}":
   en: "“%{file}” is not a valid SVG: %{error}"
+"%{name} · separado":
+  en: "%{name} · separated"
+"Elige líneas con Seleccionar trazos (A) para separarlas.":
+  en: "Pick lines with Select strokes (A) to separate them."
+"Elige solo una parte de las líneas de un objeto para separarlas.":
+  en: "Pick only some of an object's lines to separate them."
+"FOTO VIVA":
+  en: "LIVE PHOTO"
+"Foto convertida en trazos fijos: ya puedes elegir sus líneas.":
+  en: "Photo converted to fixed strokes: you can now pick its lines."
+"Para tocar las líneas de una foto viva, púlsala y conviértela en trazos fijos.":
+  en: "To edit the lines of a live photo, click it and convert it to fixed strokes."
+"Pulsa una línea para elegirla o arrastra en un hueco para elegir con un recuadro. Mayús añade y ⌘ quita.":
+  en: "Click a line to pick it or drag in empty space to pick with a box. Shift adds and ⌘ removes."
+"Saca estas líneas a un objeto propio en Capas, con la misma tinta, para cambiarle la tinta, moverlo u ocultarlo (⇧⌘G)":
+  en: "Moves these lines to their own object in Layers, with the same pen, so you can change its pen, move it or hide it (⇧⌘G)"
+"Separado en %{n} objetos nuevos: puedes cambiarles la tinta, moverlos u ocultarlos.":
+  en: "Separated into %{n} new objects: you can change their pen, move them or hide them."
+"Separado en un objeto nuevo: puedes cambiarle la tinta, moverlo u ocultarlo.":
+  en: "Separated into a new object: you can change its pen, move it or hide it."
+"Separar en objeto nuevo":
+  en: "Separate into new object"
+"Separar trazos en objeto nuevo":
+  en: "Separate strokes into new object"
+"Todas sus tintas pasan a líneas fijas que puedes mover, borrar o separar; la trama deja de poder retocarse. Se puede deshacer.":
+  en: "All its pens become fixed lines you can move, delete or separate; the hatching can no longer be adjusted. Can be undone."
+"Ya son todas las líneas de su objeto: selecciónalo con Seleccionar (V)":
+  en: "These are all the lines of their object: select it with Select (V)"
+"«%{name}» es una trama viva: se recalcula desde la foto y sus líneas no se pueden tocar una a una.":
+  en: "“%{name}” is live hatching: it is recalculated from the photo and its lines can't be edited one by one."
