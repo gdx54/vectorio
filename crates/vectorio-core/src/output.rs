@@ -3,10 +3,50 @@
 //! El plan de secado es conservador: reserva cada huella hasta secar desde el final
 //! del trazo. Conserva todos los segmentos y el orden de las tintas.
 
+use crate::machine::plan::{self, Kinematics, Limits};
 use crate::{geom::length, p, Paper, Pen, PlotLayer, PlotSettings, Polyline, P};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Cómo se mueve la máquina (sale de sus ajustes): con esto la estimación cuenta lo que
+/// tarda de verdad en acelerar, frenar y tomar esquinas, no solo la velocidad de crucero.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Dynamics {
+    /// Aceleración con la pluma abajo y arriba, mm/s².
+    pub accel: f64,
+    pub travel_accel: f64,
+    pub junction_mm: f64,
+    pub max_speed: f64,
+    pub steps_per_mm: f64,
+}
+
+impl Default for Dynamics {
+    fn default() -> Self { crate::machine::MachineSettings::default().dynamics() }
+}
+
+impl Dynamics {
+    fn valid(&self) -> bool {
+        [self.accel, self.travel_accel, self.max_speed, self.steps_per_mm].iter().all(|v| v.is_finite() && *v > 0.0)
+            && self.junction_mm.is_finite() && self.junction_mm >= 0.0
+    }
+}
+
+/// Tiempos de la máquina, con el mismo planificador de movimiento que usa al trazar.
+pub(crate) struct Timing { draw: Limits, travel: Limits, kin: Kinematics, pub lift: f64 }
+
+impl Timing {
+    pub(crate) fn new(motion: &PlotSettings, d: &Dynamics) -> Self {
+        let draw = Limits { speed: motion.draw_speed.min(d.max_speed), accel: d.accel, junction_mm: d.junction_mm };
+        Timing { draw, travel: Limits { speed: motion.travel_speed.min(d.max_speed), accel: d.travel_accel, ..draw },
+            kin: Kinematics { steps_per_mm: d.steps_per_mm }, lift: motion.lift_time }
+    }
+    /// Viaje de `a` a `b`, s; 0 si los motores ya están ahí (la máquina ni levanta la pluma).
+    pub(crate) fn hop(&self, a: P, b: P) -> f64 {
+        if self.kin.motors(a) == self.kin.motors(b) { 0.0 } else { plan::duration(&[a, b], &self.travel) }
+    }
+    pub(crate) fn draw(&self, path: &[P]) -> f64 { plan::duration(path, &self.draw) }
+}
 
 /// Motivo por el que no se pudo preparar la salida. El texto para el usuario lo pone la interfaz.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,7 +372,10 @@ impl Drying {
     }
 }
 
-fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings, cfg: &OutputSettings,
+/// Recorre los trazos en orden con los tiempos de la máquina: sube la pluma antes de cada
+/// viaje y la baja antes de cada trazo (dos movimientos por trazo), salvo si el trazo
+/// empieza donde acabó el anterior.
+fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, cfg: &OutputSettings, timing: &Timing,
     protect: bool, cancel: &AtomicBool) -> Result<(Vec<OutputStep>, OutputStats, HeatGrid), OutputError> {
     let mut steps = Vec::new();
     let mut stats = OutputStats::default();
@@ -342,10 +385,13 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
     let mut cur = P::default();
     let mut layer_start = 0;
     let mut previous_pen = None;
+    let mut pen_up = true;
+    let lift = timing.lift;
     while layer_start < strokes.len() {
         let pen = strokes[layer_start].pen;
         let layer_end = strokes[layer_start..].iter().position(|s| s.pen != pen).map_or(strokes.len(), |n| layer_start + n);
         if previous_pen.is_some() {
+            if !pen_up { now += lift; stats.lift_seconds += lift; pen_up = true; }
             steps.push(OutputStep::ChangePen { pen, start_s: now, end_s: now + cfg.pen_change_seconds });
             now += cfg.pen_change_seconds;
             stats.pen_changes += 1; stats.change_seconds += cfg.pen_change_seconds;
@@ -361,7 +407,8 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
                 let s = &strokes[id];
                 let reverse = protect && cfg.reorder && cur.dist(*s.path.last().unwrap()) < cur.dist(s.path[0]);
                 let start = if reverse { *s.path.last().unwrap() } else { s.path[0] };
-                let travel = cur.dist(start) / motion.travel_speed + motion.lift_time;
+                let hop = timing.hop(cur, start);
+                let travel = hop + if hop > 0.0 { lift * (if pen_up { 1.0 } else { 2.0 }) } else { 0.0 };
                 let wait = if protect { wet.wait(&s.footprint, now + travel, cfg.dry_seconds, cfg.max_wet_passes) } else { 0.0 };
                 let cost = travel + wait;
                 if cost < best.0 { best = (cost, slot, reverse, wait); }
@@ -371,40 +418,53 @@ fn schedule(strokes: &mut [OutputStroke], grid: &HeatGrid, motion: &PlotSettings
             if best.2 { s.path.reverse(); }
             let start = s.path[0];
             let travel_mm = cur.dist(start);
-            let travel_s = travel_mm / motion.travel_speed + motion.lift_time;
-            steps.push(OutputStep::Travel { from: cur, to: start, start_s: now, end_s: now + travel_s });
-            now += travel_s;
-            stats.travel_mm += travel_mm; stats.travel_seconds += travel_mm / motion.travel_speed;
-            stats.lift_seconds += motion.lift_time;
+            let hop = timing.hop(cur, start);
+            // Para viajar, y para esperar a que seque, la pluma va arriba.
+            let up = if (hop > 0.0 || best.3 > 1e-7) && !pen_up { lift } else { 0.0 };
+            if up > 0.0 || hop > 0.0 || best.3 > 1e-7 { pen_up = true; }
+            steps.push(OutputStep::Travel { from: cur, to: start, start_s: now, end_s: now + up + hop });
+            now += up + hop;
+            stats.travel_mm += travel_mm; stats.travel_seconds += hop;
+            stats.lift_seconds += up;
             if best.3 > 1e-7 {
                 // Tanto el viaje como la espera mantienen la pluma levantada.
                 steps.push(OutputStep::Wait { at: start, start_s: now, end_s: now + best.3 });
                 now += best.3; stats.waits += 1; stats.wait_seconds += best.3;
             }
             let len = length(&s.path);
-            let end = now + len / motion.draw_speed;
-            wet.deposit(&s.footprint, now, end, cfg.dry_seconds, Some(&mut peak));
+            let down = if pen_up { lift } else { 0.0 };
+            pen_up = false;
+            let draw_s = timing.draw(&s.path);
+            let end = now + down + draw_s;
+            wet.deposit(&s.footprint, now + down, end, cfg.dry_seconds, Some(&mut peak));
             steps.push(OutputStep::Draw { stroke: id, start_s: now, end_s: end });
-            stats.draw_mm += len; stats.draw_seconds += len / motion.draw_speed; stats.strokes += 1;
+            stats.draw_mm += len; stats.draw_seconds += draw_s; stats.lift_seconds += down; stats.strokes += 1;
             now = end; cur = *s.path.last().unwrap();
         }
         let back = cur.dist(P::default());
-        steps.push(OutputStep::Travel { from: cur, to: P::default(), start_s: now, end_s: now + back / motion.travel_speed });
-        now += back / motion.travel_speed;
-        stats.travel_mm += back; stats.travel_seconds += back / motion.travel_speed;
+        let hop = timing.hop(cur, P::default());
+        let up = if !pen_up { lift } else { 0.0 };
+        pen_up = true;
+        steps.push(OutputStep::Travel { from: cur, to: P::default(), start_s: now, end_s: now + up + hop });
+        now += up + hop;
+        stats.travel_mm += back; stats.travel_seconds += hop; stats.lift_seconds += up;
         cur = P::default(); layer_start = layer_end;
     }
     stats.total_seconds = now;
     Ok((steps, stats, peak))
 }
 
+/// Plan con los tiempos de una máquina con los ajustes de serie.
 pub fn prepare(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], motion: &PlotSettings, cfg: &OutputSettings) -> Result<OutputPlan, OutputError> {
-    prepare_cancellable(layers, paper, pens, motion, cfg, &AtomicBool::new(false))
+    prepare_cancellable(layers, paper, pens, motion, cfg, &Dynamics::default(), &AtomicBool::new(false))
 }
 
-/// Igual que `prepare`, pero se interrumpe con `Err(Cancelled)` en cuanto `cancel` se activa.
+/// Igual que `prepare`, con los tiempos de esta máquina (`dynamics`); se interrumpe con
+/// `Err(Cancelled)` en cuanto `cancel` se activa.
 pub fn prepare_cancellable(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], motion: &PlotSettings, cfg: &OutputSettings,
-    cancel: &AtomicBool) -> Result<OutputPlan, OutputError> {
+    dynamics: &Dynamics, cancel: &AtomicBool) -> Result<OutputPlan, OutputError> {
+    if !dynamics.valid() { return Err(OutputError::InvalidSettings); }
+    let timing = Timing::new(motion, dynamics);
     if ![paper.width_mm, paper.height_mm, motion.draw_speed, motion.travel_speed, cfg.cell_mm, cfg.chunk_mm, cfg.dry_seconds]
         .iter().all(|v| v.is_finite() && *v > 0.0)
         || ![motion.lift_time, cfg.soak_mm, cfg.pen_change_seconds].iter().all(|v| v.is_finite() && *v >= 0.0)
@@ -431,7 +491,7 @@ pub fn prepare_cancellable(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], mo
             original.push(OutputStroke { pen: layer.pen, path: path.clone(), footprint: cells });
         }
     }
-    let (baseline_steps, mut baseline_stats, wet_before) = schedule(&mut original, &total_heat, motion, cfg, false, cancel)?;
+    let (baseline_steps, mut baseline_stats, wet_before) = schedule(&mut original, &total_heat, cfg, &timing, false, cancel)?;
     // Una ruta que ya cumple el límite se conserva entera: no se fragmenta ni se
     // reordena por proximidad si eso solo añadiría viajes o nuevas zonas húmedas.
     let needs_protection = cfg.drying && wet_before.max() > cfg.max_wet_passes;
@@ -447,7 +507,7 @@ pub fn prepare_cancellable(layers: &[PlotLayer], paper: &Paper, pens: &[Pen], mo
         }
         strokes
     } else { original };
-    let (steps, mut stats, wet_after) = if needs_protection { schedule(&mut strokes, &total_heat, motion, cfg, true, cancel)? }
+    let (steps, mut stats, wet_after) = if needs_protection { schedule(&mut strokes, &total_heat, cfg, &timing, true, cancel)? }
         else { (baseline_steps, baseline_stats.clone(), wet_before.clone()) };
     stats.outside_points = outside; baseline_stats.outside_points = outside;
     Ok(OutputPlan { format: "vectorio-output-v1".into(), units: "mm, s".into(),
@@ -562,6 +622,35 @@ mod tests {
         for pair in plan.steps.windows(2) { assert!((pair[0].times().1 - pair[1].times().0).abs() < 1e-8); }
     }
     #[test]
+    fn the_estimate_uses_the_machine_motion_and_two_pen_moves_per_stroke() {
+        // Dos trazos separados y uno que empieza donde acaba el anterior.
+        let paths = vec![vec![p(2.0, 5.0), p(12.0, 5.0), p(12.0, 15.0)], vec![p(20.0, 5.0), p(30.0, 5.0)], vec![p(30.0, 5.0), p(30.0, 9.0)]];
+        let motion = PlotSettings::default();
+        let dynamics = Dynamics::default();
+        let cfg = OutputSettings { drying: false, ..Default::default() };
+        let plan = prepare_cancellable(&[PlotLayer { pen: 0, paths: paths.clone() }], &Paper::default(),
+            &[Pen::new("Negro", [0, 0, 0], 0.5)], &motion, &cfg, &dynamics, &AtomicBool::new(false)).unwrap();
+        let timing = Timing::new(&motion, &dynamics);
+        let draw: f64 = paths.iter().map(|path| timing.draw(path)).sum();
+        // Acelerar y frenar (y la esquina) cuesta más que ir siempre a velocidad de crucero.
+        assert!(draw > paths.iter().map(|path| length(path)).sum::<f64>() / motion.draw_speed);
+        assert!((plan.stats.draw_seconds - draw).abs() < 1e-9);
+        // Baja, sube para viajar, baja; el tercero sigue abajo; sube para volver al origen.
+        let lifts = 4.0;
+        assert!((plan.stats.lift_seconds - lifts * motion.lift_time).abs() < 1e-9, "{}", plan.stats.lift_seconds);
+        let travel = timing.hop(P::default(), p(2.0, 5.0)) + timing.hop(p(12.0, 15.0), p(20.0, 5.0))
+            + timing.hop(p(30.0, 9.0), P::default());
+        assert!((plan.stats.travel_seconds - travel).abs() < 1e-9);
+        let sum = plan.stats.draw_seconds + plan.stats.travel_seconds + plan.stats.lift_seconds
+            + plan.stats.wait_seconds + plan.stats.change_seconds;
+        assert!((sum - plan.stats.total_seconds).abs() < 1e-8);
+        // Una máquina más lenta en aceleración tarda más, y la estimación lo refleja.
+        let slow = Dynamics { accel: 100.0, travel_accel: 100.0, ..dynamics };
+        let slower = prepare_cancellable(&[PlotLayer { pen: 0, paths }], &Paper::default(),
+            &[Pen::new("Negro", [0, 0, 0], 0.5)], &motion, &cfg, &slow, &AtomicBool::new(false)).unwrap();
+        assert!(slower.stats.total_seconds > plan.stats.total_seconds);
+    }
+    #[test]
     fn thin_lines_on_cell_boundaries_and_reentries_are_not_lost() {
         let grid = HeatGrid::new(&Paper::default(), 0.5);
         let cells = footprint(&line(5.0), &grid, 0.05);
@@ -611,7 +700,7 @@ mod tests {
         let layers = [PlotLayer { pen: 0, paths }];
         let cancel = AtomicBool::new(true);
         let result = prepare_cancellable(&layers, &Paper::default(), &[Pen::new("Negro", [0, 0, 0], 0.5)],
-            &PlotSettings::default(), &OutputSettings::default(), &cancel);
+            &PlotSettings::default(), &OutputSettings::default(), &Dynamics::default(), &cancel);
         assert_eq!(result.unwrap_err(), OutputError::Cancelled);
     }
     #[test]

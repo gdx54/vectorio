@@ -24,6 +24,7 @@ mod palette_ui;
 mod prefs;
 mod prefs_ui;
 mod styles;
+mod strokes;
 mod theme;
 mod vectorize_ui;
 mod volumetric_ui;

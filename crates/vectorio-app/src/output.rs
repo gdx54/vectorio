@@ -6,7 +6,7 @@ use std::sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc};
 use vectorio_core::{output::{self, HeatGrid, OutputError, OutputPlan, OutputSettings, OutputStep}, Document, P};
 
 #[derive(Clone, PartialEq)]
-struct Key { rev: u64, settings: OutputSettings }
+struct Key { rev: u64, settings: OutputSettings, dynamics: output::Dynamics }
 
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Map { #[default] Total, Before, After, Route }
@@ -41,7 +41,9 @@ pub struct OutputUi {
     pub plan: Option<Arc<OutputPlan>>,
     error: Option<String>,
     /// Resultado de la última exportación; la aplicación lo muestra como aviso.
-    notice: Option<String>,
+    notice: Option<Result<(String, std::path::PathBuf), String>>,
+    /// Nombre del proyecto y carpeta para proponer los archivos de salida.
+    pub suggest: (String, Option<std::path::PathBuf>),
     /// Mapas de tinta total, húmedo sin secado y húmedo preparado, como texturas.
     heat_textures: Vec<egui::TextureHandle>,
     summaries: Vec<HeatSummary>,
@@ -63,7 +65,7 @@ pub struct OutputUi {
 
 impl Default for OutputUi {
     fn default() -> Self {
-        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], live: false, live_clock: None, map: Map::Total,
+        Self { key: None, job: None, pending: None, plan: None, error: None, notice: None, suggest: (String::new(), None), heat_textures: vec![], summaries: vec![], timeline: None, timeline_dark: false, pen_spans: vec![], live: false, live_clock: None, map: Map::Total,
             show_drawing: false, show_travel: true, zoom: 1.0, offset: Vec2::ZERO,
             fitted: false, viewport: Vec2::ZERO }
     }
@@ -74,11 +76,12 @@ fn heat_color(i: usize) -> Color32 {
 }
 
 impl OutputUi {
-    pub fn ready(&self, rev: u64, cfg: &OutputSettings) -> bool {
-        self.plan.is_some() && self.job.is_none() && self.key.as_ref() == Some(&Key { rev, settings: cfg.clone() })
+    /// `dynamics`: cómo se mueve la máquina; si cambia, el plan se rehace con los nuevos tiempos.
+    pub fn ready(&self, rev: u64, cfg: &OutputSettings, dynamics: &output::Dynamics) -> bool {
+        self.plan.is_some() && self.job.is_none() && self.key.as_ref() == Some(&Key { rev, settings: cfg.clone(), dynamics: *dynamics })
     }
-    fn update(&mut self, ctx: &egui::Context, doc: &Document, rendered: &Rendered, current: bool, sim: &mut Sim) {
-        let key = Key { rev: rendered.rev, settings: doc.output.clone() };
+    fn update(&mut self, ctx: &egui::Context, doc: &Document, rendered: &Rendered, dynamics: output::Dynamics, current: bool, sim: &mut Sim) {
+        let key = Key { rev: rendered.rev, settings: doc.output.clone(), dynamics };
         // Un cálculo con valores que ya no son los actuales se interrumpe y se descarta.
         if self.job.as_ref().is_some_and(|j| j.key != key) {
             if let Some(job) = self.job.take() { job.cancel.store(true, Ordering::Relaxed); }
@@ -147,7 +150,7 @@ impl OutputUi {
             (if stacked.is_some() { vec![] } else { rendered.layers.clone() }, doc.paper.clone(), doc.pens.clone(), doc.plot.clone(), doc.output.clone(), cancel.clone(), ctx.clone());
         std::thread::spawn(move || {
             let layers = match stacked { Some((doc, per_item)) => doc.canvas_layers_from(per_item), None => layers };
-            let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &flag);
+            let result = output::prepare_cancellable(&layers, &paper, &pens, &motion, &cfg, &dynamics, &flag);
             let _ = tx.send(result); ctx.request_repaint();
         });
         self.job = Some(Job { key, cancel, rx }); self.error = None; sim.playing = false;
@@ -155,6 +158,7 @@ impl OutputUi {
 
     fn settings(&mut self, ui: &mut egui::Ui, doc: &mut Document, sim: &mut Sim) {
         let pal = theme::current(ui.ctx());
+        step_heading(ui, &tr!("Revisar recorrido"));
         theme::section(ui, &tr!("ORDEN DE LAS TINTAS"));
         ui.checkbox(&mut doc.output.canvas_order, tr!("Seguir el orden del lienzo"))
             .on_hover_text(tr!("Traza los objetos de abajo arriba, como se ven en Diseño: lo que queda encima se dibuja al final. Útil con tintas opacas, como los rotuladores acrílicos; puede cambiar de tinta más veces."));
@@ -201,37 +205,47 @@ impl OutputUi {
         let pal = theme::current(ui.ctx());
         ui.separator();
         ui.add_space(6.0);
-        if ui.button(tr!("Recalcular salida")).clicked() { self.key = None; }
         let has_drawing = self.plan.as_ref().is_some_and(|p| p.stats.strokes > 0);
         ui.add_enabled_ui(ready && has_drawing, |ui| {
-            if theme::accent_button(ui, &tr!("Guardar plan con esperas…")).clicked() { self.export_plan(); }
-            if ui.button(tr!("Exportar SVG de la ruta…")).clicked() { self.export_svg(doc); }
+            ui.horizontal_wrapped(|ui| {
+                if theme::accent_button(ui, &tr!("Guardar plan con pausas…")).on_hover_text(tr!("JSON con la ruta, los cambios de tinta y las esperas de secado")).clicked() { self.export_plan(); }
+                if ui.button(tr!("Exportar ruta SVG…")).on_hover_text(tr!("Solo el recorrido: sin pausas ni cambios de tinta")).clicked() { self.export_svg(doc); }
+            });
         });
-        ui.label(RichText::new(tr!("JSON: ruta y pausas. SVG: recorrido sin esperas.")).small().color(pal.tertiary));
+        ui.label(RichText::new(tr!("El plan conserva las pausas; el SVG, solo el recorrido.")).small().color(pal.tertiary));
+        if ui.small_button(tr!("Recalcular salida")).clicked() { self.key = None; }
         if let Some(error) = &self.error { ui.colored_label(pal.text, error); }
     }
 
+    fn dialog(&self, suffix: &str, extension: &str) -> rfd::FileDialog {
+        let stem = crate::files::file_stem(&self.suggest.0, "Vectorio");
+        let dialog = rfd::FileDialog::new().set_file_name(format!("{stem} · {suffix}.{extension}"));
+        match &self.suggest.1 { Some(dir) => dialog.set_directory(dir), None => dialog }
+    }
     pub fn export_plan(&mut self) {
         let Some(plan) = &self.plan else { return };
-        let Some(path) = rfd::FileDialog::new().set_title(tr!("Guardar plan de salida con secado"))
-            .add_filter(tr!("Plan de salida Vectorio"), &["json"]).set_file_name("vectorio-salida.json").save_file() else { return };
+        let Some(path) = self.dialog(&tr!("plan con pausas"), "json").set_title(tr!("Guardar plan con pausas"))
+            .add_filter(tr!("Plan de salida Vectorio"), &["json"]).save_file() else { return };
         let result = serde_json::to_vec_pretty(plan.as_ref()).map_err(|e| e.to_string())
-            .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
-        self.finish_export(result.map(|()| tr!("Plan guardado en %{ruta}", ruta = path.display())), tr!("No se pudo guardar el plan: %{error}"));
+            .and_then(|bytes| crate::files::atomic_write(&path, &bytes).map_err(|e| e.to_string()));
+        self.finish_export(&path, result, tr!("Plan con pausas guardado"));
     }
     pub fn export_svg(&mut self, doc: &Document) {
         let Some(plan) = &self.plan else { return };
-        let Some(path) = rfd::FileDialog::new().add_filter("SVG", &["svg"])
-            .set_file_name("vectorio-ruta.svg").save_file() else { return };
+        let Some(path) = self.dialog(&tr!("ruta"), "svg").add_filter("SVG", &["svg"]).save_file() else { return };
         let svg = vectorio_core::svg_out::export(doc, &plan.layers());
-        let result = std::fs::write(&path, svg).map_err(|e| e.to_string());
-        self.finish_export(result.map(|()| tr!("SVG de la ruta exportado en %{ruta}", ruta = path.display())), tr!("No se pudo exportar: %{error}"));
+        let result = crate::files::atomic_write(&path, svg.as_bytes()).map_err(|e| e.to_string());
+        self.finish_export(&path, result, tr!("SVG de la ruta exportado, sin pausas"));
     }
     /// Éxito o fallo de una exportación: aviso en pantalla y, si falla, también en el inspector.
-    fn finish_export(&mut self, result: Result<String, String>, failure: String) {
+    fn finish_export(&mut self, path: &std::path::Path, result: Result<(), String>, success: String) {
+        let file = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_owned();
         match result {
-            Ok(message) => { self.error = None; self.notice = Some(message); }
-            Err(e) => { let message = failure.replace("%{error}", &e); self.error = Some(message.clone()); self.notice = Some(message); }
+            Ok(()) => { self.error = None; self.notice = Some(Ok((format!("{success}: {file}"), path.to_path_buf()))); }
+            Err(e) => {
+                let message = tr!("No se pudo escribir «%{file}»: %{error}", file = file, error = e);
+                self.error = Some(message.clone()); self.notice = Some(Err(message));
+            }
         }
     }
 
@@ -500,7 +514,7 @@ impl OutputUi {
 pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     let current = app.rendered.rev == app.rev && !app.tracing() && !app.is_computing();
     let ready = app.output_ready();
-    app.output_ui.update(ctx, &app.doc, &app.rendered, current, &mut app.sim);
+    app.output_ui.update(ctx, &app.doc, &app.rendered, app.prefs.machine.dynamics(), current, &mut app.sim);
     // Mientras la máquina traza el plan que se ve, la línea de tiempo y la ruta van con ella.
     let live = app.machine_ui.live().filter(|(plan, _)| app.output_ui.plan.as_ref().is_some_and(|p| Arc::ptr_eq(p, plan)));
     app.output_ui.live = live.is_some();
@@ -517,7 +531,12 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
         if app.sim.progress >= 1.0 { app.sim.playing = false; }
         ctx.request_repaint();
     } else if !ready { app.sim.playing = false; }
-    if let Some(message) = app.output_ui.notice.take() { app.notify(ctx, message); }
+    app.output_ui.suggest = (app.project_name(), app.file.as_deref().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf));
+    match app.output_ui.notice.take() {
+        Some(Ok((message, path))) => app.notify_written(ctx, message, path),
+        Some(Err(message)) => app.notify_error(ctx, message, None),
+        None => {}
+    }
     let pal = theme::current(ctx);
     egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
         theme::paint_canvas(ui.painter(), ctx.screen_rect(), &pal);
@@ -537,6 +556,7 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
             egui::TopBottomPanel::bottom("output-actions").frame(egui::Frame::none()).show_inside(ui, |ui| {
                 ui.separator();
                 ui.add_space(6.0);
+                step_heading(ui, &tr!("Trazar"));
                 crate::machine_ui::actions(app, ui, ready);
                 app.output_ui.actions(ui, &app.doc, ready);
             });
@@ -551,6 +571,13 @@ pub fn show(app: &mut VectorioApp, ctx: &egui::Context) {
     });
     // El cálculo de ready se repite en el siguiente fotograma tras recibir un trabajo.
     if current && !ready && app.output_ui.job.is_none() && app.output_ui.error.is_none() { ctx.request_repaint(); }
+}
+
+/// Encabezado de cada paso de Salida: revisar el recorrido, simular y trazar.
+pub(crate) fn step_heading(ui: &mut egui::Ui, text: &str) {
+    let pal = theme::current(ui.ctx());
+    ui.label(RichText::new(text).size(14.0).strong().color(pal.text));
+    ui.add_space(2.0);
 }
 
 fn setting(ui: &mut egui::Ui, label: &str, value: &mut f64, range: std::ops::RangeInclusive<f64>, suffix: &str) {
@@ -672,11 +699,11 @@ mod tests {
     use super::*;
     #[test]
     fn exports_and_simulation_stay_visible_in_small_and_large_windows() {
-        visible_in("es", &["Guardar plan con esperas…", "Exportar SVG de la ruta…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas", "Conectar", "Sin conectar"]);
+        visible_in("es", &["Guardar plan con pausas…", "Exportar ruta SVG…", "Simular salida", "Húmedo · preparado", "Acciones", "Tintas", "Conectar", "Sin conectar"]);
     }
     #[test]
     fn the_english_texts_also_fit_without_overflowing() {
-        visible_in("en", &["Save plan with waits…", "Export route SVG…", "Simulate output", "Wet · prepared", "Actions", "Pens", "Connect", "Not connected"]);
+        visible_in("en", &["Save plan with pauses…", "Export route SVG…", "Simulate output", "Wet · prepared", "Actions", "Pens", "Connect", "Not connected"]);
     }
     fn visible_in(locale: &str, labels: &[&str]) {
         let _lock = crate::i18n::locale_lock();
@@ -707,7 +734,7 @@ mod tests {
             app.rendered.layers = app.doc.layers();
             let plan = output::prepare(&app.rendered.layers, &app.doc.paper, &app.doc.pens, &app.doc.plot, &app.doc.output).unwrap();
             let (tx, rx) = mpsc::channel(); tx.send(Ok(plan)).unwrap();
-            app.output_ui.job = Some(Job { key: Key { rev: app.rev, settings: app.doc.output.clone() }, cancel: Arc::new(AtomicBool::new(false)), rx });
+            app.output_ui.job = Some(Job { key: Key { rev: app.rev, settings: app.doc.output.clone(), dynamics: app.prefs.machine.dynamics() }, cancel: Arc::new(AtomicBool::new(false)), rx });
             let screen = Rect::from_min_size(Pos2::ZERO, size);
             let mut result = None;
             for _ in 0..3 {
@@ -720,7 +747,7 @@ mod tests {
                     .find_map(|s| text_rect(&s.shape, label).map(|r| (s.clip_rect, r))).expect(label);
                 assert!(screen.contains_rect(rect) && clip.contains_rect(rect), "{label} fuera de {size:?}: {rect:?}, clip {clip:?}");
             }
-            assert!(app.output_ui.ready(app.rev, &app.doc.output), "rev {}, key {:?}, cfg {:?}, job {}", app.rev,
+            assert!(app.output_ui.ready(app.rev, &app.doc.output, &app.prefs.machine.dynamics()), "rev {}, key {:?}, cfg {:?}, job {}", app.rev,
                 app.output_ui.key.as_ref().map(|k| (&k.settings, k.rev)), app.doc.output, app.output_ui.job.is_some());
             let changed = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
                 if appearance == theme::Appearance::Light { theme::Appearance::Dark.apply(ctx); }
@@ -730,7 +757,7 @@ mod tests {
             let heat = app.output_ui.heat_textures[0].id();
             assert!(changed.shapes.iter().any(|s| has_heat(&s.shape, heat)), "El mapa debe seguir pintado al cambiar de tema");
             app.doc.output.dry_seconds += 1.0;
-            assert!(!app.output_ui.ready(app.rev, &app.doc.output), "No se puede exportar el plan con ajustes anteriores");
+            assert!(!app.output_ui.ready(app.rev, &app.doc.output, &app.prefs.machine.dynamics()), "No se puede exportar el plan con ajustes anteriores");
         }
         rust_i18n::set_locale("es");
     }
@@ -752,8 +779,8 @@ mod tests {
             let mut ui = OutputUi::default();
             let mut sim = Sim::default();
             for _ in 0..500 {
-                let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, doc, &rendered, true, &mut sim));
-                if ui.ready(rendered.rev, &doc.output) { break; }
+                let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, doc, &rendered, Default::default(), true, &mut sim));
+                if ui.ready(rendered.rev, &doc.output, &output::Dynamics::default()) { break; }
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
             let plan = ui.plan.expect("plan");
@@ -771,16 +798,16 @@ mod tests {
         let mut doc = Document::default();
         let rendered = Rendered::default();
         let plan = output::prepare(&[], &doc.paper, &doc.pens, &doc.plot, &doc.output).unwrap();
-        let mut ui = OutputUi { plan: Some(Arc::new(plan)), key: Some(Key { rev: rendered.rev, settings: doc.output.clone() }), ..Default::default() };
+        let mut ui = OutputUi { plan: Some(Arc::new(plan)), key: Some(Key { rev: rendered.rev, settings: doc.output.clone(), dynamics: Default::default() }), ..Default::default() };
         let mut sim = Sim { progress: 0.4, ..Sim::default() };
         doc.output.dry_seconds += 5.0;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, Default::default(), true, &mut sim));
         assert!(ui.job.is_none() && ui.pending.is_some(), "un cambio con plan previo espera antes de calcular");
         // Un cálculo en curso con valores antiguos se interrumpe al llegar otros nuevos.
         let cancel = Arc::new(AtomicBool::new(false));
         let (_tx, rx) = mpsc::channel();
-        ui.job = Some(Job { key: Key { rev: rendered.rev, settings: OutputSettings::default() }, cancel: cancel.clone(), rx });
-        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, true, &mut sim));
+        ui.job = Some(Job { key: Key { rev: rendered.rev, settings: OutputSettings::default(), dynamics: Default::default() }, cancel: cancel.clone(), rx });
+        let _ = ctx.run(egui::RawInput::default(), |ctx| ui.update(ctx, &doc, &rendered, Default::default(), true, &mut sim));
         assert!(cancel.load(Ordering::Relaxed) && ui.job.is_none());
         assert_eq!(sim.progress, 0.4);
     }

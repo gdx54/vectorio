@@ -170,6 +170,7 @@ pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
             if ui.button(ts!("Traer adelante")).on_hover_text(ts!("Toda la selección · ⌘]")).clicked() { app.doc.reorder_items(&selection, true, false); }
             if ui.button(ts!("Enviar atrás")).on_hover_text(ts!("Toda la selección · ⌘[")).clicked() { app.doc.reorder_items(&selection, false, false); }
         });
+        apply_ink(app, ui, &selection);
     }
     ui.add_space(6.0);
     ui.label(RichText::new(ts!("Doble clic para renombrar · arrastra para ordenar")).small().color(pal.tertiary));
@@ -187,9 +188,37 @@ pub fn left_panel(app: &mut VectorioApp, ui: &mut Ui) {
     theme::section(ui, ts!("PAPEL (VISTA PREVIA)"));
     ui.horizontal(|ui| {
         for (i, (name, color)) in PAPER_TINTS.iter().enumerate() {
+            let label = tr!("Previsualizar papel %{name}", name = crate::i18n::tr_key(name).to_lowercase());
             let response = theme::swatch(ui, *color, 22.0).on_hover_text(crate::i18n::tr_key(name));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, app.prefs.paper_tint == i, &label));
             if app.prefs.paper_tint == i { ui.painter().circle_stroke(response.rect.center(), 13.5, egui::Stroke::new(2.0f32, pal.accent)); }
             if response.clicked() { let prefs = crate::prefs::Preferences { paper_tint: i, ..app.prefs.clone() }; app.set_prefs(ui.ctx(), prefs); }
+        }
+    });
+}
+
+/// La tinta elegida es la del próximo dibujo; aplicarla a la selección es un paso explícito.
+fn apply_ink(app: &mut VectorioApp, ui: &mut Ui, selection: &[u64]) {
+    let pal = theme::current(ui.ctx());
+    let Some(pen) = app.doc.pens.get(app.active_pen) else { return };
+    let name = crate::i18n::pen_name(pen);
+    let color = theme::pen_color(pen.color);
+    let editable: Vec<u64> = selection.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| !it.locked)).collect();
+    let fillable = editable.iter().any(|id| app.doc.get(*id).is_some_and(|it| it.is_fillable() || it.is_screened()));
+    let strokable = editable.iter().any(|id| app.doc.get(*id).is_some_and(|it| !it.is_screened()));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let (dot, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+        ui.painter().circle_filled(dot.center(), 5.5, color);
+        ui.label(RichText::new(tr!("Tinta para dibujar: %{name}", name = name)).small().color(pal.secondary));
+    });
+    ui.horizontal(|ui| {
+        let pen = app.active_pen;
+        if ui.add_enabled(strokable, egui::Button::new(ts!("Aplicar al contorno"))).on_hover_text(ts!("Cambia el contorno de la selección a esta tinta")).clicked() {
+            for id in &editable { if app.doc.get(*id).is_some_and(|it| !it.is_screened()) { app.doc.assign_pen(*id, pen, false); } }
+        }
+        if ui.add_enabled(fillable, egui::Button::new(ts!("Aplicar al relleno"))).on_hover_text(ts!("Rellena la selección con esta tinta; un relleno vacío pasa a rayado")).clicked() {
+            for id in &editable { app.doc.assign_pen(*id, pen, true); }
         }
     });
 }
@@ -320,7 +349,7 @@ fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
         let rect = Rect::from_min_size(grid.min + offset, home.size());
         let renaming = app.renaming_pen == Some(pen);
         let response = ui.interact(home, id, if renaming { Sense::hover() } else { Sense::click_and_drag() });
-        let active = app.active_pen == pen && app.pen_focus;
+        let active = app.active_pen == pen;
         if dragging.is_some_and(|d| d.pen == pen) {
             // Hueco que ocupará la tarjeta al soltarla.
             let color = theme::pen_color(app.doc.pens[pen].color);
@@ -341,7 +370,12 @@ fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
             let grab = pointer.map(|p| p - home.min).unwrap_or(vec2(card_w / 2.0, CARD_H / 2.0));
             egui::DragAndDrop::set_payload(&ctx, PenDrag { pen, grab });
         }
-        if response.clicked() { app.active_pen = pen; app.pen_focus = true; app.set_selection(vec![]); }
+        if response.clicked() {
+            app.active_pen = pen;
+            // Con objetos seleccionados la tinta solo pasa a ser la del próximo dibujo: la
+            // selección se conserva y se aplica con «Aplicar al contorno» o «al relleno».
+            if app.selection().is_empty() || app.pen_focus { app.pen_focus = true; app.set_selection(vec![]); }
+        }
         if response.double_clicked() {
             // Doble clic en la banda: color; en el texto: nombre.
             let on_band = response.interact_pointer_pos().is_some_and(|p| p.y < home.top() + CARD_BAND);
@@ -349,7 +383,8 @@ fn pen_cards(app: &mut VectorioApp, ui: &mut Ui) {
         }
         if response.hovered() && dragging.is_none() { ctx.set_cursor_icon(egui::CursorIcon::Grab); }
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr!("Tinta %{name}", name = crate::i18n::pen_name(&app.doc.pens[pen]))));
-        response.on_hover_text(ts!("Clic: dibujar con esta tinta · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa")).context_menu(|ui| {
+        response.on_hover_text(ts!("Clic: tinta para dibujar · doble clic: color (arriba) o nombre (abajo) · arrastra para ordenar o suéltala sobre una capa")).context_menu(|ui| {
+            if ui.button(ts!("Ajustes de la tinta")).clicked() { app.active_pen = pen; app.pen_focus = true; app.set_selection(vec![]); ui.close_menu(); }
             if ui.button(ts!("Renombrar")).clicked() { app.rename_pen(pen); ui.close_menu(); }
             if ui.button(ts!("Cambiar color compartido…")).clicked() { app.edit_pen_color(pen); ui.close_menu(); }
             if ui.add_enabled(n > 1, egui::Button::new(ts!("Eliminar rotulador"))).on_hover_text(ts!("Los objetos conservan su posición y pasan a la primera tinta.")).clicked() { remove = Some(pen); ui.close_menu(); }
@@ -467,7 +502,7 @@ fn group_row(app: &mut VectorioApp, ui: &mut Ui, group: u64) -> bool {
     response.on_hover_text(if app.doc.generated_group(group).is_some()||app.doc.volume(group).is_some() { ts!("Grupo generado: clic para seleccionar sus partes") } else { ts!("Foto viva: clic para seleccionar todas sus tintas") }).context_menu(|ui| {
         if ui.button(if app.doc.generated_group(group).is_some()||app.doc.volume(group).is_some() { ts!("Seleccionar sus partes") } else { ts!("Seleccionar sus tintas") }).clicked() { app.set_selection(members.clone()); app.pen_focus = false; ui.close_menu(); }
         if app.doc.generated_group(group).is_some()||app.doc.volume(group).is_some() {
-            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Volumen…")).clicked(){crate::volumetric_ui::reopen(app,group);ui.close_menu();}}else if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); ui.close_menu(); }
+            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Modelo 3D…")).clicked(){crate::volumetric_ui::reopen(app,group);ui.close_menu();}}else if ui.button(ts!("Editar en Escenas…")).clicked() { edit_generated(app, group); ui.close_menu(); }
         } else if ui.button(ts!("Volver a separar colores…")).clicked() { reopen_photo(app, ui.ctx(), group); ui.close_menu(); }
     });
     !closed
@@ -985,6 +1020,19 @@ fn object_row(app: &mut VectorioApp, ui: &mut Ui, id: u64, drop: &mut Option<(Ve
 // ── Derecha ─────────────────────────────────────────────────────────────────────
 
 pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
+    if app.tool == crate::app::Tool::Strokes && !app.pen_focus {
+        ui.heading(ts!("Seleccionar trazos"));
+        let count = app.stroke_selection.ids.len();
+        if count == 0 {
+            ui.label(ts!("Pulsa una línea para seleccionarla. Usa Mayús para añadir o quitar trazos."));
+            ui.label(ts!("Las fotos con trama viva se pueden convertir en trazos fijos desde su inspector."));
+        } else {
+            ui.label(if count == 1 { tr!("1 trazo seleccionado") } else { tr!("%{n} trazos seleccionados", n = count) });
+            ui.label(ts!("Arrastra para mover. Las flechas mueven 1 mm y Mayús con flechas, 10 mm."));
+            if ui.button(ts!("Eliminar trazos seleccionados")).clicked() { app.stroke_selection.delete(&mut app.doc); }
+        }
+        return;
+    }
     if app.pen_focus {
         pen_settings(app, ui);
         return;
@@ -1015,7 +1063,7 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     };
     if let Some(group) = group {
         if app.doc.generated_group(group).is_some()||app.doc.volume(group).is_some() {
-            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Volumen…")).clicked(){crate::volumetric_ui::reopen(app,group);}}else if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); }
+            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Modelo 3D…")).clicked(){crate::volumetric_ui::reopen(app,group);}}else if ui.button(ts!("Editar en Escenas…")).clicked() { edit_generated(app, group); }
         } else if app.doc.photo(group).is_some() { photo_section(app, ui, group); }
     }
     styles_section(app, ui, &[id]);
@@ -1167,7 +1215,9 @@ pub fn right_panel(app: &mut VectorioApp, ui: &mut Ui) {
     theme::section(ui, ts!("CONTORNO"));
     let mut has_stroke = it.stroke.is_some();
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut has_stroke, "").changed() {
+        let toggle = ui.checkbox(&mut has_stroke, "").on_hover_text(ts!("Activar contorno"));
+        toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, has_stroke, ts!("Activar contorno")));
+        if toggle.changed() {
             it.stroke = if has_stroke { Some(it.fill.pen) } else { None };
         }
         if let Some(pen) = it.stroke.as_mut() {
@@ -1266,6 +1316,10 @@ fn pen_settings(app: &mut VectorioApp, ui: &mut Ui) {
     let pal = theme::current(ui.ctx());
     ui.heading(ts!("Rotulador"));
     ui.label(RichText::new(tr!("Tinta compartida por %{count} objetos", count = count)).color(pal.secondary));
+    ui.label(RichText::new(ts!("Es la tinta para dibujar con Mano alzada, Texto y Formas.")).small().color(pal.tertiary));
+    if count > 1 {
+        ui.label(RichText::new(tr!("Cambiar el color o el grosor afecta a los %{count} objetos que la usan.", count = count)).small().color(pal.accent));
+    }
     ui.add_space(8.0);
     ui.label(ts!("Nombre"));
     if ui.add(egui::TextEdit::singleline(&mut app.doc.pens[index].name).desired_width(f32::INFINITY)).changed() {
@@ -1495,7 +1549,7 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     group_layout_section(app, ui, &ids);
     if let Some(group) = group {
         if app.doc.generated_group(group).is_some()||app.doc.volume(group).is_some() {
-            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Volumen…")).clicked(){crate::volumetric_ui::reopen(app,group);}}else if ui.button(ts!("Editar en Crear…")).clicked() { edit_generated(app, group); }
+            if app.doc.volume(group).is_some(){if ui.button(tr!("Editar en Modelo 3D…")).clicked(){crate::volumetric_ui::reopen(app,group);}}else if ui.button(ts!("Editar en Escenas…")).clicked() { edit_generated(app, group); }
         } else if app.doc.photo(group).is_some() { photo_section(app, ui, group); }
     }
     let traced: Vec<u64> = ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|it| it.traced().is_some())).collect();
@@ -1511,7 +1565,9 @@ fn multi_panel(app: &mut VectorioApp, ui: &mut Ui) {
     let mut has = stroke.is_some();
     let mut changed = false;
     ui.horizontal(|ui| {
-        changed |= ui.checkbox(&mut has, "").changed();
+        let toggle = ui.checkbox(&mut has, "").on_hover_text(ts!("Activar contorno"));
+        toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, has, ts!("Activar contorno")));
+        changed |= toggle.changed();
         if has {
             let mut pen = stroke.unwrap_or(first.fill.pen);
             let old = pen;

@@ -385,9 +385,9 @@ pub fn show(app:&mut VectorioApp,ctx:&egui::Context){
                     }
                 }else{ui.horizontal(|ui|{ui.spinner();ui.label(tr!("Calculando…"));});}
                 let ready=state.result.as_ref().is_some_and(|r|r.result.is_ok())&&!state.finalizing&&state.seed_text.parse::<u64>().is_ok();
-                ui.add_enabled_ui(ready,|ui|{place=theme::accent_button(ui,if state.editing.is_some(){ts!("Actualizar grupo")}else{ts!("Colocar en el lienzo")}).clicked();});
+                ui.add_enabled_ui(ready,|ui|{place=theme::accent_button(ui,if state.editing.is_some(){ts!("Actualizar en el lienzo")}else{ts!("Añadir al lienzo")}).clicked();});
                 if generate::find(&state.settings.generator).is_some_and(|g|g.has_volume()){
-                    volume=ui.add_enabled(ready,egui::Button::new(tr!("Abrir en Volumen"))).clicked();
+                    volume=ui.add_enabled(ready,egui::Button::new(tr!("Abrir en Modelo 3D"))).clicked();
                 }
                 if state.finalizing{ui.label(tr!("Preparando trazos finales…"));}
                 cancel=ui.button(tr!("Cancelar")).clicked();
@@ -499,7 +499,7 @@ mod tests {
                 assert!(!out.shapes.is_empty());
                 for shape in &out.shapes {
                     if let egui::Shape::Text(text) = &shape.shape {
-                        if text.galley.text() == tr!("Crear") {
+                        if text.galley.text() == tr!("Escenas") {
                             assert!(text.pos.y >= theme::TOOLBAR_H + theme::INSET, "El panel invade la barra");
                         }
                         if text.galley.text() == tr!("Cancelar") { assert!(text.pos.y < 620.0); }

@@ -94,6 +94,12 @@ impl MachineSettings {
         q.x >= -EPS && q.y >= -EPS && q.x <= self.travel_mm[0] + EPS && q.y <= self.travel_mm[1] + EPS
     }
 
+    /// Lo que la estimación de la salida necesita saber de cómo se mueve la máquina.
+    pub fn dynamics(&self) -> crate::output::Dynamics {
+        crate::output::Dynamics { accel: self.accel, travel_accel: self.travel_accel, junction_mm: self.junction_mm,
+            max_speed: self.max_speed, steps_per_mm: self.steps_per_mm }
+    }
+
     fn limits(&self, speed: f64) -> Limits {
         Limits { speed: speed.min(self.max_speed), accel: self.accel, junction_mm: self.junction_mm }
     }

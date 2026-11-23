@@ -16,6 +16,7 @@ use vectorio_core::{svg_in, svg_out, Document, Geometry, Item, PlotLayer, Polyli
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
     Select,
+    Strokes,
     Draw,
     Text,
     Shape,
@@ -32,6 +33,55 @@ pub enum ViewMode {
 
 #[derive(Clone, Copy)]
 enum UnsavedChoice { Save, Discard, Cancel }
+
+enum DocumentChange { New, Open(Box<Document>, PathBuf), Quit }
+
+/// Cómo seguir desde un aviso.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToastAction { Reveal(PathBuf), SaveAs }
+
+#[derive(Clone)]
+struct Toast { msg: String, until: Option<f64>, error: bool, action: Option<ToastAction> }
+
+/// Origen de lo que se exporta desde la barra.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExportSource { Canvas, Empty, Model, Route }
+
+/// «hace 5 min», «hace 2 h», «hace 3 días».
+fn age_label(elapsed: std::time::Duration) -> String {
+    let minutes = elapsed.as_secs() / 60;
+    if minutes < 1 { tr!("hace un momento") }
+    else if minutes < 60 { tr!("hace %{n} min", n = minutes) }
+    else if minutes < 48 * 60 { tr!("hace %{n} h", n = minutes / 60) }
+    else { tr!("hace %{n} días", n = minutes / (24 * 60)) }
+}
+
+fn file_label(path: &Path) -> String {
+    path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_owned()
+}
+
+/// Qué falta para poder exportar el lienzo vacío desde cada espacio.
+pub(crate) fn empty_canvas_message(mode: ViewMode) -> String {
+    match mode {
+        ViewMode::Create => tr!("El lienzo está vacío. Pulsa «Añadir al lienzo» para exportar la escena."),
+        ViewMode::Photo => tr!("El lienzo está vacío. Pulsa «Añadir al lienzo» para exportar el dibujo de la foto."),
+        _ => tr!("El lienzo está vacío. Dibuja, escribe o importa algo antes de exportar."),
+    }
+}
+
+/// Página de la hoja de ayuda.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HelpPage { Shortcuts, FirstDrawing }
+
+/// Muestra un archivo en Finder (o su carpeta en otros sistemas).
+pub fn reveal(path: &Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    #[cfg(not(target_os = "macos"))]
+    if let Some(dir) = if path.is_dir() { Some(path) } else { path.parent() } {
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+}
 
 /// Resultado de convertir el documento en capas de plotter.
 #[derive(Default)]
@@ -92,6 +142,8 @@ pub struct VectorioApp {
     pub rename_focus: bool,
     rename_original: String,
     pub tool: Tool,
+    pub(crate) stroke_selection: crate::strokes::Selection,
+    pending_change: Option<DocumentChange>,
     pub shape_kind: usize,
     pub active_pen: usize,
     pub view: View,
@@ -109,8 +161,13 @@ pub struct VectorioApp {
     pub interaction: Interaction,
     pub(crate) canvas_id: Option<egui::Id>,
     pub focus_text: bool,
-    toast: Option<(String, f64)>,
+    /// Pedidos del lienzo que necesitan el contexto: abrir el diálogo de importar y avisar
+    /// de que Formas ha vuelto a Seleccionar.
+    pub pick_import: bool,
+    pub notify_tool_return: bool,
+    toast: Option<Toast>,
     pub show_help: bool,
+    pub help_page: HelpPage,
     menu: Option<NativeMenu>,
     /// Estilos de trazo guardados por el usuario y nombre del que se va a guardar.
     pub styles: Vec<crate::styles::SavedStyle>,
@@ -138,7 +195,9 @@ impl VectorioApp {
             if app.file.is_none(){
                 for path in crate::recovery::candidates(&dir){
                     if let Ok(snapshot)=crate::recovery::read(&path){
-                        let choice=rfd::MessageDialog::new().set_title(ts!("Recuperar proyecto")).set_description(ts!("Hay una copia automática de una sesión interrumpida. ¿Quieres recuperarla?")).set_buttons(rfd::MessageButtons::YesNoCancelCustom(tr!("Recuperar"),tr!("Descartar copia"),tr!("Más tarde"))).show();
+                        let name=snapshot.file.as_deref().and_then(Path::file_stem).and_then(|s|s.to_str()).map(str::to_owned).unwrap_or_else(||tr!("Sin título"));
+                        let age=std::fs::metadata(&path).and_then(|m|m.modified()).ok().and_then(|t|t.elapsed().ok()).map(age_label).unwrap_or_default();
+                        let choice=rfd::MessageDialog::new().set_title(ts!("Recuperar proyecto")).set_description(tr!("Hay una copia automática de «%{name}» guardada %{age} en una sesión interrumpida. ¿Quieres recuperarla?",name=name,age=age)).set_buttons(rfd::MessageButtons::YesNoCancelCustom(tr!("Recuperar"),tr!("Descartar copia"),tr!("Más tarde"))).show();
                         if matches!(choice,rfd::MessageDialogResult::Custom(ref s) if s==ts!("Recuperar")){
                             app.replace_document(snapshot.doc,snapshot.file);app.saved=Document::default();let _=std::fs::remove_file(path);
                         }else if matches!(choice,rfd::MessageDialogResult::Custom(ref s) if s==ts!("Descartar copia")){let _=std::fs::remove_file(path);}
@@ -185,6 +244,8 @@ impl VectorioApp {
             rename_focus: false,
             rename_original: String::new(),
             tool: Tool::Select,
+            stroke_selection: Default::default(),
+            pending_change: None,
             shape_kind: 1,
             active_pen: 0,
             view: View::default(),
@@ -202,14 +263,44 @@ impl VectorioApp {
             interaction: Interaction::default(),
             canvas_id: None,
             focus_text: false,
+            pick_import: false,
+            notify_tool_return: false,
             toast: None,
             show_help: false,
+            help_page: HelpPage::Shortcuts,
             menu: None,
         }
     }
 
+    /// Confirmación breve que desaparece sola.
     pub fn notify(&mut self, ctx: &egui::Context, msg: impl Into<String>) {
-        self.toast = Some((msg.into(), ctx.input(|i| i.time) + 3.5));
+        self.toast = Some(Toast { msg: msg.into(), until: Some(ctx.input(|i| i.time) + 3.5), error: false, action: None });
+    }
+
+    /// Archivo escrito: la confirmación dura algo más y permite mostrarlo en Finder.
+    pub fn notify_written(&mut self, ctx: &egui::Context, msg: impl Into<String>, path: PathBuf) {
+        self.toast = Some(Toast { msg: msg.into(), until: Some(ctx.input(|i| i.time) + 6.0), error: false, action: Some(ToastAction::Reveal(path)) });
+    }
+
+    /// Error: se queda hasta que se cierra y puede ofrecer cómo seguir.
+    pub fn notify_error(&mut self, ctx: &egui::Context, msg: impl Into<String>, action: Option<ToastAction>) {
+        self.toast = Some(Toast { msg: msg.into(), until: None, error: true, action });
+        ctx.request_repaint();
+    }
+
+    /// Nombre del proyecto para títulos y nombres de archivo sugeridos.
+    pub fn project_name(&self) -> String {
+        self.file.as_deref().and_then(Path::file_stem).and_then(|s| s.to_str()).map(str::to_owned).unwrap_or_else(|| tr!("Sin título"))
+    }
+
+    /// Diálogo de guardado con el nombre derivado del proyecto y su carpeta.
+    pub(crate) fn save_dialog(&self, suffix: &str, extension: &str) -> rfd::FileDialog {
+        let stem = crate::files::file_stem(&self.project_name(), "Vectorio");
+        let dialog = rfd::FileDialog::new().set_file_name(format!("{stem}{suffix}.{extension}"));
+        match self.file.as_deref().and_then(Path::parent) {
+            Some(dir) => dialog.set_directory(dir),
+            None => dialog,
+        }
     }
 
     /// Pone en marcha lo que las preferencias controlan en la interfaz.
@@ -256,10 +347,24 @@ impl VectorioApp {
 
     /// Selecciona varios objetos; el último pasa a ser el principal.
     pub fn set_selection(&mut self, mut ids: Vec<u64>) {
+        self.stroke_selection = Default::default();
+        if (!ids.is_empty() || self.pen_focus) && self.tool == Tool::Strokes { self.tool = Tool::Select; }
         ids.dedup();
         self.selected = ids.pop();
         self.also = ids;
         self.also_anchor = self.selected;
+    }
+
+    pub fn choose_tool(&mut self, tool: Tool) {
+        if self.tool != tool {
+            self.stroke_selection = Default::default();
+            if tool == Tool::Strokes {
+                self.set_selection(vec![]);
+                self.pen_focus = false;
+            }
+            self.interaction = Interaction::None;
+            self.tool = tool;
+        }
     }
 
     pub fn rename_pen(&mut self, pen: usize) {
@@ -409,6 +514,7 @@ impl VectorioApp {
     }
 
     fn fix_selection(&mut self) {
+        self.stroke_selection = Default::default();
         if self.selected.is_some_and(|id| self.doc.get(id).is_none()) {
             self.selected = None;
         }
@@ -522,7 +628,7 @@ impl VectorioApp {
     /// El plan de salida corresponde al dibujo y a los ajustes actuales: ni el dibujo ni
     /// las tintas se están recalculando y el plan ya no está desfasado.
     pub fn output_ready(&self) -> bool {
-        self.rendered.rev == self.rev && !self.tracing() && !self.is_computing() && self.output_ui.ready(self.rev, &self.doc.output)
+        self.rendered.rev == self.rev && !self.tracing() && !self.is_computing() && self.output_ui.ready(self.rev, &self.doc.output, &self.prefs.machine.dynamics())
     }
 
     // ── Archivos ────────────────────────────────────────────────────────────────
@@ -530,25 +636,78 @@ impl VectorioApp {
     pub fn modified(&self) -> bool { self.doc != self.saved }
 
     pub(crate) fn document_modal(&self) -> bool {
-        self.prefs_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open
+        self.awaiting_document_change() || self.prefs_ui.open || self.color_edit.is_some() || self.show_help || self.palette_ui.open
     }
 
-    fn confirm_document_change(&mut self, ctx: &egui::Context) -> bool {
-        if !self.modified() { return true; }
-        let save = tr!("Guardar");
-        let discard = tr!("Descartar cambios");
-        let result = rfd::MessageDialog::new().set_title(tr!("Cambios sin guardar"))
-            .set_description(tr!("Guarda el proyecto antes de continuar para conservar tus cambios."))
-            .set_level(rfd::MessageLevel::Warning)
-            .set_buttons(rfd::MessageButtons::YesNoCancelCustom(save.clone(), discard.clone(), tr!("Cancelar"))).show();
-        let choice = match result {
-            rfd::MessageDialogResult::Custom(label) if label == save => UnsavedChoice::Save,
-            rfd::MessageDialogResult::Yes => UnsavedChoice::Save,
-            rfd::MessageDialogResult::Custom(label) if label == discard => UnsavedChoice::Discard,
-            rfd::MessageDialogResult::No => UnsavedChoice::Discard,
-            _ => UnsavedChoice::Cancel,
+    pub(crate) fn awaiting_document_change(&self) -> bool { self.pending_change.is_some() }
+
+    pub(crate) fn cancel_document_change(&mut self) { self.pending_change = None; }
+
+    fn request_change(&mut self, ctx: &egui::Context, change: DocumentChange) {
+        if self.pending_change.is_some() { return; }
+        if self.modified() {
+            self.pending_change = Some(change);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.memory_mut(|m| {
+                m.close_popup();
+                if let Some(id) = m.focused() { m.surrender_focus(id); }
+            });
+            ctx.request_repaint();
+        } else {
+            self.perform_change(ctx, change);
+        }
+    }
+
+    fn perform_change(&mut self, ctx: &egui::Context, change: DocumentChange) {
+        match change {
+            DocumentChange::New => self.replace_document(self.prefs.new_document.document(), None),
+            DocumentChange::Open(doc, path) => self.replace_document(*doc, Some(path)),
+            DocumentChange::Quit => {
+                self.recovery.finish();
+                self.machine_ui.shutdown();
+                self.quitting = true;
+                crate::macos::quit(ctx);
+            }
+        }
+    }
+
+    fn unsaved_sheet(&mut self, ctx: &egui::Context, pal: &Palette) {
+        let Some(change) = &self.pending_change else { return };
+        let document = self.file.as_deref().and_then(Path::file_name).and_then(|n| n.to_str())
+            .map(str::to_owned).unwrap_or_else(|| tr!("Sin título"));
+        let prompt = match change {
+            DocumentChange::New => tr!("¿Guardar los cambios de «%{name}» antes de crear otro proyecto?", name = document),
+            DocumentChange::Open(..) => tr!("¿Guardar los cambios de «%{name}» antes de abrir otro proyecto?", name = document),
+            DocumentChange::Quit => tr!("¿Guardar los cambios de «%{name}» antes de salir?", name = document),
         };
-        self.resolve_unsaved(choice, |app| app.save(ctx, false))
+        let screen = ctx.screen_rect();
+        let veil = egui::Area::new("unsaved-veil".into()).fixed_pos(screen.min).order(egui::Order::Foreground).show(ctx, |ui| {
+            ui.allocate_rect(screen, Sense::click_and_drag());
+            ui.painter().rect_filled(screen, 0.0, theme::veil(ui.visuals().dark_mode));
+        });
+        ctx.move_to_top(veil.response.layer_id);
+        let mut choice = None;
+        let sheet = egui::Area::new("unsaved-sheet".into()).anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .order(egui::Order::Foreground).show(ctx, |ui| {
+                theme::glass_sheet(ui, pal, |ui| {
+                    ui.set_width(380.0_f32.min(screen.width() - 40.0));
+                    ui.heading(tr!("Cambios sin guardar"));
+                    ui.label(prompt);
+                    ui.add_space(8.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button(tr!("Cancelar")).clicked() { choice = Some(UnsavedChoice::Cancel); }
+                        if ui.button(tr!("Descartar cambios")).clicked() { choice = Some(UnsavedChoice::Discard); }
+                        if theme::accent_button(ui, &tr!("Guardar")).clicked() { choice = Some(UnsavedChoice::Save); }
+                    });
+                });
+            });
+        ctx.move_to_top(sheet.response.layer_id);
+        if let Some(choice) = choice {
+            let pending = self.pending_change.take().unwrap();
+            if self.resolve_unsaved(choice, |app| app.save(ctx, false)) {
+                self.perform_change(ctx, pending);
+            }
+        }
     }
 
     fn resolve_unsaved(&mut self, choice: UnsavedChoice, save: impl FnOnce(&mut Self) -> bool) -> bool {
@@ -560,16 +719,13 @@ impl VectorioApp {
     }
 
     pub fn request_quit(&mut self, ctx: &egui::Context) {
-        if self.confirm_document_change(ctx) {
-            self.recovery.finish();
-            self.machine_ui.shutdown();
-            self.quitting = true;
-            crate::macos::quit(ctx);
-        }
+        self.request_change(ctx, DocumentChange::Quit);
     }
 
     /// Una sesión nueva nunca hereda historial, selección ni resultados de otra.
     fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
+        self.mode = ViewMode::Design;
+        self.choose_tool(Tool::Select);
         self.create_ui.cancel();
         self.volumetric_ui=Default::default();
         self.renaming_pen = None;
@@ -602,17 +758,37 @@ impl VectorioApp {
     }
 
     pub fn new_document(&mut self, ctx: &egui::Context) {
-        if self.confirm_document_change(ctx) { self.replace_document(self.prefs.new_document.document(), None); }
+        self.request_change(ctx, DocumentChange::New);
     }
 
+    /// Abrir solo abre proyectos: sustituye el documento y vuelve a Diseño.
     pub fn open_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter(tr!("Todo lo compatible"), &["vectorio", "svg", "png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
-            .add_filter(tr!("Proyecto Vectorio"), &["vectorio"])
-            .add_filter("SVG", &["svg"])
-            .add_filter(tr!("Imagen"), &["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
+        if let Some(path) = rfd::FileDialog::new().add_filter(tr!("Proyecto Vectorio"), &["vectorio"]).pick_file() {
+            self.open_path(ctx, &path);
+        }
+    }
+
+    /// Importar desde el papel vacío: un SVG se añade al lienzo; una foto abre Foto.
+    pub fn import_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new().set_title(tr!("Importar"))
+            .add_filter(tr!("SVG o foto"), &["svg", "png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "gif"])
             .pick_file()
         {
+            self.open_path(ctx, &path);
+        }
+    }
+
+    /// Añade los trazados de un SVG al documento actual.
+    pub fn import_svg_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new().set_title(tr!("Importar SVG")).add_filter("SVG", &["svg"]).pick_file() {
+            self.import_svg(ctx, &path);
+            self.mode = ViewMode::Design;
+        }
+    }
+
+    /// Abre un modelo OBJ o STL en Modelo 3D sin tocar el documento.
+    pub fn import_model_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new().set_title(tr!("Importar modelo 3D")).add_filter(tr!("Modelo 3D"), &["obj", "stl"]).pick_file() {
             self.open_path(ctx, &path);
         }
     }
@@ -626,14 +802,14 @@ impl VectorioApp {
             },
             "vectorio" | "json" => match crate::files::read_project(path).map_err(|e| e.to_string()).and_then(|s| Document::from_json(&s)) {
                 Ok(doc) => {
-                    if self.confirm_document_change(ctx) { self.replace_document(doc, Some(path.to_path_buf())); }
+                    self.request_change(ctx, DocumentChange::Open(Box::new(doc), path.to_path_buf()));
                 }
-                Err(e) => self.notify(ctx, tr!("No se pudo abrir el proyecto: %{error}", error = e)),
+                Err(e) => self.notify_error(ctx, tr!("No se pudo abrir «%{file}»: %{error}", file = file_label(path), error = e), None),
             },
             "svg" => self.import_svg(ctx, path),
             _ => match self.vec_ui.load(ctx, path) {
                 Ok(()) => self.mode = ViewMode::Photo,
-                Err(e) => self.notify(ctx, tr!("No se pudo abrir la imagen: %{error}", error = e)),
+                Err(e) => self.notify_error(ctx, tr!("No se pudo abrir «%{file}»: %{error}", file = file_label(path), error = e), None),
             },
         }
     }
@@ -641,7 +817,7 @@ impl VectorioApp {
     fn import_svg(&mut self, ctx: &egui::Context, path: &Path) {
         let data = match std::fs::read(path) {
             Ok(d) => d,
-            Err(e) => return self.notify(ctx, tr!("No se pudo leer el SVG: %{error}", error = e)),
+            Err(e) => return self.notify_error(ctx, tr!("No se pudo leer «%{file}»: %{error}", file = file_label(path), error = e), None),
         };
         match svg_in::import(&data) {
             Ok(list) if !list.is_empty() => {
@@ -655,11 +831,11 @@ impl VectorioApp {
                     item.fill.pen = pen;
                     last = Some(self.doc.add(item));
                 }
-                self.selected = last;
+                self.set_selection(last.into_iter().collect());
                 self.notify(ctx, tr!("%{n} trazados importados de %{name}", n = n, name = name));
             }
-            Ok(_) => self.notify(ctx, tr!("El SVG no contiene trazados")),
-            Err(e) => self.notify(ctx, tr!("SVG no válido: %{error}", error = e)),
+            Ok(_) => self.notify_error(ctx, tr!("«%{file}» no contiene trazados.", file = file_label(path)), None),
+            Err(e) => self.notify_error(ctx, tr!("«%{file}» no es un SVG válido: %{error}", file = file_label(path), error = e), None),
         }
     }
 
@@ -673,39 +849,77 @@ impl VectorioApp {
     pub fn save(&mut self, ctx: &egui::Context, save_as: bool) -> bool {
         let path = match (&self.file, save_as) {
             (Some(p), false) => Some(p.clone()),
-            _ => rfd::FileDialog::new().add_filter(tr!("Proyecto Vectorio"), &["vectorio"]).set_file_name("dibujo.vectorio").save_file(),
+            _ => self.save_dialog("", "vectorio").add_filter(tr!("Proyecto Vectorio"), &["vectorio"]).save_file(),
         };
         if let Some(path) = path {
             match self.save_to(&path) {
                 Ok(()) => {
-                    self.notify(ctx, tr!("Guardado %{name}", name = path.file_name().and_then(|n| n.to_str()).unwrap_or("")));
+                    self.notify_written(ctx, tr!("Guardado %{name}", name = file_label(&path)), path);
                     return true;
                 }
-                Err(e) => self.notify(ctx, tr!("No se pudo guardar: %{error}", error = e)),
+                Err(e) => self.notify_error(ctx, tr!("No se pudo guardar «%{file}»: %{error}", file = file_label(&path), error = e), Some(ToastAction::SaveAs)),
             }
         }
         false
     }
 
-    pub fn export_svg(&mut self, ctx: &egui::Context) {
-        if self.mode == ViewMode::Volumetric {
-            if let Err(error) = self.volumetric_ui.export(self) { self.notify(ctx, error); }
-            return;
-        }
+    /// El lienzo tiene algo que trazar.
+    pub fn canvas_has_content(&self) -> bool {
+        self.doc.items.iter().any(|it| it.visible)
+    }
 
-        if self.mode == ViewMode::Output {
-            if self.output_ready() { self.output_ui.export_svg(&self.doc); }
-            else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
-            return;
+    /// Qué exporta el botón Exportar en el espacio actual.
+    pub(crate) fn export_source(&self) -> ExportSource {
+        match self.mode {
+            ViewMode::Volumetric => ExportSource::Model,
+            ViewMode::Output => ExportSource::Route,
+            _ if !self.canvas_has_content() => ExportSource::Empty,
+            _ => ExportSource::Canvas,
+        }
+    }
+
+    pub fn export_svg(&mut self, ctx: &egui::Context) {
+        match self.export_source() {
+            ExportSource::Model => {
+                if let Err(error) = self.volumetric_ui.export(self) { self.notify_error(ctx, error, None); }
+                return;
+            }
+            ExportSource::Route => {
+                if self.output_ready() { self.output_ui.export_svg(&self.doc); }
+                else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
+                return;
+            }
+            ExportSource::Empty => return self.notify_error(ctx, empty_canvas_message(self.mode), None),
+            ExportSource::Canvas => {}
         }
         if !self.check_export_ready(ctx) { return; }
-        let Some(path) = rfd::FileDialog::new().add_filter("SVG", &["svg"]).set_file_name("vectorio-plotter.svg").save_file() else {
+        let layers = self.doc.layers();
+        if layers.iter().all(|l| l.paths.is_empty()) {
+            return self.notify_error(ctx, tr!("El lienzo no tiene trazos que exportar."), None);
+        }
+        let Some(path) = self.save_dialog("", "svg").add_filter("SVG", &["svg"]).save_file() else {
             return;
         };
-        let layers = self.doc.layers();
-        match std::fs::write(&path, svg_out::export(&self.doc, &layers)) {
-            Ok(()) => self.notify(ctx, tr!("SVG exportado con %{n} capas (una por rotulador)", n = layers.len())),
-            Err(e) => self.notify(ctx, tr!("No se pudo exportar: %{error}", error = e)),
+        match crate::files::atomic_write(&path, svg_out::export(&self.doc, &layers).as_bytes()) {
+            Ok(()) => self.notify_written(ctx, tr!("SVG exportado con %{n} capas (una por rotulador)", n = layers.len()), path),
+            Err(e) => self.notify_error(ctx, tr!("No se pudo exportar «%{file}»: %{error}", file = file_label(&path), error = e), None),
+        }
+    }
+
+    /// Lotes: siempre en una carpeta nueva con el nombre del proyecto, sin sustituir nada.
+    fn write_batch(&mut self, ctx: &egui::Context, title: String, folder: String, files: Vec<(String, String)>) {
+        let Some(parent) = ({
+            let dialog = rfd::FileDialog::new().set_title(title);
+            match self.file.as_deref().and_then(Path::parent) { Some(dir) => dialog.set_directory(dir), None => dialog }
+        }).pick_folder() else { return };
+        let n = files.len();
+        let files: Vec<(String, Vec<u8>)> = files.into_iter().map(|(name, svg)| (name, svg.into_bytes())).collect();
+        match crate::files::write_batch(&parent, &folder, &files) {
+            Ok(dir) => {
+                let name = file_label(&dir);
+                self.notify_written(ctx, tr!("%{n} archivos SVG en la carpeta nueva «%{name}»", n = n, name = name), dir);
+            }
+            Err(e) => self.notify_error(ctx, tr!("No se exportó ningún archivo en «%{file}»: %{error}", file = file_label(&parent), error = e), None),
         }
     }
 
@@ -715,45 +929,36 @@ impl VectorioApp {
         let Geometry::Text(spec) = &item.geometry else { return };
         let count = vectorio_core::font::compose(spec).page_count;
         let name: String = item.name.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(50).collect();
-        let name = if name.is_empty() { "texto" } else { &name };
-        let Some(folder) = rfd::FileDialog::new().set_title(tr!("Carpeta para las páginas SVG")).pick_folder() else { return };
+        let name = if name.is_empty() { "texto".to_owned() } else { name };
         let mut doc = self.doc.clone();
+        let mut files = Vec::new();
         for page in 0..count {
             if let Some(Item { geometry: Geometry::Text(spec), .. }) = doc.get_mut(id) { spec.page = page; }
-            let svg = svg_out::export(&doc, &doc.layers());
-            if let Err(error) = std::fs::write(folder.join(format!("{name}-pagina-{:03}.svg", page + 1)), svg) {
-                self.notify(ctx, tr!("No se pudieron exportar las páginas: %{error}", error = error));
-                return;
-            }
+            files.push((format!("{name}-pagina-{:03}.svg", page + 1), svg_out::export(&doc, &doc.layers())));
         }
-        self.notify(ctx, tr!("%{n} páginas SVG exportadas", n = count));
+        let folder = format!("{} · {}", crate::files::file_stem(&self.project_name(), "Vectorio"), tr!("páginas"));
+        self.write_batch(ctx, tr!("Carpeta para las páginas SVG"), folder, files);
     }
 
     pub fn export_per_pen(&mut self, ctx: &egui::Context) {
         if self.mode == ViewMode::Volumetric {
-            if let Err(error) = self.volumetric_ui.export_per_pen(self) { self.notify(ctx, error); }
+            if let Err(error) = self.volumetric_ui.export_per_pen(self) { self.notify_error(ctx, error, None); }
             return;
+        }
+        if self.export_source() == ExportSource::Empty {
+            return self.notify_error(ctx, empty_canvas_message(self.mode), None);
         }
         if !self.check_export_ready(ctx) { return; }
         if self.mode == ViewMode::Output && !self.output_ready() {
             self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); return;
         }
-        let Some(dir) = rfd::FileDialog::new().set_title(tr!("Carpeta para un SVG por rotulador")).pick_folder() else {
-            return;
-        };
         let layers = if self.mode == ViewMode::Output { self.output_ui.plan.as_ref().unwrap().layers() } else { self.doc.layers() };
         let files = svg_out::export_per_pen(&self.doc, &layers);
-        let n = files.len();
-        let mut err = None;
-        for (name, content) in files {
-            if let Err(e) = std::fs::write(dir.join(name), content) {
-                err = Some(e);
-            }
+        if files.is_empty() {
+            return self.notify_error(ctx, tr!("El lienzo no tiene trazos que exportar."), None);
         }
-        match err {
-            None => self.notify(ctx, tr!("%{n} archivos SVG exportados", n = n)),
-            Some(e) => self.notify(ctx, tr!("Error al exportar: %{error}", error = e)),
-        }
+        let folder = format!("{} · {}", crate::files::file_stem(&self.project_name(), "Vectorio"), tr!("rotuladores"));
+        self.write_batch(ctx, tr!("Carpeta para un SVG por rotulador"), folder, files);
     }
 
     fn check_export_ready(&mut self, ctx: &egui::Context) -> bool {
@@ -823,13 +1028,7 @@ impl VectorioApp {
             ui.horizontal_centered(|ui| {
                 // Los semáforos son nativos y no siguen el tamaño de la interfaz.
                 ui.add_space(theme::TRAFFIC_LIGHTS_W / ui.ctx().zoom_factor());
-                let title = self
-                    .file
-                    .as_ref()
-                    .and_then(|p| p.file_stem())
-                    .and_then(|s| s.to_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| tr!("Sin título"));
+                let title = self.project_name();
                 let title = if self.modified() { format!("{title} · {}", tr!("Sin guardar")) } else { title };
                 ui.vertical(|ui| {
                     ui.set_max_width(if ctx.screen_rect().width()<1180.{90.}else{180.});
@@ -837,18 +1036,27 @@ impl VectorioApp {
                     ui.label(egui::RichText::new("Vectorio").size(13.5).strong().color(pal.text));
                     ui.add(egui::Label::new(egui::RichText::new(title).size(11.0).color(pal.secondary)).truncate());
                 });
-                ui.add_space(18.0);
+                // Guardar vive junto al nombre del proyecto; Exportar queda para los archivos de salida.
+                let save = ui.add_enabled(self.modified() || self.file.is_none() && self.canvas_has_content(), egui::Button::new(tr!("Guardar")).small())
+                    .on_hover_text(tr!("Guardar proyecto (⌘S) · clic secundario: Guardar como…"))
+                    .on_disabled_hover_text(tr!("No hay cambios sin guardar"));
+                if save.clicked() { self.save(ctx, false); }
+                save.context_menu(|ui| {
+                    if ui.button(tr!("Guardar como… (⇧⌘S)")).clicked() { ui.close_menu(); self.save(ctx, true); }
+                });
+                ui.add_space(14.0);
 
                 if self.mode == ViewMode::Design {
                 capsule(ui, pal, |ui| {
                     for (tool, icon, tip) in [
                         (Tool::Select, Icon::Select, tm!("Seleccionar y mover (V)")),
+                        (Tool::Strokes, Icon::Strokes, tm!("Seleccionar trazos (A)")),
                         (Tool::Draw, Icon::Draw, tm!("Mano alzada (P)")),
                         (Tool::Text, Icon::Text, tm!("Texto manuscrito (T)")),
                         (Tool::Shape, Icon::Shape, tm!("Formas y generativos (S)")),
                     ] {
                         if icon_button(ui, pal, icon, self.tool == tool).on_hover_text(crate::i18n::tr_key(tip)).clicked() {
-                            self.tool = tool;
+                            self.choose_tool(tool);
                         }
                     }
                 });
@@ -863,17 +1071,35 @@ impl VectorioApp {
                             }
                         });
                 }
+                if matches!(self.tool, Tool::Draw | Tool::Text | Tool::Shape) {
+                    if let Some(pen) = self.doc.pens.get(self.active_pen) {
+                        let name = crate::i18n::pen_name(pen);
+                        let color = theme::pen_color(pen.color);
+                        let (dot, response) = ui.allocate_exact_size(Vec2::new(18.0, 28.0), Sense::click());
+                        ui.painter().circle_filled(dot.center(), 6.5, color);
+                        ui.painter().circle_stroke(dot.center(), 7.0, Stroke::new(1.0f32, pal.outline));
+                        let label = tr!("Tinta para dibujar: %{name}", name = name);
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+                        if response.on_hover_text(&label).clicked() { self.pen_focus = true; self.set_selection(vec![]); }
+                        if ctx.screen_rect().width() >= 1180. {
+                            ui.add(egui::Label::new(egui::RichText::new(name).size(11.5).color(pal.secondary)).truncate());
+                        }
+                    }
+                }
                 ui.add_space(6.0);
                 capsule(ui, pal, |ui| {
                     if icon_button(ui, pal, Icon::Image, false).on_hover_text(tr!("Foto → dibujo (I)")).clicked() && self.vec_ui.open_dialog(ctx) {
                         self.mode = ViewMode::Photo;
                     }
-                    if icon_button(ui, pal, Icon::Open, false).on_hover_text(tr!("Abrir proyecto, SVG o imagen (⌘O)")).clicked() {
-                        self.open_dialog(ctx);
-                    }
+                    let open = icon_button(ui, pal, Icon::Open, false).on_hover_text(tr!("Abrir proyecto (⌘O) · clic secundario: importar"));
+                    if open.clicked() { self.open_dialog(ctx); }
+                    open.context_menu(|ui| {
+                        if ui.button(tr!("Importar SVG…")).clicked() { ui.close_menu(); self.import_svg_dialog(ctx); }
+                        if ui.button(tr!("Importar modelo 3D…")).clicked() { ui.close_menu(); self.import_model_dialog(ctx); }
+                    });
                 });
                 } else {
-                    ui.label(egui::RichText::new(if self.mode == ViewMode::Create { tr!("Generadores de dibujo") } else if self.mode == ViewMode::Photo { tr!("Foto → dibujo") } else if self.mode == ViewMode::Volumetric { String::new() } else { tr!("Preparación · %{plotter}", plotter = self.prefs.plotter()) }).color(pal.secondary));
+                    ui.label(egui::RichText::new(if self.mode == ViewMode::Create { tr!("Vista previa pendiente") } else if self.mode == ViewMode::Photo { tr!("Foto → dibujo") } else if self.mode == ViewMode::Volumetric { String::new() } else { tr!("Preparación · %{plotter}", plotter = self.prefs.plotter()) }).color(pal.secondary));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -884,31 +1110,12 @@ impl VectorioApp {
                         ui.memory_mut(|m| m.toggle_popup(popup_id));
                     }
                     egui::popup_below_widget(ui, popup_id, &export, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-                        ui.set_min_width(220.0);
-                        if self.mode == ViewMode::Output && ui.button(tr!("Plan con esperas…")).clicked() {
-                            if self.output_ready() { self.output_ui.export_plan(); }
-                            else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
-                        }
-                        let label = if self.mode == ViewMode::Output { tr!("SVG de la ruta, sin pausas (⌘E)") } else { tr!("SVG para plotter (⌘E)") };
-                        if ui.button(label).clicked() {
-                            self.export_svg(ctx);
-                        }
-                        if ui.button(tr!("Un SVG por rotulador…")).clicked() {
-                            self.export_per_pen(ctx);
-                        }
-                        ui.separator();
-                        if ui.button(tr!("Guardar proyecto (⌘S)")).clicked() {
-                            self.save(ctx, false);
-                        }
-                        if ui.button(tr!("Guardar como… (⇧⌘S)")).clicked() {
-                            self.save(ctx, true);
-                        }
-                        if ui.button(tr!("Nuevo documento (⌘N)")).clicked() {
-                            self.new_document(ctx);
-                        }
+                        ui.set_min_width(240.0);
+                        ui.set_max_width(300.0);
+                        self.export_menu(ui, ctx, pal);
                     });
                     ui.add_space(8.0);
-                    let modes=[(ViewMode::Design,tr!("Diseño")),(ViewMode::Create,tr!("Crear")),(ViewMode::Photo,tr!("Foto")),(ViewMode::Volumetric,tr!("Volumen")),(ViewMode::Output,tr!("Salida"))];
+                    let modes=[(ViewMode::Design,tr!("Diseño")),(ViewMode::Create,tr!("Escenas")),(ViewMode::Photo,tr!("Foto")),(ViewMode::Volumetric,tr!("Modelo 3D")),(ViewMode::Output,tr!("Salida"))];
                     if workspace_selector(ui,pal,&mut self.mode,&modes)&&self.mode==ViewMode::Output&&self.sim.progress<=0.{self.sim.progress=1.;}
                     ui.add_space(8.0);
                     capsule(ui, pal, |ui| {
@@ -928,6 +1135,36 @@ impl VectorioApp {
             });
             });
         });
+    }
+
+    /// Contenido del menú Exportar: cada entrada dice de dónde sale el archivo.
+    fn export_menu(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &Palette) {
+        let note = |ui: &mut egui::Ui, text: String| { ui.add(egui::Label::new(egui::RichText::new(text).small().color(pal.secondary)).wrap()); };
+        if matches!(self.mode, ViewMode::Create | ViewMode::Photo) {
+            note(ui, tr!("Vista previa pendiente: no se exporta hasta que pulses «Añadir al lienzo»."));
+            ui.separator();
+        }
+        let source = self.export_source();
+        match source {
+            ExportSource::Route => {
+                if ui.button(tr!("Plan con pausas…")).on_hover_text(tr!("JSON con la ruta, los cambios de tinta y las esperas de secado")).clicked() {
+                    if self.output_ready() { self.output_ui.export_plan(); }
+                    else { self.notify(ctx, tr!("Espera a que termine el cálculo de la salida.")); }
+                }
+                if ui.button(tr!("SVG de la ruta, sin pausas (⌘E)")).clicked() { self.export_svg(ctx); }
+                if ui.button(tr!("Un SVG por rotulador…")).clicked() { self.export_per_pen(ctx); }
+            }
+            ExportSource::Model => {
+                if ui.button(tr!("SVG del modelo 3D (⌘E)")).clicked() { self.export_svg(ctx); }
+                if ui.button(tr!("Un SVG por rotulador del modelo 3D…")).clicked() { self.export_per_pen(ctx); }
+            }
+            ExportSource::Canvas | ExportSource::Empty => {
+                let enabled = source == ExportSource::Canvas;
+                if ui.add_enabled(enabled, egui::Button::new(tr!("SVG del lienzo (⌘E)"))).clicked() { self.export_svg(ctx); }
+                if ui.add_enabled(enabled, egui::Button::new(tr!("Un SVG por rotulador del lienzo…"))).clicked() { self.export_per_pen(ctx); }
+                if !enabled { note(ui, empty_canvas_message(self.mode)); }
+            }
+        }
     }
 
     fn floating_panels(&mut self, ctx: &egui::Context, pal: &Palette) {
@@ -972,7 +1209,7 @@ impl VectorioApp {
                         let pens = if n == 1 { tr!("1 rotulador") } else { tr!("%{n} rotuladores", n = n) };
                         let info = tr!("Dibujo %{draw} · Viajes %{travel} · %{lifts} subidas · %{pens} · ≈ %{time}",
                             draw = crate::fmt::distance(st.draw_mm), travel = crate::fmt::distance(st.travel_mm), lifts = st.lifts, pens = pens,
-                            time = { let m = (st.seconds / 60.0).round() as u64; if m >= 60 { format!("{} h {:02} min", m / 60, m % 60) } else { format!("{m} min") } });
+                            time = crate::fmt::estimate(st.seconds));
                         ui.label(egui::RichText::new(info).color(pal.secondary));
                         if self.is_computing() {
                             ui.spinner();
@@ -1001,6 +1238,37 @@ impl VectorioApp {
         }
         egui::Area::new(egui::Id::new("help-sheet")).anchor(egui::Align2::CENTER_CENTER, Vec2::new(0.0, theme::TOOLBAR_H / 2.0)).order(egui::Order::Foreground).show(ctx, |ui| {
             theme::glass_sheet(ui, pal, |ui| {
+                if self.help_page == HelpPage::FirstDrawing {
+                    ui.set_max_width(460.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(tr!("Mi primer dibujo")).size(15.0).strong().color(pal.text));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(tr!("Esc para cerrar")).color(pal.secondary));
+                        });
+                    });
+                    ui.add_space(10.0);
+                    let steps = [
+                        tr!("Elige una tinta en TINTAS, a la izquierda. Es la tinta para dibujar."),
+                        tr!("Pulsa Mano alzada (P) y arrastra sobre el papel."),
+                        tr!("Con Seleccionar trazos (A) puedes mover o borrar una línea suelta."),
+                        tr!("Guarda el proyecto con Guardar, junto al nombre, o ⌘S."),
+                        tr!("Exportar escribe el SVG del lienzo. En Salida revisas el recorrido, lo simulas y guardas el plan con pausas."),
+                    ];
+                    for (i, step) in steps.into_iter().enumerate() {
+                        ui.horizontal_top(|ui| {
+                            ui.label(egui::RichText::new(format!("{}", i + 1)).strong().color(pal.accent));
+                            ui.add(egui::Label::new(step).wrap());
+                        });
+                        ui.add_space(4.0);
+                    }
+                    ui.add_space(6.0);
+                    if theme::accent_button(ui, &tr!("Empezar a dibujar")).clicked() {
+                        self.show_help = false;
+                        self.mode = ViewMode::Design;
+                        self.choose_tool(Tool::Draw);
+                    }
+                    return;
+                }
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(tr!("Atajos de teclado")).size(15.0).strong().color(pal.text));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1019,22 +1287,41 @@ impl VectorioApp {
 
     fn toast(&mut self, ctx: &egui::Context, pal: &Palette) {
         let now = ctx.input(|i| i.time);
-        if let Some((msg, until)) = self.toast.clone() {
-            if now > until {
-                self.toast = None;
-                return;
-            }
-            egui::Area::new(egui::Id::new("toast"))
-                .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, theme::TOOLBAR_H + 16.0))
-                .order(egui::Order::Foreground)
-                .interactable(false)
-                .show(ctx, |ui| {
-                    theme::glass_panel_with(ui, pal, theme::PANEL_RADIUS, egui::Margin::symmetric(18.0, 9.0), theme::Material::Capsule, |ui| {
-                        ui.label(msg);
+        let Some(toast) = self.toast.clone() else { return };
+        if toast.until.is_some_and(|until| now > until) {
+            self.toast = None;
+            return;
+        }
+        let mut close = false;
+        let mut act = None;
+        egui::Area::new(egui::Id::new("toast"))
+            .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, theme::TOOLBAR_H + 16.0))
+            .order(egui::Order::Foreground)
+            .interactable(toast.error || toast.action.is_some())
+            .show(ctx, |ui| {
+                theme::glass_panel_with(ui, pal, theme::PANEL_RADIUS, egui::Margin::symmetric(18.0, 9.0), theme::Material::Capsule, |ui| {
+                    ui.set_max_width((ctx.screen_rect().width() - 80.0).clamp(200.0, 620.0));
+                    ui.horizontal(|ui| {
+                        if toast.error {
+                            ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(210, 60, 50)));
+                        }
+                        ui.add(egui::Label::new(&toast.msg).wrap());
+                        match &toast.action {
+                            Some(ToastAction::Reveal(_)) => if ui.button(tr!("Mostrar en Finder")).clicked() { act = toast.action.clone(); },
+                            Some(ToastAction::SaveAs) => if ui.button(tr!("Elegir ubicación…")).clicked() { act = toast.action.clone(); },
+                            None => {}
+                        }
+                        if toast.error && ui.button(tr!("Cerrar")).clicked() { close = true; }
                     });
                 });
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            });
+        match act {
+            Some(ToastAction::Reveal(path)) => { reveal(&path); self.toast = None; }
+            Some(ToastAction::SaveAs) => { self.toast = None; self.save(ctx, true); }
+            None if close => self.toast = None,
+            None => {}
         }
+        if toast.until.is_some() { ctx.request_repaint_after(std::time::Duration::from_millis(250)); }
     }
 }
 
@@ -1052,7 +1339,7 @@ impl eframe::App for VectorioApp {
         // El botón rojo oculta la ventana igual que ⌘W; ⌘Q sale del programa.
         if cfg!(target_os = "macos") && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            crate::macos::close_window(ctx);
+            if self.awaiting_document_change() { self.cancel_document_change(); } else { crate::macos::close_window(ctx); }
         }
         if !cfg!(target_os = "macos") && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1078,7 +1365,11 @@ impl eframe::App for VectorioApp {
             self.floating_panels(ctx, &pal);
             self.status_bar(ctx, &pal);
         }
-        if let Some(error) = self.vec_ui.take_load_error() { self.notify(ctx, error); }
+        if let Some(error) = self.vec_ui.take_load_error() { self.notify_error(ctx, error, None); }
+        if std::mem::take(&mut self.pick_import) { self.import_dialog(ctx); }
+        if std::mem::take(&mut self.notify_tool_return) {
+            self.notify(ctx, tr!("Forma añadida. Vuelves a Seleccionar para ajustarla; pulsa S para otra."));
+        }
         if self.show_help {
             self.help_sheet(ctx, &pal);
         }
@@ -1087,6 +1378,7 @@ impl eframe::App for VectorioApp {
         self.show_color_panel(ctx);
         crate::palette_ui::show(self, ctx);
         crate::machine_ui::pen_dialog(self, ctx);
+        self.unsaved_sheet(ctx, &pal);
         self.toast(ctx, &pal);
         theme::restyle_controls(ctx);
         self.update_traces(ctx);
@@ -1100,6 +1392,7 @@ impl eframe::App for VectorioApp {
 #[derive(Clone, Copy)]
 pub enum Icon {
     Select,
+    Strokes,
     Draw,
     Text,
     Shape,
@@ -1134,6 +1427,10 @@ pub fn segmented<R>(ui: &mut egui::Ui, pal: &Palette, add: impl FnOnce(&mut egui
         .inner
 }
 
+fn mode_key(mode: ViewMode) -> u8 {
+    match mode { ViewMode::Design => 0, ViewMode::Create => 1, ViewMode::Photo => 2, ViewMode::Volumetric => 3, ViewMode::Output => 4 }
+}
+
 /// El pomo usa una identidad estable aunque cambien las herramientas del espacio.
 fn workspace_selector(
     ui: &mut egui::Ui,
@@ -1146,13 +1443,18 @@ fn workspace_selector(
     let font = egui::FontId::proportional(if compact { 11.5 } else { 12.5 });
     let padding = if compact { 16. } else { 22. };
     capsule(ui, pal, |ui| {
+        // Se reserva el ancho entero y se reparten los segmentos de izquierda a derecha, para
+        // que el orden de lectura y de tabulación coincida con el visual aunque la barra se
+        // construya de derecha a izquierda.
+        let widths: Vec<f32> = options.iter().map(|(_, label)| ui.painter().layout_no_wrap(label.clone(), font.clone(), pal.text).size().x + padding).collect();
+        let total = widths.iter().sum::<f32>() + ui.spacing().item_spacing.x * (widths.len().saturating_sub(1)) as f32;
+        let (whole, _) = ui.allocate_exact_size(egui::vec2(total, 28.), Sense::hover());
         let mut segments = Vec::new();
-        for (mode, label) in options.iter().rev() {
-            let galley = ui
-                .painter()
-                .layout_no_wrap(label.clone(), font.clone(), pal.text);
-            let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(galley.size().x + padding, 28.), Sense::click());
+        let mut x = whole.left();
+        for ((mode, label), width) in options.iter().zip(widths) {
+            let rect = Rect::from_min_size(egui::pos2(x, whole.top()), egui::vec2(width, 28.));
+            x += width + ui.spacing().item_spacing.x;
+            let response = ui.interact(rect, egui::Id::new("workspace-segment").with(mode_key(*mode)), Sense::click());
             if response.clicked() {
                 *value = *mode;
             }
@@ -1291,6 +1593,7 @@ pub fn icon_button_state(ui: &mut egui::Ui, pal: &Palette, icon: Icon, selected:
     };
     paint_icon(ui.painter(), rect.center(), icon, Stroke::new(1.5f32, color));
     let (label, toggle) = match icon {
+        Icon::Strokes => (ts!("Seleccionar trazos (A)"), true),
         Icon::Select => (ts!("Seleccionar y mover (V)"), true),
         Icon::Draw => (ts!("Mano alzada (P)"), true),
         Icon::Text => (ts!("Texto manuscrito (T)"), true),
@@ -1317,6 +1620,11 @@ fn paint_icon(painter: &egui::Painter, c: Pos2, icon: Icon, s: Stroke) {
         }
     };
     match icon {
+        Icon::Strokes => {
+            let points = [pt(-7.0, 4.0), pt(-1.0, -4.0), pt(6.5, 1.5)];
+            painter.add(egui::Shape::line(points.to_vec(), s));
+            for point in points { painter.circle_filled(point, 2.0, s.color); }
+        }
         Icon::Select => {
             painter.add(poly(vec![pt(-4.0, -7.5), pt(-4.0, 6.0), pt(-0.8, 2.8), pt(1.8, 8.0), pt(4.0, 7.0), pt(1.4, 1.9), pt(5.5, 1.9)], true));
         }
@@ -1491,6 +1799,54 @@ mod document_session_tests {
     }
 
     #[test]
+    fn repeated_new_or_quit_waits_for_one_decision_and_escape_keeps_the_document() {
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        app.doc.paper.margin_mm += 1.0;
+        let before = app.doc.clone();
+        let input = egui::RawInput { events: vec![egui::Event::Key {
+            key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE,
+        }], ..Default::default() };
+        let _ = ctx.run(input, |ctx| {
+            app.new_document(ctx);
+            app.request_quit(ctx);
+            assert!(matches!(app.pending_change, Some(DocumentChange::New)));
+            app.run(ctx, commands::Command::Delete);
+            app.unsaved_sheet(ctx, &theme::current(ctx));
+            app.shortcuts(ctx);
+        });
+        assert!(app.pending_change.is_none());
+        assert!(!app.quitting && app.modified());
+        assert_eq!(app.doc, before);
+    }
+
+    #[test]
+    fn deleting_multiple_strokes_preserves_locked_and_hidden_objects_and_undo_redo() {
+        use crate::strokes::StrokeId;
+        let ctx = egui::Context::default();
+        let mut app = VectorioApp::blank(&ctx);
+        let lines = vec![vec![vectorio_core::p(0.,0.),vectorio_core::p(10.,0.)], vec![vectorio_core::p(0.,5.),vectorio_core::p(10.,5.)]];
+        for _ in 0..3 { app.doc.add(Item::new("Capa", Geometry::Path { lines: lines.clone(), closed: false }, P::default())); }
+        app.doc.items[1].locked = true;
+        app.doc.items[2].visible = false;
+        app.track_changes(&ctx);
+        let before = app.doc.clone();
+        app.choose_tool(Tool::Strokes);
+        app.stroke_selection.select_all(&app.doc);
+        assert_eq!(app.stroke_selection.ids.len(), 2);
+        app.stroke_selection.pick(Some(StrokeId(app.doc.items[0].id, 1)), true);
+        app.run(&ctx, commands::Command::Delete);
+        app.track_changes(&ctx);
+        let after = app.doc.clone();
+        assert_eq!(after.items[0].local_lines().0, vec![lines[1].clone()]);
+        assert_eq!(&before.items[1..], &after.items[1..]);
+        app.undo();
+        assert_eq!(app.doc, before);
+        app.redo();
+        assert_eq!(app.doc, after);
+    }
+
+    #[test]
     fn only_a_successful_save_clears_the_modified_state() {
         let ctx = egui::Context::default();
         let mut app = VectorioApp::blank(&ctx);
@@ -1605,7 +1961,7 @@ mod compact_workspace_tests{
             for mode in [ViewMode::Design,ViewMode::Create,ViewMode::Photo,ViewMode::Volumetric,ViewMode::Output]{
                 let ctx=egui::Context::default();let mut app=VectorioApp::blank(&ctx);app.mode=mode;app.tool=Tool::Shape;let mut output=None;
                 for frame in 0..3{output=Some(ctx.run(egui::RawInput{time:Some(frame as f64),screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(980.,620.))),..Default::default()},|ctx|app.toolbar(ctx,&theme::current(ctx))));}
-                for label in [tr!("Diseño"),tr!("Crear"),tr!("Foto"),tr!("Volumen"),tr!("Salida"),tr!("Exportar")]{
+                for label in [tr!("Diseño"),tr!("Escenas"),tr!("Foto"),tr!("Modelo 3D"),tr!("Salida"),tr!("Exportar")]{
                     let rect=output.as_ref().unwrap().shapes.iter().find_map(|s|if let egui::Shape::Text(t)=&s.shape{(t.galley.text()==label).then_some(Rect::from_min_size(t.pos,t.galley.size()))}else{None}).unwrap_or_else(||panic!("Falta {label} ({lang}, {mode:?})"));
                     assert!(rect.left()>=0.&&rect.right()<=980.,"{label}: {rect:?} ({lang},{mode:?})");
                 }

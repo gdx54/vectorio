@@ -23,6 +23,8 @@ JSON file that generates **Output → Save plan with wait...**. It describes the
 |`stats`|Total of the plan: `draw_mm`, `travel_mm`, `draw_seconds`, `travel_seconds`, `lift_seconds`, `wait_seconds`, `change_seconds`, `waits`, `pen_changes`, `strokes`, `total_seconds`, `outside_points`|
 |`baseline_stats`|The same total of drawing without drying protection, for comparison|
 
+Times follow the machine's own motion planner, with the acceleration, cornering and maximum speed from the machine settings (the defaults when exported without them). The pen goes up before each travel and down before each stroke, unless a stroke starts where the previous one ended: each movement costs `lift_time` and counts in `lift_seconds`. A `draw` step includes lowering the pen; a `travel` step includes raising it.
+
 ## Actions in `steps`
 
 Each carries `action`, `start_s` and `end_s`. The actions are consecutive: the end of one is the beginning of the next.

@@ -96,20 +96,31 @@ pub struct Stats {
 }
 
 /// Estimación de tiempo y recorridos. Cada plumilla empieza y termina en el origen.
-pub fn stats(layers: &[PlotLayer], s: &PlotSettings) -> Stats {
+pub fn stats(layers: &[PlotLayer], s: &PlotSettings) -> Stats { stats_for(layers, s, &crate::output::Dynamics::default()) }
+
+/// Como `stats`, con los tiempos de esta máquina: acelera, frena en las esquinas y sube y
+/// baja la pluma en cada trazo que no empieza donde acabó el anterior.
+pub fn stats_for(layers: &[PlotLayer], s: &PlotSettings, dynamics: &crate::output::Dynamics) -> Stats {
+    let motion = PlotSettings { draw_speed: s.draw_speed.max(1.0), travel_speed: s.travel_speed.max(1.0), ..s.clone() };
+    let timing = crate::output::Timing::new(&motion, dynamics);
     let mut st = Stats::default();
     for layer in layers {
-        let mut cur = P::default();
+        let (mut cur, mut pen_up) = (P::default(), true);
         for l in &layer.paths {
+            if l.is_empty() { continue; }
             st.travel_mm += cur.dist(l[0]);
             st.draw_mm += length(l);
             st.lifts += 1;
+            let hop = timing.hop(cur, l[0]);
+            if hop > 0.0 && !pen_up { st.seconds += timing.lift; pen_up = true; }
+            if pen_up { st.seconds += timing.lift; pen_up = false; }
+            st.seconds += hop + timing.draw(l);
             cur = l[l.len() - 1];
         }
         st.travel_mm += cur.dist(P::default());
+        st.seconds += timing.hop(cur, P::default()) + if pen_up { 0.0 } else { timing.lift };
     }
     st.pen_changes = layers.len().saturating_sub(1);
-    st.seconds = st.draw_mm / s.draw_speed.max(1.0) + st.travel_mm / s.travel_speed.max(1.0) + st.lifts as f64 * s.lift_time;
     st
 }
 
