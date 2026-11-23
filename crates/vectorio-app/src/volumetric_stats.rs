@@ -198,13 +198,13 @@ pub(super) fn footer(
                         place = theme::accent_button(
                             ui,
                             &if state.editing() {
-                                tr!("Actualizar objeto 3D")
+                                tr!("Actualizar en el lienzo")
                             } else {
-                                tr!("Colocar en el lienzo")
+                                tr!("Añadir al lienzo")
                             },
                         )
                         .clicked();
-                        export = ui.button(tr!("Exportar SVG")).clicked();
+                        export = ui.button(tr!("Exportar SVG del modelo")).clicked();
                     });
                 });
             });

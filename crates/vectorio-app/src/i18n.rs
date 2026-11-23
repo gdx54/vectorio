@@ -173,9 +173,9 @@ mod tests {
         let _lock = super::locale_lock();
         rust_i18n::set_locale("en");
         assert_eq!(tr!("Texto que nadie ha traducido"), "Texto que nadie ha traducido");
-        assert_eq!(tr!("Plan guardado en %{ruta}", ruta = "/a"), "Plan saved to /a");
+        assert_eq!(tr!("Tinta para dibujar: %{name}", name = "Rojo"), "Drawing pen: Rojo");
         rust_i18n::set_locale("es");
-        assert_eq!(tr!("Plan guardado en %{ruta}", ruta = "/a"), "Plan guardado en /a");
+        assert_eq!(tr!("Tinta para dibujar: %{name}", name = "Rojo"), "Tinta para dibujar: Rojo");
     }
 
     #[test]

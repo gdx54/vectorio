@@ -18,6 +18,14 @@ pub fn duration(seconds: f64) -> String {
     else { format!("{s} s") }
 }
 
+/// Estimación redondeada para leer de un vistazo, con segundos en trabajos cortos:
+/// «8 s», «2 min 10 s», «12 min», «1 h 05 min». Diseño y Salida usan la misma.
+pub fn estimate(seconds: f64) -> String {
+    let s = seconds.ceil().max(0.0) as u64;
+    if s < 600 { duration(s as f64) }
+    else { let m = (seconds / 60.0).round() as u64; if m >= 60 { format!("{} h {:02} min", m / 60, m % 60) } else { format!("{m} min") } }
+}
+
 pub fn distance(mm: f64) -> String {
     if mm >= 1000.0 { format!("{} m", decimal(mm / 1000.0, 1)) } else { format!("{mm:.0} mm") }
 }

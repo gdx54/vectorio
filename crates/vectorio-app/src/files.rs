@@ -29,6 +29,37 @@ fn atomic_write_with(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()
     Ok(())
 }
 
+/// Nombre de archivo legible derivado del proyecto: sin separadores ni caracteres reservados.
+pub fn file_stem(name: &str, fallback: &str) -> String {
+    let clean: String = name.chars().filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control()).collect();
+    let clean = clean.trim().trim_start_matches('.').chars().take(80).collect::<String>();
+    if clean.is_empty() { fallback.to_owned() } else { clean }
+}
+
+/// Escribe un lote en una carpeta nueva dentro de `parent` («nombre», «nombre 2»…). Nunca
+/// sustituye archivos existentes; si una escritura falla se retira la carpeta entera, de modo
+/// que no queda un lote a medias.
+pub fn write_batch(parent: &Path, folder: &str, files: &[(String, Vec<u8>)]) -> io::Result<std::path::PathBuf> {
+    let mut n = 1;
+    let dir = loop {
+        let name = if n == 1 { folder.to_owned() } else { format!("{folder} {n}") };
+        let candidate = parent.join(name);
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => break candidate,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && n < 999 => n += 1,
+            Err(error) => return Err(error),
+        }
+    };
+    for (name, data) in files {
+        let result = File::create_new(dir.join(name)).and_then(|mut f| { f.write_all(data)?; f.sync_all() });
+        if let Err(error) = result {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(error);
+        }
+    }
+    Ok(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +100,33 @@ mod tests {
         assert!(atomic_write(&path, b"nuevo").is_err());
         assert_eq!(std::fs::read(path.join("conservar")).unwrap(), b"datos");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn batches_go_to_a_new_folder_and_never_replace_previous_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = vec![("a.svg".to_owned(), b"uno".to_vec()), ("b.svg".to_owned(), b"dos".to_vec())];
+        let first = write_batch(dir.path(), "Retrato", &files).unwrap();
+        std::fs::write(first.join("a.svg"), b"retocado").unwrap();
+        let second = write_batch(dir.path(), "Retrato", &files).unwrap();
+        assert_eq!(first.file_name().unwrap(), "Retrato");
+        assert_eq!(second.file_name().unwrap(), "Retrato 2");
+        assert_eq!(std::fs::read(first.join("a.svg")).unwrap(), b"retocado");
+        assert_eq!(std::fs::read(second.join("b.svg")).unwrap(), b"dos");
+    }
+
+    #[test]
+    fn a_failed_batch_leaves_no_partial_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = vec![("a.svg".to_owned(), b"uno".to_vec()), ("a.svg".to_owned(), b"repetido".to_vec())];
+        assert!(write_batch(dir.path(), "Lote", &files).is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn suggested_names_come_from_the_project_without_path_separators() {
+        assert_eq!(file_stem("Mapa: norte/sur", "Sin título"), "Mapa nortesur");
+        assert_eq!(file_stem("  ", "Sin título"), "Sin título");
+        assert_eq!(file_stem(".oculto", "x"), "oculto");
     }
 }

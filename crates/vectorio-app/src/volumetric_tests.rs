@@ -157,7 +157,7 @@ fn small_large_windows_and_both_languages_keep_actions_visible() {
                     let mut found = false;
                     for clipped in &output.shapes {
                         if let egui::Shape::Text(text) = &clipped.shape {
-                            if text.galley.text() == tr!("Colocar en el lienzo") {
+                            if text.galley.text() == tr!("Añadir al lienzo") {
                                 let bounds = Rect::from_min_size(text.pos, text.galley.size());
                                 assert!(
                                     bounds.top() >= theme::TOOLBAR_H && bounds.bottom() <= height
@@ -933,8 +933,8 @@ fn tonal_styles_keep_masks_and_output_actions_accessible_in_both_layouts_and_lan
                 }
                 for text in [
                     tr!("Máscara tonal"),
-                    tr!("Colocar en el lienzo"),
-                    tr!("Exportar SVG"),
+                    tr!("Añadir al lienzo"),
+                    tr!("Exportar SVG del modelo"),
                 ] {
                     let (_, bounds) = labels
                         .iter()
@@ -1074,7 +1074,7 @@ fn reading_controls_and_output_actions_fit_both_languages_and_window_sizes() {
                     ));
                 }
                 let output = output.unwrap();
-                for text in [tr!("Colocar en el lienzo"), tr!("Exportar SVG")] {
+                for text in [tr!("Añadir al lienzo"), tr!("Exportar SVG del modelo")] {
                     let bounds = output
                         .shapes
                         .iter()
@@ -1289,7 +1289,7 @@ fn artistic_finishing_controls_and_actions_fit_both_layouts_and_languages() {
                     ));
                 }
                 let output = output.unwrap();
-                for text in [tr!("Colocar en el lienzo"), tr!("Exportar SVG")] {
+                for text in [tr!("Añadir al lienzo"), tr!("Exportar SVG del modelo")] {
                     let bounds = output
                         .shapes
                         .iter()
